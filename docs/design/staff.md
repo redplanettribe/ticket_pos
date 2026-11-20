@@ -116,6 +116,8 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - A trend reading is drawn with the shared charts and the shared `TrendTile` (#820), never with a chart forked for one page.
 - **Comparison span**: a thin, dashed, half-transparent line over the chart's own series, aligned bucket to bucket.
   Where the comparison has no data the line has a gap, never a zero.
+- **Before the data began**: a figure's own buckets before its first day of data are a gap too, on a line, on a stack and on a tile's trend line, and their hover card says they were not recorded (#842).
+  From that day on a bucket with nothing in it is a zero.
 - **Partial bucket** (today): on a line, a dashed stretch ending in a ring; on bars, a faint bar in a dashed outline.
   The hover card says it is partial before any figure.
 - **Recording-began marker**: a dashed vertical mark with its label written toward the middle of the chart.

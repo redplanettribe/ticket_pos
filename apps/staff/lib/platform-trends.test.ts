@@ -30,6 +30,7 @@ import {
   trendChartYMax,
   type PlatformTrendActivityFigure,
   type PlatformTrendBucket,
+  type PlatformTrendDays,
   type PlatformTrendFigure,
   type PlatformTrendSeries,
   type PlatformTrends,
@@ -226,11 +227,13 @@ function bucket(day: string, value: number, partial = false): PlatformTrendBucke
   return { first_day: day, last_day: day, value, partial };
 }
 
-function series(key: string, values: number[], extra: Partial<PlatformTrendSeries> = {}): PlatformTrendSeries {
+/** A series' buckets from 2026-07-01 on, a null value standing for a bucket
+ * before the figure's data began. */
+function series(key: string, values: (number | null)[], extra: Partial<PlatformTrendSeries> = {}): PlatformTrendSeries {
   return {
     key,
-    total: values.reduce((sum, value) => sum + value, 0),
-    buckets: values.map((value, index) => bucket(`2026-07-0${index + 1}`, value)),
+    total: values.reduce<number>((sum, value) => sum + (value ?? 0), 0),
+    buckets: values.map((value, index) => (value === null ? null : bucket(`2026-07-0${index + 1}`, value))),
     today: null,
     comparison_total: null,
     change: null,
@@ -252,7 +255,12 @@ function figure(all: PlatformTrendSeries[], extra: Partial<PlatformTrendFigure> 
   };
 }
 
-const label = (entry: PlatformTrendBucket) => entry.first_day;
+/** The span's buckets: `length` days from 2026-07-01. */
+function spanOf(length: number): PlatformTrendDays[] {
+  return Array.from({ length }, (_, index) => ({ first_day: `2026-07-0${index + 1}`, last_day: `2026-07-0${index + 1}` }));
+}
+
+const label = (entry: PlatformTrendDays) => entry.first_day;
 
 test("a series becomes one bucket per bucket, with its comparison beside it", () => {
   const data = seriesChartData(
@@ -261,6 +269,7 @@ test("a series becomes one bucket per bucket, with its comparison beside it", ()
         comparison_buckets: [null, bucket("2026-06-02", 0), bucket("2026-06-03", 9)],
       }),
     ],
+    spanOf(3),
     label,
   );
   assert.deepEqual(
@@ -274,8 +283,39 @@ test("a series becomes one bucket per bucket, with its comparison beside it", ()
   assert.ok(data.every((datum) => datum.partial !== true));
 });
 
+test("a count bucket before the data began is a gap, never a zero (#842)", () => {
+  // The span's buckets name the days: a null bucket has none of its own.
+  const data = seriesChartData([series("all", [null, null, 0, 5])], spanOf(4), label);
+  assert.deepEqual(
+    data.map((datum) => [datum.key, datum.label, datum.firstDay, datum.values.all]),
+    [
+      ["2026-07-01", "2026-07-01", "2026-07-01", null],
+      ["2026-07-02", "2026-07-02", "2026-07-02", null],
+      // Counted, and nothing happened: still a zero.
+      ["2026-07-03", "2026-07-03", "2026-07-03", 0],
+      ["2026-07-04", "2026-07-04", "2026-07-04", 5],
+    ],
+  );
+});
+
+test("every series of a figure is a gap before the data began", () => {
+  const data = seriesChartData([series("online", [null, 2]), series("import", [null, 0])], spanOf(2), label);
+  assert.deepEqual(data[0]!.values, { online: null, import: null });
+  assert.deepEqual(data[1]!.values, { online: 2, import: 0 });
+});
+
+test("a week holding the first day of data is named by the whole week", () => {
+  const week = { first_day: "2026-06-30", last_day: "2026-07-06" };
+  const cut = { first_day: "2026-07-02", last_day: "2026-07-06", value: 4, partial: false };
+  const data = seriesChartData([series("all", [], { buckets: [cut], comparison_buckets: [null] })], [week], label);
+  assert.deepEqual(
+    data.map((datum) => [datum.key, datum.firstDay, datum.lastDay, datum.values.all]),
+    [["2026-06-30", "2026-06-30", "2026-07-06", 4]],
+  );
+});
+
 test("today is the last bucket, marked partial, with no comparison", () => {
-  const data = seriesChartData([series("all", [4, 5], { today: bucket("2026-07-03", 2, true) })], label);
+  const data = seriesChartData([series("all", [4, 5], { today: bucket("2026-07-03", 2, true) })], spanOf(2), label);
   const today = data.at(-1)!;
   assert.equal(data.length, 3);
   assert.equal(today.key, "2026-07-03");
@@ -285,7 +325,7 @@ test("today is the last bucket, marked partial, with no comparison", () => {
 });
 
 test("a custom range that ends before yesterday has no today", () => {
-  const data = seriesChartData([series("all", [4, 5])], label);
+  const data = seriesChartData([series("all", [4, 5])], spanOf(2), label);
   assert.equal(data.length, 2);
 });
 
@@ -301,6 +341,7 @@ test("a stack carries each Sales Channel, its height, and the comparison's heigh
         today: bucket("2026-07-03", 4, true),
       }),
     ],
+    spanOf(2),
     label,
   );
   assert.deepEqual(data[0]!.values, { online: 3, in_person: 2 });
@@ -310,6 +351,22 @@ test("a stack carries each Sales Channel, its height, and the comparison's heigh
   assert.equal(data[1]!.comparison?.[STACK_COMPARISON_ID], 7);
   assert.equal(data[2]!.partial, true);
   assert.equal(data[2]!.total, 5);
+});
+
+test("a stack before the data began is a gap: no part and no height, never a zero", () => {
+  const data = stackedChartData(
+    [series("online", [null, 2, 0]), series("in_person", [null, 0, 0])],
+    spanOf(3),
+    label,
+  );
+  assert.deepEqual(data[0]!.values, { online: null, in_person: null });
+  assert.equal(data[0]!.total, null);
+  assert.equal(data[0]!.comparison?.[STACK_COMPARISON_ID], null);
+  assert.deepEqual(data[1]!.values, { online: 2, in_person: 0 });
+  assert.equal(data[1]!.total, 2);
+  // Counted, and nothing sold on any Sales Channel: a stack of zero.
+  assert.equal(data[2]!.total, 0);
+  assert.equal(trendChartYMax(data), 2);
 });
 
 test("an activity figure is drawn on the span's buckets, a bucket with no figure as a gap", () => {
@@ -334,8 +391,12 @@ test("an activity figure is drawn on the span's buckets, a bucket with no figure
   assert.ok(data.every((datum) => datum.partial !== true));
 });
 
-test("the span's buckets are read from a figure that always states them", () => {
-  const trends = { figures: { page_views: figure([series("all", [1, 2])]) } } as unknown as PlatformTrends;
+test("the span's buckets are the span's own, whatever any figure states", () => {
+  const trends = {
+    span: { preset: "custom", first_day: "2026-07-01", last_day: "2026-07-02", buckets: spanOf(2) },
+    // Page Views began after the span did: its buckets name no days.
+    figures: { page_views: figure([series("all", [null, null])], { data_since: null }) },
+  } as unknown as PlatformTrends;
   assert.deepEqual(
     spanBuckets(trends).map((entry) => entry.first_day),
     ["2026-07-01", "2026-07-02"],
@@ -403,14 +464,15 @@ test("with no change stated there is nothing for the sales-only comparison note 
 test("the axis makes room for the comparison and for the stack", () => {
   const lines = seriesChartData(
     [series("all", [4, 3], { comparison_buckets: [bucket("2026-06-01", 18), null] })],
+    spanOf(2),
     label,
   );
   assert.equal(trendChartYMax(lines), 18);
-  const stack = stackedChartData([series("online", [30, 1]), series("import", [40, 1])], label);
+  const stack = stackedChartData([series("online", [30, 1]), series("import", [40, 1])], spanOf(2), label);
   assert.equal(trendChartYMax(stack), 70);
   // Tickets Sold reads the height of the whole stack: 1,014 across its Sales
   // Channels tops the axis at 1,200, not the 2,000 the old ladder gave (#836).
-  const busy = stackedChartData([series("online", [900]), series("import", [114])], label);
+  const busy = stackedChartData([series("online", [900]), series("import", [114])], spanOf(1), label);
   assert.equal(trendChartYMax(busy), 1_200);
   assert.equal(trendChartYMax([]), 1);
 });
@@ -603,6 +665,13 @@ test("Tickets Sold draws the height of its stack and states each Sales Channel b
     { id: "online", value: "#4" },
     { id: "in_person", value: "#2" },
   ]);
+});
+
+test("a tile's line is a gap before the data began, never a zero (#842)", () => {
+  const counted = countTile(figure([series("online", [null, 3, 0]), series("in_person", [null, 2, 0])]), COMPARED, count);
+  assert.deepEqual(counted.readings[0]!.trend, [null, 5, 0]);
+  const money = moneyTile(figure([series("USD", [null, 1000])], { total: null }), COMPARED, String);
+  assert.deepEqual(money.readings[0]!.trend, [null, 1000]);
 });
 
 test("a figure that is not recorded says so, with no change and no line", () => {

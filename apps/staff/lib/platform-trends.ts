@@ -40,7 +40,12 @@ export type PlatformTrendSeries = {
   key: string;
   /** The series' total for the span, today excluded. */
   total: number;
-  buckets: PlatformTrendBucket[];
+  /**
+   * One entry per bucket of the span, null where the bucket lies wholly
+   * before the figure's data_since: nothing was counted there, which is not
+   * a zero. A bucket holding data_since starts on it.
+   */
+  buckets: (PlatformTrendBucket | null)[];
   /** Today, in no total. Null when the span ends before yesterday. */
   today: PlatformTrendBucket | null;
   comparison_total: number | null;
@@ -94,7 +99,9 @@ export type PlatformTrendDays = { first_day: string; last_day: string };
 export type PlatformTrends = {
   /** The platform clock every day here is read on. */
   timezone: string;
-  span: PlatformTrendDays & { preset: PlatformTrendSpan };
+  /** The span, and the days of each of its buckets: one entry per entry of
+   * every figure's buckets, whose own entries may be null and name no day. */
+  span: PlatformTrendDays & { preset: PlatformTrendSpan; buckets: PlatformTrendDays[] };
   comparison: PlatformTrendDays & { kind: PlatformTrendComparison };
   granularity: PlatformTrendGranularity;
   today: string;
@@ -345,10 +352,11 @@ export type TrendChartDatum = {
   comparison?: Record<string, number | null>;
 };
 
-/** A bucket of a stacked chart: every value a number, and the stack's height. */
+/** A bucket of a stacked chart: every value a number, and the stack's height,
+ * or, before the figure's data began, every value and the height null. */
 export type TrendStackDatum = TrendChartDatum & {
-  values: Record<string, number>;
-  total: number;
+  values: Record<string, number | null>;
+  total: number | null;
 };
 
 /** The id of the comparison line drawn for the series `key`. */
@@ -361,24 +369,30 @@ export function comparisonSeriesId(key: string): string {
 export const STACK_COMPARISON_ID = "comparison:stack";
 
 /** How the section names a bucket on the axis and in the hover card. */
-export type BucketLabel = (bucket: PlatformTrendBucket) => string;
+export type BucketLabel = (bucket: PlatformTrendDays) => string;
 
 /**
  * seriesChartData turns series into line chart buckets: each series' value in
  * each bucket, its comparison bucket's value beside it under
  * `comparisonSeriesId`, and today, where the response carries it, as a last
- * bucket marked partial with no comparison. A null comparison bucket stays
- * null, which the chart draws as a gap.
+ * bucket marked partial with no comparison. A null bucket, before the
+ * figure's data began, and a null comparison bucket stay null, which the
+ * chart draws as a gap and never as a zero.
  *
- * The buckets are the first series': every series of a figure states the same
- * ones.
+ * The buckets are the span's (`spanBuckets`): a null bucket names no days of
+ * its own, and a bucket holding the first day of data names only the days
+ * from it, while the chart draws the whole bucket.
  */
-export function seriesChartData(series: readonly PlatformTrendSeries[], label: BucketLabel): TrendChartDatum[] {
+export function seriesChartData(
+  series: readonly PlatformTrendSeries[],
+  span: readonly PlatformTrendDays[],
+  label: BucketLabel,
+): TrendChartDatum[] {
   const reference = series[0];
   if (reference === undefined) {
     return [];
   }
-  const data: TrendChartDatum[] = reference.buckets.map((bucket, index) => ({
+  const data: TrendChartDatum[] = span.map((bucket, index) => ({
     key: bucket.first_day,
     label: label(bucket),
     firstDay: bucket.first_day,
@@ -407,16 +421,26 @@ export function seriesChartData(series: readonly PlatformTrendSeries[], label: B
  * (Tickets Sold by Sales Channel): the same buckets, with the height of the
  * stack beside the values, and one comparison value, the height of the
  * comparison span's stack. That height is a gap where the comparison has no
- * data in any series, and never a zero.
+ * data in any series, and never a zero. So is the stack's own: a bucket
+ * before the figure's data began has no part and no height. The figure's
+ * data begins on one day for every series, so a bucket is null in all of
+ * them or in none.
  */
-export function stackedChartData(series: readonly PlatformTrendSeries[], label: BucketLabel): TrendStackDatum[] {
-  return seriesChartData(series, label).map((datum) => {
-    const values = Object.fromEntries(series.map((entry) => [entry.key, datum.values[entry.key] ?? 0]));
+export function stackedChartData(
+  series: readonly PlatformTrendSeries[],
+  span: readonly PlatformTrendDays[],
+  label: BucketLabel,
+): TrendStackDatum[] {
+  return seriesChartData(series, span, label).map((datum) => {
+    const counted = Object.values(datum.values).some((value) => value !== null);
+    const values = Object.fromEntries(
+      series.map((entry) => [entry.key, counted ? (datum.values[entry.key] ?? 0) : null]),
+    );
     const compared = Object.values(datum.comparison ?? {}).filter((value) => value !== null);
     return {
       ...datum,
       values,
-      total: Object.values(values).reduce((sum, value) => sum + value, 0),
+      total: counted ? Object.values(values).reduce<number>((sum, value) => sum + (value ?? 0), 0) : null,
       comparison:
         datum.comparison === undefined
           ? undefined
@@ -428,13 +452,13 @@ export function stackedChartData(series: readonly PlatformTrendSeries[], label: 
 }
 
 /**
- * The buckets of the span, which an activity figure is drawn on. An activity
- * figure states one entry per bucket of the span and null where it has no
- * frozen day, so a null entry has no days of its own; Page Views is one
- * series that is always present and always states every bucket.
+ * The buckets of the span, which every chart is drawn on. A figure states one
+ * entry per bucket of the span and null where it has no data (an activity
+ * figure where no day is frozen, a count figure before its data began), so a
+ * null entry has no days of its own; the span states them all.
  */
-export function spanBuckets(trends: PlatformTrends): PlatformTrendBucket[] {
-  return trends.figures.page_views.series[0]?.buckets ?? [];
+export function spanBuckets(trends: PlatformTrends): PlatformTrendDays[] {
+  return trends.span.buckets;
 }
 
 /**
@@ -466,13 +490,13 @@ export const ACTIVITY_SERIES_ID = "all";
  */
 export function activityChartData(
   figure: PlatformTrendActivityFigure,
-  span: readonly PlatformTrendBucket[],
+  span: readonly PlatformTrendDays[],
   label: BucketLabel,
 ): TrendChartDatum[] {
   return figure.buckets.map((bucket, index) => {
     // The span's bucket names the whole bucket. Without one (the two lists
     // should never differ in length) the figure's own frozen days stand in.
-    const whole = span[index] ?? (bucket === null ? null : { ...bucket, partial: false });
+    const whole = span[index] ?? bucket;
     const key = whole?.first_day ?? String(index);
     return {
       key,
@@ -554,7 +578,7 @@ export function comparisonReachesSalesOnly(
  * comparison value, or the height of a stack, so neither the comparison line
  * nor a stacked bar leaves the plot.
  */
-export function trendChartYMax(data: readonly (TrendChartDatum & { total?: number })[]): number {
+export function trendChartYMax(data: readonly (TrendChartDatum & { total?: number | null })[]): number {
   const tallest = data.reduce(
     (max, datum) =>
       Math.max(
@@ -667,9 +691,14 @@ export function countTile(
     return NOT_RECORDED_TILE;
   }
   const length = figure.series[0]?.buckets.length ?? 0;
-  const trend = Array.from({ length }, (_, index) =>
-    figure.series.reduce((sum, entry) => sum + (entry.buckets[index]?.value ?? 0), 0),
-  );
+  // A bucket before the figure's data began is null on every series, and a
+  // gap in the line: nothing was counted there, which is not a zero.
+  const trend = Array.from({ length }, (_, index) => {
+    const values = figure.series.map((entry) => entry.buckets[index]?.value ?? null);
+    return values.every((value) => value === null)
+      ? null
+      : values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  });
   return {
     readings: [
       {
@@ -711,7 +740,7 @@ export function moneyTile(
       currency: entry.key,
       value: format(entry.total, entry.key),
       ...noChangeOf(entry.change, entry.comparison_total, figure.data_since, comparison),
-      trend: entry.buckets.map((bucket) => bucket.value),
+      trend: entry.buckets.map((bucket) => bucket?.value ?? null),
     })),
   };
 }

@@ -62,8 +62,13 @@ export type StackedSeries = {
 export type StackedDatum = ChartBucketReading & {
   key: string;
   label: string;
-  values: Record<string, number>;
-  total: number;
+  /** Each series' part of the bucket. A part that is missing is a zero; one
+   * that is null, like the total, is not recorded (below). */
+  values: Record<string, number | null>;
+  /** The stack's height, or null for a bucket in which nothing was recorded,
+   * which is not a zero: it is drawn as no bar, and its hover card says it was
+   * not recorded where the chart has the words for it. */
+  total: number | null;
 };
 
 /** What every stacked chart on a surface is told, whatever shape it draws. */
@@ -593,6 +598,9 @@ type StackedChartTooltipProps = {
   comparisonSeries?: StackedSeries[];
   /** What the card says of a bucket marked `partial`. */
   partialLabel?: string;
+  /** What the card says of a bucket whose total is null, nothing having been
+   * recorded in it. */
+  notRecordedLabel?: string;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: StackedDatum }[];
@@ -606,6 +614,9 @@ type StackedChartTooltipProps = {
  * the rows stay in the caller's series order and a series that contributed
  * nothing to this bucket is still stated as zero — the reader asked about the
  * day, and "GA sold none" is an answer.
+ *
+ * A bucket whose total is null was not recorded: it has no part and no total
+ * to state, and says so in `notRecordedLabel`, never as zeros.
  */
 export function StackedChartTooltip({
   series,
@@ -614,6 +625,7 @@ export function StackedChartTooltip({
   chartHeight,
   comparisonSeries,
   partialLabel,
+  notRecordedLabel,
   active,
   payload,
 }: StackedChartTooltipProps) {
@@ -624,6 +636,18 @@ export function StackedChartTooltip({
   // A stack's comparison is compared with its total, so it is stated under
   // the total and not among the parts.
   const comparisonRows = comparisonTooltipRows(comparisonSeries, datum, formatValue);
+  if (datum.total === null) {
+    return (
+      <ChartTooltipCard
+        label={datum.label}
+        chartHeight={chartHeight}
+        notes={tooltipNotes(datum, { partialLabel })}
+        rows={comparisonRows}
+        emptyLabel={notRecordedLabel}
+      />
+    );
+  }
+  const total = datum.total;
   return (
     <ChartTooltipCard
       label={datum.label}
@@ -639,7 +663,7 @@ export function StackedChartTooltip({
         <>
           <p className="mt-1 flex items-center gap-4 border-t pt-1 text-xs font-medium">
             <span>{totalLabel}</span>
-            <span className="ml-auto tabular-nums">{formatValue(datum.total)}</span>
+            <span className="ml-auto tabular-nums">{formatValue(total)}</span>
           </p>
           {comparisonRows.map((row) => (
             <p key={row.id} className="flex items-center gap-4 text-xs text-muted-foreground">

@@ -61,7 +61,7 @@ import {
   stackedChartData,
   trendChartYMax,
   type BucketLabel,
-  type PlatformTrendBucket,
+  type PlatformTrendDays,
   type PlatformTrendComparison,
   type PlatformTrendFigure,
   type PlatformTrendSeries,
@@ -418,7 +418,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
     tile("new_organizations", t("trendsNewOrganizations"), countTile(figures.new_organizations, trends.comparison, count)),
   ];
 
-  const label = useCallback((bucket: PlatformTrendBucket) => formatTrendBucket(bucket, locale), [locale]);
+  const label = useCallback((bucket: PlatformTrendDays) => formatTrendBucket(bucket, locale), [locale]);
   const span = spanBuckets(trends);
   const comparisonName = t(COMPARISON_KEYS[trends.comparison.kind] ?? "trendsComparePrevious");
   const scrollAnchor = platformTrendsScrollAnchor(trends);
@@ -499,6 +499,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsPageViews")}
             source={figures.page_views}
             label={label}
+            span={span}
           />
         </FigureCard>
 
@@ -537,6 +538,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsEventsPublished")}
             source={figures.events_published}
             label={label}
+            span={span}
             markerLabel={t("trendsMarkerExact")}
             beforeMarkerNote={t("trendsStandInThroughout")}
           />
@@ -547,7 +549,13 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
           description={t("trendsTicketsSoldDescription")}
           breakdown={breakdownOf("tickets_sold")}
         >
-          <TicketsSoldChart {...chartProps("tickets_sold")} source={figures.tickets_sold} label={label} channelName={channelName} />
+          <TicketsSoldChart
+            {...chartProps("tickets_sold")}
+            source={figures.tickets_sold}
+            label={label}
+            span={span}
+            channelName={channelName}
+          />
         </FigureCard>
 
         <FigureCard
@@ -560,6 +568,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsMoneySold")}
             source={figures.money_sold}
             label={label}
+            span={span}
           />
         </FigureCard>
 
@@ -573,6 +582,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsPlatformFeeEarned")}
             source={figures.platform_fee_earned}
             label={label}
+            span={span}
           />
         </FigureCard>
 
@@ -586,6 +596,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsNewVerifiedCustomers")}
             source={figures.new_verified_customers}
             label={label}
+            span={span}
           />
         </FigureCard>
 
@@ -599,6 +610,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
             figure={t("trendsNewOrganizations")}
             source={figures.new_organizations}
             label={label}
+            span={span}
           />
         </FigureCard>
       </div>
@@ -859,8 +871,8 @@ function LineFigureChart({
 
 /**
  * What a figure's card says in place of its chart while the backend says the
- * figure is not recorded at all: its series would draw as zeros, and "not
- * recorded" is not a zero.
+ * figure is not recorded at all, which is said apart from a figure recorded
+ * that has no data in the span yet: "not recorded" is not a zero.
  */
 function FigureNotRecorded() {
   const t = useTranslations("operator");
@@ -871,6 +883,7 @@ function FigureNotRecorded() {
 function CountFigureChart({
   source,
   label,
+  span,
   markerLabel,
   beforeMarkerNote,
   ...rest
@@ -878,13 +891,16 @@ function CountFigureChart({
   figure: string;
   source: PlatformTrendFigure;
   label: BucketLabel;
+  /** The span's buckets, which the chart is drawn on (`spanBuckets`). */
+  span: readonly PlatformTrendDays[];
   /** What the recording-began marker is called, for a figure that has one. */
   markerLabel?: string;
   /** Said under the chart when every bucket shown is before that marker, so
    * the chart has no mark to say it. */
   beforeMarkerNote?: string;
 }) {
-  const data = useMemo(() => seriesChartData(source.series.slice(0, 1), label), [source, label]);
+  const t = useTranslations("operator");
+  const data = useMemo(() => seriesChartData(source.series.slice(0, 1), span, label), [source, span, label]);
   if (!source.recorded) {
     return <FigureNotRecorded />;
   }
@@ -898,6 +914,8 @@ function CountFigureChart({
         seriesId={seriesId}
         formatValue={(value) => formatNumber(value, rest.locale)}
         marker={markerKey === null || markerLabel === undefined ? undefined : { key: markerKey, label: markerLabel }}
+        // Before its data began a count is a gap, and not a zero (#842).
+        notRecordedLabel={t("trendsChartNotRecorded")}
       />
       {beforeMarkerNote !== undefined && allBeforeMarker(source.exact_since, data) ? (
         <p className="text-xs text-muted-foreground">{beforeMarkerNote}</p>
@@ -914,12 +932,14 @@ function CountFigureChart({
 function MoneyFigureCharts({
   source,
   label,
+  span,
   figure,
   ...rest
 }: SharedChartProps & {
   figure: string;
   source: PlatformTrendFigure;
   label: BucketLabel;
+  span: readonly PlatformTrendDays[];
 }) {
   const t = useTranslations("operator");
   if (!source.recorded) {
@@ -933,7 +953,7 @@ function MoneyFigureCharts({
       {source.series.map((entry) => (
         <div key={entry.key} className="space-y-1">
           {source.series.length > 1 ? <p className="text-xs font-medium text-muted-foreground">{entry.key}</p> : null}
-          <MoneyCurrencyChart {...rest} figure={figure} series={entry} label={label} />
+          <MoneyCurrencyChart {...rest} figure={figure} series={entry} label={label} span={span} />
         </div>
       ))}
     </>
@@ -944,13 +964,16 @@ function MoneyFigureCharts({
 function MoneyCurrencyChart({
   series,
   label,
+  span,
   ...rest
 }: SharedChartProps & {
   figure: string;
   series: PlatformTrendSeries;
   label: BucketLabel;
+  span: readonly PlatformTrendDays[];
 }) {
-  const data = useMemo(() => seriesChartData([series], label), [series, label]);
+  const t = useTranslations("operator");
+  const data = useMemo(() => seriesChartData([series], span, label), [series, span, label]);
   return (
     <LineFigureChart
       {...rest}
@@ -959,6 +982,7 @@ function MoneyCurrencyChart({
       seriesId={series.key}
       formatValue={(cents) => formatMoney(cents, series.key, rest.locale)}
       formatTickValue={(cents) => formatTakingsTick(cents, series.key, rest.locale)}
+      notRecordedLabel={t("trendsChartNotRecorded")}
     />
   );
 }
@@ -970,6 +994,7 @@ function MoneyCurrencyChart({
 function TicketsSoldChart({
   source,
   label,
+  span,
   channelName,
   granularity,
   comparisonName,
@@ -978,10 +1003,15 @@ function TicketsSoldChart({
   scrollAnchor,
   selected,
   onSelect,
-}: SharedChartProps & { source: PlatformTrendFigure; label: BucketLabel; channelName: (key: string) => string }) {
+}: SharedChartProps & {
+  source: PlatformTrendFigure;
+  label: BucketLabel;
+  span: readonly PlatformTrendDays[];
+  channelName: (key: string) => string;
+}) {
   const t = useTranslations("operator");
   const figure = t("trendsTicketsSold");
-  const data: TrendStackDatum[] = useMemo(() => stackedChartData(source.series, label), [source, label]);
+  const data: TrendStackDatum[] = useMemo(() => stackedChartData(source.series, span, label), [source, span, label]);
   const series: StackedSeries[] = source.series.map((entry, index) => ({
     id: entry.key,
     name: channelName(entry.key),
@@ -1000,10 +1030,12 @@ function TicketsSoldChart({
     // A stack is read by its height: the bucket's tickets on every Sales
     // Channel, which is what its breakdown adds up to.
     (datum) =>
-      t(datum.partial ? "trendsBucketPartial" : "trendsBucketReading", {
-        bucket: datum.label,
-        value: formatNumber(datum.total, locale),
-      }),
+      datum.total === null
+        ? t("trendsBucketNoFigure", { bucket: datum.label })
+        : t(datum.partial ? "trendsBucketPartial" : "trendsBucketReading", {
+            bucket: datum.label,
+            value: formatNumber(datum.total, locale),
+          }),
   );
   return (
     <>
@@ -1029,6 +1061,7 @@ function TicketsSoldChart({
             formatValue={(value) => formatNumber(value, locale)}
             totalLabel={t("trendsTicketsTotal")}
             partialLabel={t("trendsPartialToday")}
+            notRecordedLabel={t("trendsChartNotRecorded")}
             selection={selection}
             ariaLabel={t("trendsChartLabel", { figure, granularity })}
           />
