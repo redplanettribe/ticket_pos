@@ -15,3 +15,5 @@ sentry_staff_enabled                = true
 sentry_storefront_enabled           = true
 daily_close_enabled                 = true
 customer_activity_recording_enabled = true
+email_provider                      = "ses"
+digest_email_provider               = "ses"
