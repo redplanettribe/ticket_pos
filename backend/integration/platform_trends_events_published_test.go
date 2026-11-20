@@ -248,9 +248,14 @@ func TestTheEventsPublishedMigrationStandsInCreationForWhatIsPublished(t *testin
 		t.Helper()
 		trends := readPlatformTrends(t, env, operatorSessionID, "?span=7d")
 		series := eventsPublishedSeries(t, trends)
-		for day, want := range map[string]int{"2026-07-03": 1, "2026-07-02": 0, "2026-07-01": 0} {
-			if got := bucketOn(t, series, day).Value; got != want {
-				t.Fatalf("%s: %s = %d, want %d: a published Event stands on its creation day, a cancelled one and a draft nowhere", when, day, got, want)
+		if got := bucketOn(t, series, "2026-07-03").Value; got != 1 {
+			t.Fatalf("%s: 2026-07-03 = %d, want 1: a published Event stands on its creation day", when, got)
+		}
+		// A cancelled Event and a draft stand nowhere, so the data begins on
+		// 2026-07-03 and the days before it were not counted (#842).
+		for i, bucket := range series.Buckets {
+			if day := trends.Span.Buckets[i].FirstDay; day < "2026-07-03" && bucket != nil {
+				t.Fatalf("%s: %s = %+v, want null before the data began", when, day, bucket)
 			}
 		}
 		if got := todayValue(t, series); got != 0 {

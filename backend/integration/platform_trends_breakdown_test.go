@@ -496,9 +496,14 @@ func TestPlatformTrendBreakdownOfAWeekCoversTheWholeWeek(t *testing.T) {
 	}
 
 	custom := readPlatformTrends(t, env, operatorSessionID, "?span=custom&from=2026-03-01&to=2026-07-06")
-	stub := bucketOn(t, seriesFor(t, custom, "online"), "2026-03-01")
-	if stub.LastDay != "2026-03-02" || stub.Value != 3 {
-		t.Fatalf("the custom range's first bucket = %+v; want the stub 2026-03-01 to 2026-03-02 holding 3", stub)
+	// The stub's days are the span's: the figure's own bucket starts on the
+	// first sale, 2026-03-02, as a bucket holding data_since does (#842).
+	stub := custom.Span.Buckets[0]
+	if stub.FirstDay != "2026-03-01" || stub.LastDay != "2026-03-02" {
+		t.Fatalf("the custom range's first bucket = %+v; want the stub 2026-03-01 to 2026-03-02", stub)
+	}
+	if got := bucketOn(t, seriesFor(t, custom, "online"), "2026-03-02"); got.FirstDay != "2026-03-02" || got.Value != 3 {
+		t.Fatalf("the stub's online bucket = %+v; want 3 from the first sale on 2026-03-02", got)
 	}
 	short := readBreakdown(t, env, operatorSessionID, "?figure=tickets_sold&granularity=week&first_day="+stub.FirstDay+"&last_day="+stub.LastDay)
 	if short.FirstDay != "2026-03-01" || short.LastDay != "2026-03-02" {
