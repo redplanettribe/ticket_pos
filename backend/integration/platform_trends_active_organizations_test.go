@@ -50,6 +50,9 @@ type platformTrendsActivityFigure struct {
 	Distinct7Days  *int     `json:"distinct_7d"`
 	Distinct30Days *int     `json:"distinct_30d"`
 
+	Distinct7DaysRecorded  *int `json:"distinct_7d_days"`
+	Distinct30DaysRecorded *int `json:"distinct_30d_days"`
+
 	Buckets           []*platformTrendsActivityBucket `json:"buckets"`
 	ComparisonBuckets []*platformTrendsActivityBucket `json:"comparison_buckets"`
 }
@@ -362,6 +365,10 @@ func TestAFrozenDayIsNeverRewritten(t *testing.T) {
 	assertActivityOn(t, figure, "2026-07-06", 0)
 	assertCount(t, "distinct_7d as of 2026-07-06", figure.Distinct7Days, 1)
 	assertCount(t, "distinct_30d as of 2026-07-06", figure.Distinct30Days, 1)
+	// The first frozen day is 2026-07-05, so both runs of days ending on
+	// the 6th hold two recorded days.
+	assertCount(t, "distinct_7d_days as of 2026-07-06", figure.Distinct7DaysRecorded, 2)
+	assertCount(t, "distinct_30d_days as of 2026-07-06", figure.Distinct30DaysRecorded, 2)
 }
 
 // TestActiveOrganizationsStatesTheMeanTheDistinctCountsAndTheComparison: the
@@ -465,6 +472,9 @@ func TestTheDistinctCountsReachExactlySevenAndThirtyDaysBack(t *testing.T) {
 	figure := readActiveOrganizations(t, env, "?span=7d")
 	assertCount(t, "distinct_7d", figure.Distinct7Days, 1)
 	assertCount(t, "distinct_30d", figure.Distinct30Days, 3)
+	// Every day from 2026-06-01 on is frozen: both runs are recorded whole.
+	assertCount(t, "distinct_7d_days", figure.Distinct7DaysRecorded, 7)
+	assertCount(t, "distinct_30d_days", figure.Distinct30DaysRecorded, 30)
 
 	// A night closed on its own reads the same thirty days as a catch-up.
 	sharedApp.SalesService.WithClock(func() time.Time { return env.fixedClock })
@@ -523,7 +533,7 @@ func TestADayTheCloseHasNotFrozenIsAbsentNotZero(t *testing.T) {
 	// No close has ever run and nothing was ever sold.
 	empty := readActiveOrganizations(t, env, "?span=7d")
 	if !empty.Recorded || empty.DataSince != nil || empty.Mean != nil || empty.ComparisonMean != nil || empty.Change != nil ||
-		empty.Distinct7Days != nil || empty.Distinct30Days != nil {
+		empty.Distinct7Days != nil || empty.Distinct30Days != nil || empty.Distinct7DaysRecorded != nil || empty.Distinct30DaysRecorded != nil {
 		t.Fatalf("with nothing frozen the figure = %+v; want recorded, and nothing stated", figureValues(empty))
 	}
 	if len(empty.Buckets) != 7 || len(empty.ComparisonBuckets) != 7 {
@@ -553,9 +563,9 @@ func TestADayTheCloseHasNotFrozenIsAbsentNotZero(t *testing.T) {
 		}
 	}
 	assertNear(t, "mean over the three frozen days", figure.Mean, 1.0/3)
-	if figure.Distinct7Days != nil || figure.Distinct30Days != nil {
-		t.Fatalf("distinct counts = %v / %v; want none while the span's last day is not frozen",
-			shown(figure.Distinct7Days), shown(figure.Distinct30Days))
+	if figure.Distinct7Days != nil || figure.Distinct30Days != nil || figure.Distinct7DaysRecorded != nil || figure.Distinct30DaysRecorded != nil {
+		t.Fatalf("distinct counts = %v / %v over %v / %v days; want none while the span's last day is not frozen",
+			shown(figure.Distinct7Days), shown(figure.Distinct30Days), shown(figure.Distinct7DaysRecorded), shown(figure.Distinct30DaysRecorded))
 	}
 	if figure.ComparisonMean != nil || figure.Change != nil {
 		t.Fatalf("comparison_mean=%v change=%v; want none: the comparison span has no frozen day",

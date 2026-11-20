@@ -372,6 +372,16 @@ func TestAcceptingATicketAssignmentIsActiveAndAForwardedLinkOrAStaffSaleIsNot(t 
 	}
 	assertCount(t, "distinct_7d", figure.Distinct7Days, 2)
 	assertCount(t, "distinct_30d", figure.Distinct30Days, 2)
+	// Recording began on the 8th, four days before the span's last day.
+	assertCount(t, "distinct_7d_days", figure.Distinct7DaysRecorded, 4)
+	assertCount(t, "distinct_30d_days", figure.Distinct30DaysRecorded, 4)
+
+	// Four nights on, the 7 days ending on the 15th are all recorded and
+	// the 30 days still hold only the eight since recording began.
+	closeDaysAt(t, env, platformNoon(2026, 7, 16))
+	later := readActiveCustomers(t, env, "?span=7d")
+	assertCount(t, "distinct_7d_days as of 2026-07-15", later.Distinct7DaysRecorded, 7)
+	assertCount(t, "distinct_30d_days as of 2026-07-15", later.Distinct30DaysRecorded, 8)
 }
 
 // TestWithRecordingOffNothingIsWrittenAndActiveCustomersIsNotYetRecorded:
@@ -403,7 +413,8 @@ func TestWithRecordingOffNothingIsWrittenAndActiveCustomersIsNotYetRecorded(t *t
 	operator := trendsOperator(t, env)
 	closeDaysAt(t, env, platformNoon(2026, 7, 10))
 	off := activeCustomersAs(t, env, operator, "?span=7d")
-	if off.Recorded || off.ExactSince != nil || off.DataSince != nil || off.Mean != nil || off.Distinct7Days != nil || off.Distinct30Days != nil {
+	if off.Recorded || off.ExactSince != nil || off.DataSince != nil || off.Mean != nil || off.Distinct7Days != nil || off.Distinct30Days != nil ||
+		off.Distinct7DaysRecorded != nil || off.Distinct30DaysRecorded != nil {
 		t.Fatalf("with recording off: recorded=%v exact_since=%v data_since=%v mean=%v distinct_7d=%v distinct_30d=%v; want not recorded and nothing stated",
 			off.Recorded, shown(off.ExactSince), shown(off.DataSince), shown(off.Mean), shown(off.Distinct7Days), shown(off.Distinct30Days))
 	}
@@ -446,9 +457,21 @@ func TestWithRecordingOffNothingIsWrittenAndActiveCustomersIsNotYetRecorded(t *t
 	}
 	assertNoActivityOn(t, again, "2026-07-12")
 	assertActivityOn(t, again, "2026-07-10", 1)
-	if again.Distinct7Days != nil {
-		t.Fatalf("distinct_7d = %v, want none: the span's last day has no figure", shown(again.Distinct7Days))
+	if again.Distinct7Days != nil || again.Distinct7DaysRecorded != nil || again.Distinct30DaysRecorded != nil {
+		t.Fatalf("distinct_7d = %v over %v / %v days, want none: the span's last day has no figure",
+			shown(again.Distinct7Days), shown(again.Distinct7DaysRecorded), shown(again.Distinct30DaysRecorded))
 	}
+
+	// And on once more: the 13th has a figure, and the runs of days ending
+	// on it hold the 10th, the 11th and the 13th. The 12th, closed while
+	// recording was off, is not recorded.
+	recordCustomerActivity(t)
+	closeDaysAt(t, env, platformNoon(2026, 7, 14))
+	resumed := activeCustomersAs(t, env, operator, "?span=7d")
+	assertActivityOn(t, resumed, "2026-07-13", 0)
+	assertCount(t, "distinct_7d", resumed.Distinct7Days, 1)
+	assertCount(t, "distinct_7d_days", resumed.Distinct7DaysRecorded, 3)
+	assertCount(t, "distinct_30d_days", resumed.Distinct30DaysRecorded, 3)
 	if got := writes.writes.Load(); got != 1 {
 		t.Fatalf("%d marker writes in all, want the 1 made while recording was on", got)
 	}

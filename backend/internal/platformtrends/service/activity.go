@@ -441,6 +441,16 @@ type PlatformTrendActivityFigure struct {
 	// Distinct30Days is the same across the 30 days ending on the span's
 	// last day.
 	Distinct30Days *int `json:"distinct_30d"`
+	// Distinct7DaysRecorded is how many of the 7 days Distinct7Days counts
+	// over are recorded: frozen by the daily close with this figure in
+	// them. Below 7 when the run reaches back before the figure's data
+	// began, or, for Active Customers, holds a day closed while Customer
+	// recording was off, whose Customers were never counted. Null exactly
+	// when Distinct7Days is, and otherwise from 1 to 7.
+	Distinct7DaysRecorded *int `json:"distinct_7d_days" example:"7"`
+	// Distinct30DaysRecorded is the same for the 30 days of Distinct30Days,
+	// from 1 to 30.
+	Distinct30DaysRecorded *int `json:"distinct_30d_days" example:"14"`
 	// Buckets has one entry per bucket of the span, oldest first. An entry
 	// is null where no day of its bucket has a frozen value for the figure:
 	// absent, never zero. For Active Customers that includes every day
@@ -472,10 +482,16 @@ type activityDay struct {
 }
 
 // frozenDays is every frozen day of the span and of its comparison, which
-// is all either activity figure is read from.
+// is all either activity figure is read from, and of the 30 days ending on
+// the span's last day, which say how much of each distinct count's run of
+// days is recorded. A span shorter than 30 days is read back that far.
 func (s *Service) frozenDays(ctx context.Context, span Span) ([]repository.ActivityTotals, error) {
+	read := span
+	if windowFirst := span.LastDay.AddDate(0, 0, -(distinctLongDays - 1)); windowFirst.Before(read.FirstDay) {
+		read.FirstDay = windowFirst
+	}
 	var frozen []repository.ActivityTotals
-	for _, read := range []Span{span, span.compared()} {
+	for _, read := range []Span{read, span.compared()} {
 		days, err := s.totals.ActivityTotalsBetween(ctx, read.FirstDay.Format(dayFormat), read.LastDay.Format(dayFormat))
 		if err != nil {
 			return nil, err
@@ -572,8 +588,26 @@ func activityFigureOf(span Span, dataSince *time.Time, frozen map[string]activit
 	if last, ok := frozen[span.LastDay.Format(dayFormat)]; ok {
 		figure.Distinct7Days = &last.distinct7Days
 		figure.Distinct30Days = &last.distinct30Days
+		shortRecorded := recordedDaysOf(frozen, span.LastDay, distinctShortDays)
+		longRecorded := recordedDaysOf(frozen, span.LastDay, distinctLongDays)
+		figure.Distinct7DaysRecorded = &shortRecorded
+		figure.Distinct30DaysRecorded = &longRecorded
 	}
 	return figure
+}
+
+// recordedDaysOf is how many of the days ending on lastDay have a frozen
+// value for the figure. The close froze each distinct count over every one
+// of those days, recorded or not, so this is the part of its run of days
+// the count really covers. frozen holds lastDay, so it is at least 1.
+func recordedDaysOf(frozen map[string]activityDay, lastDay time.Time, days int) int {
+	recorded := 0
+	for back := 0; back < days; back++ {
+		if _, ok := frozen[lastDay.AddDate(0, 0, -back).Format(dayFormat)]; ok {
+			recorded++
+		}
+	}
+	return recorded
 }
 
 // activityBuckets cuts a span into its buckets, each the mean of its frozen
