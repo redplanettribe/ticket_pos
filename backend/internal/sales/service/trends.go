@@ -192,3 +192,161 @@ func dayOf(instant time.Time, loc *time.Location) time.Time {
 	local := instant.In(loc)
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 }
+
+// PlatformTicketsSoldDay is how many tickets the whole platform sold on one
+// Sales Channel on one day, the day being a YYYY-MM-DD calendar date on the
+// clock the caller asked for.
+type PlatformTicketsSoldDay struct {
+	Day      string
+	Channel  string
+	Quantity int
+}
+
+// PlatformTicketsSoldByDay is the platform's Tickets Sold per day and Sales
+// Channel over the active Ticket Sales sold in [from, until), every
+// Organization included, read for Platform Trends (#810). The days are read in
+// the named timezone, which Platform Trends passes as the platform's own clock;
+// days that sold nothing have no entry, and filling them is the caller's.
+func (s *Service) PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformTicketsSoldDay, error) {
+	rows, err := s.repo.PlatformTicketsSoldByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformTicketsSoldDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformTicketsSoldDay{Day: row.Day, Channel: row.Channel, Quantity: row.Quantity})
+	}
+	return out, nil
+}
+
+// PlatformMoneyDay is the platform's money in one currency on one day, in the
+// currency's minor units: what was sold, and the Platform Fee earned on it.
+// Day is a YYYY-MM-DD calendar date on the clock the caller asked for.
+type PlatformMoneyDay struct {
+	Day              string
+	Currency         string
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformMoneyByDay is the platform's money sold and Platform Fee earned per
+// day and currency over the Ticket Sales sold in [from, until), every
+// Organization included, read for Platform Trends (#812). Money sold is the
+// buyer price times the quantity, before any fee is withheld, over active
+// Ticket Sales on every Sales Channel. Platform Fee earned is the fee the operator summary
+// totals (PlatformCurrencyTotals), by the same definition: active Online
+// Sales plus reversed ones whose fee the platform kept, excluding Fee IVA.
+// Days with no money have no entry, and no currency is converted.
+func (s *Service) PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformMoneyDay, error) {
+	rows, err := s.repo.PlatformMoneyByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformMoneyDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformMoneyDay{Day: row.Day, Currency: row.Currency, SoldCents: row.SoldCents, PlatformFeeCents: row.PlatformFeeCents})
+	}
+	return out, nil
+}
+
+// PlatformCurrencies is every currency an Organization on the platform is in,
+// in the order the operator summary lists them.
+func (s *Service) PlatformCurrencies(ctx context.Context) ([]string, error) {
+	return s.repo.PlatformCurrencies(ctx)
+}
+
+// PlatformFirstTicketSoldDay is the day, YYYY-MM-DD on the named clock, the
+// platform's earliest Ticket Sale, reversed or not, was sold, and false when it has none:
+// where Platform Trends' Tickets Sold begins to have data (#811).
+func (s *Service) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
+	return s.repo.PlatformFirstTicketSoldDay(ctx, timezone)
+}
+
+// PlatformSaleRecordedDay says a Ticket Sale was recorded for an Organization
+// on a day, the day being a YYYY-MM-DD calendar date on the clock the caller
+// asked for.
+type PlatformSaleRecordedDay struct {
+	Day            string
+	OrganizationID string
+}
+
+// PlatformOrganizationsWithSalesRecordedByDay is every (day, Organization)
+// for which a Ticket Sale was recorded in [from, until), each once, on any
+// Sales Channel and reversed or not: the sale half of Active Organizations,
+// read by the daily close (#815). The day is the one the sale reached the
+// platform, in the named timezone, never the day it says it was sold.
+func (s *Service) PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformSaleRecordedDay, error) {
+	rows, err := s.repo.PlatformOrganizationsWithSalesRecordedByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformSaleRecordedDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformSaleRecordedDay{Day: row.Day, OrganizationID: row.OrganizationID})
+	}
+	return out, nil
+}
+
+// PlatformFirstSaleRecordedDay is the day, YYYY-MM-DD on the named clock,
+// the platform's earliest Ticket Sale, reversed or not, was recorded, and
+// false when it has none: the first day the daily close freezes (#815).
+func (s *Service) PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error) {
+	return s.repo.PlatformFirstSaleRecordedDay(ctx, timezone)
+}
+
+// PlatformCustomerSaleDay says a Customer owns an Online Sale sold on a day,
+// the day being a YYYY-MM-DD calendar date on the clock the caller asked for.
+type PlatformCustomerSaleDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersWithOnlineSalesSoldByDay is every (day, Customer) for
+// which the Customer owns an Online Sale sold in [from, until), each once,
+// reversed since or not, in the named timezone. It is for the daily close,
+// which reads "returning who bought" off it (#817) and freezes a count;
+// nothing that answers a request may read it, since no route returns a
+// Customer for a day (ADR 0080).
+func (s *Service) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerSaleDay, error) {
+	rows, err := s.repo.PlatformCustomersWithOnlineSalesSoldByDay(ctx, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformCustomerSaleDay, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformCustomerSaleDay{Day: row.Day, CustomerID: row.CustomerID})
+	}
+	return out, nil
+}
+
+// PlatformEventSales is what one Event sold over a window: its Tickets Sold,
+// its money sold and the Platform Fee earned on it, the money in the minor
+// units of Currency, its Organization's.
+type PlatformEventSales struct {
+	OrganizationID   string
+	OrganizationName string
+	EventID          string
+	EventName        string
+	Currency         string
+	Quantity         int
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformSalesByEvent is what each Event sold over the Ticket Sales sold in
+// [from, until), every Organization included, read for the breakdown of
+// Platform Trends (#818). Each total goes by the definition of its figure
+// (PlatformTicketsSoldByDay, PlatformMoneyByDay), so an Event may be
+// returned with a Platform Fee and nothing sold: a reversed sale whose fee
+// the platform kept.
+func (s *Service) PlatformSalesByEvent(ctx context.Context, from, until time.Time) ([]PlatformEventSales, error) {
+	rows, err := s.repo.PlatformSalesByEvent(ctx, from, until)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PlatformEventSales, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PlatformEventSales(row))
+	}
+	return out, nil
+}

@@ -67,6 +67,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/format";
 import { cumulativePlotWidth } from "@/lib/sales-trends";
+import { useElementWidth } from "@/lib/use-element-width";
 
 type AffiliateTrendsSectionProps = {
   eventId: string;
@@ -568,7 +569,14 @@ function RateChart({
   );
 
   return (
-    <ChartScrollArea ref={setScrollArea} ariaLabel={t("rateScrollLabel")}>
+    <ChartScrollArea
+      ref={setScrollArea}
+      ariaLabel={t("rateScrollLabel")}
+      // Fitted to the card, it still scrolls on a card narrower than the
+      // minimum plot width (a 375px phone), so it opens on the latest days
+      // like the counting views, again when the range or view changes (#835).
+      openAtNewestEnd={{ key: `${range}:${view}`, contentWidth: plotWidth }}
+    >
       <MultiSeriesLineChart
         data={data}
         series={series}
@@ -583,26 +591,6 @@ function RateChart({
       />
     </ChartScrollArea>
   );
-}
-
-/**
- * The element's current inner width, tracked as it changes — the same
- * measurement Sales Trends takes, for the same reason: the charts are drawn at
- * a width in pixels, and the card's width answers to the viewport.
- */
-function useElementWidth(element: HTMLElement | null): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!element) {
-      return;
-    }
-    const measure = () => setWidth(element.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element]);
-  return width;
 }
 
 /**

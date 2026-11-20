@@ -81,7 +81,7 @@ export function StackedAreaChart({
           {series.map((entry) => (
             <Area
               key={entry.id}
-              dataKey={(datum: StackedDatum) => datum.values[entry.id] ?? 0}
+              dataKey={(datum: StackedDatum) => (datum.total === null ? null : (datum.values[entry.id] ?? 0))}
               name={entry.name}
               stackId="stack"
               // Straight segments between buckets, never a smoothed curve. A

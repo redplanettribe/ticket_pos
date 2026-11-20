@@ -367,8 +367,32 @@ variable "holder_address_purge_attempt_deadline_seconds" {
   default     = 120
 }
 
+variable "daily_close_enabled" {
+  description = "Whether the production daily close tick fires (#815, spec #808, ADR 0080). STARTS FALSE: the endpoint is run by hand first, and its first run, which freezes every day back to the first recorded Ticket Sale, is read before the cron takes over. While false nothing is frozen and Platform Trends states Active Organizations as absent."
+  type        = bool
+  default     = false
+}
+
+variable "daily_close_schedule" {
+  description = "Unix cron for the production daily close tick, read in America/Guayaquil. Daily at 00:10; the module variable of the same name says why it runs just after midnight."
+  type        = string
+  default     = "10 0 * * *"
+}
+
+variable "daily_close_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production daily close. It must stay below api_request_timeout_seconds; the module variable of the same name says why."
+  type        = number
+  default     = 120
+}
+
 variable "ticket_questions_enabled" {
   description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE. The prerequisite is a published Policy Version describing this collection (ADR 0045) — flipping it before that puts the platform in the position of deliberately collecting, through a mechanism it built, data its own policy says it does not collect. Read the ADR before changing this."
+  type        = bool
+  default     = false
+}
+
+variable "customer_activity_recording_enabled" {
+  description = "Whether production records that a Customer was active on a day (#817, ADR 0080), which Platform Trends' Active Customers is counted from. STARTS FALSE, and is DELIBERATELY ABSENT FROM terraform.tfvars so that opening it is an addition somebody has to write rather than a value they edit. The prerequisite is a Privacy Policy edition describing the recording, published in every language the policy is published in (ADR 0045): the marker is personal data. Flipping it before that has the platform recording what a person did on a day without having told them."
   type        = bool
   default     = false
 }

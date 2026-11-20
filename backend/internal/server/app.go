@@ -43,6 +43,9 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	platformtrendshandler "github.com/peter/ticket_pos/backend/internal/platformtrends/handler"
+	platformtrendsrepo "github.com/peter/ticket_pos/backend/internal/platformtrends/repository"
+	platformtrendssvc "github.com/peter/ticket_pos/backend/internal/platformtrends/service"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
 	salesrepo "github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -99,6 +102,11 @@ type App struct {
 	InvoicingRepo    *invoicingrepo.Repository
 	InvoicingService *invoicingsvc.Service
 	InvoicingHandler *invoicinghandler.Handler
+	// Platform Trends (#808, ADR 0080): whether the platform as a whole is
+	// growing. Like the operator surface it owns no table for the figures it
+	// reads live; it composes the modules that own the data.
+	PlatformTrendsService *platformtrendssvc.Service
+	PlatformTrendsHandler *platformtrendshandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -708,6 +716,34 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// read (#639), tied here for the same reason.
 	catalogService = catalogService.WithDossierSaleDocuments(invoicingService)
 
+	// Platform Trends owns the activity totals its daily close freezes and
+	// the Organization and Customer markers it counts them from. Everything else it reads: Tickets Sold, money and the sale
+	// half of Active Organizations through sales, new Verified Customers
+	// through customers, new Organizations through identity, Page Views
+	// through affiliates, which keeps their hourly buckets, and Events
+	// Published through catalog, all on the platform clock.
+	platformTrendsRepository := platformtrendsrepo.New(db)
+	platformTrendsService := platformtrendssvc.New(platformTrendsRepository, platformTrendsRepository, platformTrendsRepository, platformLogger, salesService, customersService, identityService, affiliatesService, catalogService)
+	if options.clock != nil {
+		platformTrendsService = platformTrendsService.WithClock(options.clock)
+	}
+	// A Member working marks their Organization active for the day (#816):
+	// identity says so where it loads a request's Active Member, on its own
+	// clock, and Platform Trends keeps the marker.
+	identityService.WithOrganizationActivity(platformTrendsService)
+	// A Customer acting as themselves marks their own day (#817, ADR 0080):
+	// customers says so where a request is authenticated by a full Customer
+	// Session and where a sign-in mints one, and catalog where a Ticket
+	// Assignment is accepted through an Assignment Link, each on its own
+	// clock. Platform Trends keeps the marker, and only while Customer
+	// recording is switched on, which it is not unless
+	// CUSTOMER_ACTIVITY_RECORDING_ENABLED says so (ADR 0045): both modules
+	// call it always and know nothing of the switch.
+	platformTrendsService = platformTrendsService.WithCustomerActivityRecording(cfg.CustomerActivityRecordingEnabled)
+	customersService.WithCustomerActivity(platformTrendsService)
+	catalogService.WithCustomerActivity(platformTrendsService)
+	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -742,6 +778,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		InvoicingRepo:     invoicingRepo,
 		InvoicingService:  invoicingService,
 		InvoicingHandler:  invoicingHandler,
+
+		PlatformTrendsService: platformTrendsService,
+		PlatformTrendsHandler: platformTrendsHandler,
 	}, nil
 }
 

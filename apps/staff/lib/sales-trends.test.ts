@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { formatMoney } from "./format.ts";
 import {
+  axisTopFor,
   colorSlotFor,
   cumulativePlotWidth,
   cumulativeTrends,
@@ -192,24 +193,82 @@ test("an Event that only gave tickets away charts its tickets and no Takings", (
 
 test("the Y max covers the tallest stack of the whole catalog", () => {
   // Aug 1 is the tallest day at 14 tickets; the axis rounds up to clear it.
-  assert.equal(trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en")), 20);
+  assert.equal(trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en")), 15);
 });
 
 // The point of the chips: the remaining bars get the full height of the chart.
 test("deselecting the dominant Ticket Type rescales the Y axis down", () => {
   const withEarly = trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en"));
   const withoutEarly = trendsYMax(trendsSeries(DAYS, ["tt_ga", "tt_vip"], "quantity", "en"));
-  // Without Early Bird the tallest day is 4 tickets, so the axis drops to 5.
-  assert.equal(withoutEarly, 5);
+  // Without Early Bird the tallest day is 4 tickets, so the axis drops to 4.
+  assert.equal(withoutEarly, 4);
   assert.ok(withoutEarly < withEarly);
 });
 
 test("the Y max rounds up to a tick a person reads without counting", () => {
   assert.equal(trendsYMax([datum(0)]), 1);
-  assert.equal(trendsYMax([datum(7)]), 10);
-  assert.equal(trendsYMax([datum(11)]), 20);
+  assert.equal(trendsYMax([datum(7)]), 7);
+  assert.equal(trendsYMax([datum(11)]), 12);
   assert.equal(trendsYMax([datum(230)]), 250);
-  assert.equal(trendsYMax([datum(6_400)]), 10_000);
+  assert.equal(trendsYMax([datum(6_400)]), 7_000);
+});
+
+// The Platform Trends Tickets Sold chart topped a 1,014-ticket day at 2,000,
+// leaving half its plot empty (#836): the old ladder (1, 2, 2.5, 5, 10) jumps
+// straight from 1,000 to 2,000.
+test("a tallest day just over a thousand tops the axis at 1,200, not 2,000", () => {
+  assert.equal(axisTopFor(1_014), 1_200);
+  assert.deepEqual(trendsYTicks(1_200), [0, 200, 400, 600, 800, 1_000, 1_200]);
+});
+
+// The tallest value against the top it gets, across the decades: never below
+// it, never more than a quarter above it, and labelled in even whole steps
+// that end on the top.
+const TALLEST_ACROSS_DECADES = [
+  1, 2, 3, 5, 7, 9, 11, 13, 16, 19, 21, 26, 31, 36, 41, 51, 61, 71, 81, 99, 101, 151, 181, 351, 701, 1_014,
+  1_501, 4_100, 9_999, 12_345, 90_000, 123_456,
+];
+
+test("the axis top is at least the tallest value and at most a quarter above it", () => {
+  for (const tallest of TALLEST_ACROSS_DECADES) {
+    const top = axisTopFor(tallest);
+    assert.ok(top >= tallest, `${tallest} tops at ${top}, below itself`);
+    assert.ok(top <= tallest * 1.25, `${tallest} tops at ${top}, more than 25% above it`);
+  }
+});
+
+test("every axis top is labelled in even whole steps that end on it", () => {
+  for (const tallest of TALLEST_ACROSS_DECADES) {
+    const top = axisTopFor(tallest);
+    const ticks = trendsYTicks(top);
+    assert.equal(ticks[0], 0, `${top} starts at zero`);
+    assert.equal(ticks[ticks.length - 1], top, `${top} ends on the top`);
+    const step = ticks[1];
+    for (const [index, tick] of ticks.entries()) {
+      assert.ok(Number.isInteger(tick), `${top} labels ${tick}, a fraction`);
+      assert.equal(tick, index * step, `${top} is not evenly spaced: ${ticks.join(", ")}`);
+    }
+    // Room for the labels on a 220px chart, and a scale worth reading.
+    assert.ok(ticks.length >= 2 && ticks.length <= 8, `${top} has ${ticks.length} labels`);
+  }
+});
+
+test("the axis is labelled in steps a person counts in", () => {
+  assert.deepEqual(trendsYTicks(10), [0, 2, 4, 6, 8, 10]);
+  assert.deepEqual(trendsYTicks(15), [0, 5, 10, 15]);
+  assert.deepEqual(trendsYTicks(20), [0, 5, 10, 15, 20]);
+  assert.deepEqual(trendsYTicks(60), [0, 20, 40, 60]);
+  assert.deepEqual(trendsYTicks(80), [0, 20, 40, 60, 80]);
+  assert.deepEqual(trendsYTicks(350), [0, 50, 100, 150, 200, 250, 300, 350]);
+  assert.deepEqual(trendsYTicks(1_800), [0, 600, 1_200, 1_800]);
+});
+
+test("small tops are labelled in whole tickets", () => {
+  assert.deepEqual(trendsYTicks(axisTopFor(1)), [0, 1]);
+  assert.deepEqual(trendsYTicks(axisTopFor(2)), [0, 1, 2]);
+  assert.deepEqual(trendsYTicks(axisTopFor(3)), [0, 1, 2, 3]);
+  assert.deepEqual(trendsYTicks(axisTopFor(6)), [0, 2, 4, 6]);
+  assert.deepEqual(trendsYTicks(axisTopFor(7)), [0, 1, 2, 3, 4, 5, 6, 7]);
 });
 
 test("an all-zero selection still draws a scale rather than collapsing", () => {
@@ -223,7 +282,7 @@ test("an all-zero selection still draws a scale rather than collapsing", () => {
 test("the Takings axis scales to Takings, independently of the tickets axis", () => {
   const tickets = trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en"));
   const takings = trendsYMax(trendsSeries(DAYS, ALL, "takings_cents", "en"));
-  assert.equal(tickets, 20); // 14 tickets on the tallest day
+  assert.equal(tickets, 15); // 14 tickets on the tallest day
   assert.equal(takings, 100_000); // $900.00 on the tallest day
 });
 
@@ -246,9 +305,9 @@ test("deselecting a Ticket Type rescales the Takings axis on its own terms", () 
   assert.equal(trendsYMax(trendsSeries(days, selected, "takings_cents", "en")), 500_000);
 
   // The tickets axis hardly notices four tickets leaving; the Takings axis
-  // drops by a factor of ten. Neither is derived from the other.
-  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "quantity", "en")), 50);
-  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "takings_cents", "en")), 50_000);
+  // drops more than tenfold. Neither is derived from the other.
+  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "quantity", "en")), 40);
+  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "takings_cents", "en")), 40_000);
 });
 
 function datum(total: number) {
@@ -260,7 +319,7 @@ test("the Y axis is labelled in even steps that end on its top", () => {
   // axis topped at 50 comes out 0, 15, 30, 45, 50 — unequal gaps and the last
   // two labels almost touching.
   assert.deepEqual(trendsYTicks(50), [0, 10, 20, 30, 40, 50]);
-  assert.deepEqual(trendsYTicks(20), [0, 4, 8, 12, 16, 20]);
+  assert.deepEqual(trendsYTicks(20), [0, 5, 10, 15, 20]);
   // Takings are counted in cents, so a $50 day is a top of 5000.
   assert.deepEqual(trendsYTicks(5000), [0, 1000, 2000, 3000, 4000, 5000]);
   for (const top of [1, 2, 5, 10, 20, 25, 50, 100, 250, 5000]) {

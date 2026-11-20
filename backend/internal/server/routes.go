@@ -175,6 +175,17 @@ func registerInternalRoutes(mux Router, app *App) {
 	// could take the holder address off every future Event on the platform in
 	// one request.
 	mux.HandleFunc("POST /api/v1/internal/holder-addresses/purge", app.CatalogHandler.PurgeUnacceptedHolderAddresses)
+
+	// The daily close (#815, spec #808, ADR 0080): freezes each closed
+	// platform day's activity into totals Platform Trends reads and never
+	// recomputes. Served by the PLATFORM TRENDS handler, whose table the
+	// totals are.
+	//
+	// It obeys this namespace's rule: the caller cannot name a day. WHICH
+	// days are closed comes from the backend's clock, and which of them
+	// still need freezing from the database. A caller able to name the day
+	// could freeze today half-lived, and a frozen day is never rewritten.
+	mux.HandleFunc("POST /api/v1/internal/platform-trends/close", app.PlatformTrendsHandler.CloseDays)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.
@@ -468,6 +479,13 @@ func registerOperatorRoutes(mux Router, app *App) {
 	// searchable by the person it is about would be a second way to look people
 	// up, keyed on the record of people being looked up.
 	mux.Handle("GET /api/v1/operator/legal/access-log", operator(http.HandlerFunc(h.GetLegalAccessLog)))
+
+	// Platform Trends (#808, ADR 0080): the platform-wide growth reading at
+	// the top of the Overview. Its own module on this namespace, behind the
+	// same gate, with no Active Member: the figures are the platform's, House
+	// Organizations included, and belong to no Organization.
+	mux.Handle("GET /api/v1/operator/platform-trends", operator(http.HandlerFunc(app.PlatformTrendsHandler.GetPlatformTrends)))
+	mux.Handle("GET /api/v1/operator/platform-trends/breakdown", operator(http.HandlerFunc(app.PlatformTrendsHandler.GetPlatformTrendBreakdown)))
 
 	// Tax invoicing (#450, ADR 0059): the platform's Issuer with each country's
 	// Tax Authority, and — from #454 — the Tax Invoices it issues by hand. The

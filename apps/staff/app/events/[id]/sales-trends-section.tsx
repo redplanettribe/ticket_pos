@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
@@ -40,6 +40,7 @@ import {
   type SalesTrends,
   type TrendsView,
 } from "@/lib/sales-trends";
+import { useElementWidth } from "@/lib/use-element-width";
 
 import { TrendsChart } from "./trends-chart";
 
@@ -271,7 +272,6 @@ function TrendsCharts({
   const plotWidth = isCumulative
     ? cumulativePlotWidth(plotShare)
     : trendsPlotWidth(trends.days.length, plotShare);
-  useLatestDaysFirst(scrollArea, view, plotWidth);
   const ticketsTitle = t("ticketsTitle");
   const takingsTitle = t("takingsTitle");
   return (
@@ -283,6 +283,15 @@ function TrendsCharts({
         // cannot see the scrollbar that there is more sideways would send them
         // looking for days that are already on screen.
         ariaLabel={isCumulative ? t("scrollLabelCumulative") : t("scrollLabel")}
+        // Opens on the latest days. The key is the view and nothing else. A
+        // change of view has to re-anchor, because the Cumulative view fits its
+        // card and the browser clamps the offset to zero on the way through, so
+        // the return to the Daily view would otherwise land on the oldest days.
+        // Nothing about the data belongs in the key: this Event's matrix is
+        // fetched once and never refetched under a mounted chart, and keying on
+        // the span's length would yank a reader out of the fortnight they were
+        // looking at when the span grew by a day.
+        openAtNewestEnd={{ key: view, contentWidth: plotWidth }}
       >
         <div className="w-max space-y-6">
           <TrendsChart
@@ -341,92 +350,6 @@ function TrendsCharts({
 
 /** Ties the two charts' hover together. One value, used twice, on purpose. */
 const TRENDS_SYNC_ID = "sales-trends";
-
-/**
- * The element's current inner width, tracked as it changes.
- *
- * The charts are drawn at a width in pixels rather than stretched by CSS, so
- * something has to say how many pixels are going spare — and that answer moves
- * when the window resizes or the sidebar collapses. `clientWidth` rather than
- * the observer's `contentRect`, because it is the scrollable box's own inner
- * width and so already excludes any scrollbar the charts themselves provoked.
- *
- * Zero until the element is measured, which is the server-rendered pass and the
- * first client frame; the caller reads that as "the span decides alone".
- */
-function useElementWidth(element: HTMLElement | null): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!element) {
-      return;
-    }
-    const measure = () => setWidth(element.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element]);
-  return width;
-}
-
-/**
- * Opens the scrolling window on the most recent days rather than on the oldest.
- *
- * A span longer than the card is drawn from the Event's first sale onwards, so
- * left is months ago and right is this week — and the reader almost always came
- * to see how it is selling now. Landing at the left means scrolling to the end
- * before the surface answers anything, every single visit.
- *
- * It anchors once per `anchorKey` and then leaves the reader alone, which is the
- * whole point of the key: a chip click, a resize and a re-render must not drag
- * the viewport back from the launch week somebody deliberately scrolled to.
- *
- * The key is the view and nothing else. A change of view has to re-anchor,
- * because the Cumulative view fits its card and the browser clamps the offset to
- * zero on the way through — so the return to the Daily view would otherwise land
- * on the oldest days again. Nothing about the data belongs in the key: this
- * Event's matrix is fetched once and never refetched under a mounted chart, and
- * keying on the span's length would mean a span that grew by a day yanked a
- * reader out of the fortnight they were looking at.
- *
- * `plotWidth` is a dependency rather than a value it reads: the plot is measured
- * over the frames after mount, so the effect must run again as the width settles
- * and the content actually becomes wider than the window. Until it does, there
- * is no overflow to take up and the anchor stays untaken.
- *
- * A layout effect, so the offset is set before the browser paints. In an
- * ordinary effect the reader sees the oldest days for a frame and then a jump.
- */
-function useLatestDaysFirst(
-  element: HTMLElement | null,
-  anchorKey: string,
-  plotWidth: number,
-): void {
-  const anchor = useRef({ key: "", taken: false });
-  useLayoutEffect(() => {
-    // A new key is a fresh anchor to take, so the flag is cleared here rather
-    // than compared against the key below. Comparing would look equivalent and
-    // is not: the Cumulative view fits its card and so never takes its anchor,
-    // leaving the flag still reading `daily` — and the return to the Daily view
-    // would find the key it had already anchored for and do nothing, which is
-    // exactly the case this hook exists to handle.
-    if (anchor.current.key !== anchorKey) {
-      anchor.current = { key: anchorKey, taken: false };
-    }
-    if (!element || anchor.current.taken) {
-      return;
-    }
-    const overflow = element.scrollWidth - element.clientWidth;
-    if (overflow <= 0) {
-      // Either the span fits — in which case there is no "end" to open on — or
-      // nothing has been laid out yet. Neither is a state worth remembering, so
-      // the anchor stays untaken and a later frame may still take it.
-      return;
-    }
-    element.scrollLeft = overflow;
-    anchor.current.taken = true;
-  }, [element, anchorKey, plotWidth]);
-}
 
 /**
  * What an Event with nothing to chart is told.

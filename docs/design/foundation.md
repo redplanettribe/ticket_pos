@@ -24,6 +24,7 @@ Storefront uses more generous spacing and larger headings for event titles.
 - **Staff body:** 14px base, line-height ~1.4.
 - **Storefront body:** 16px base, line-height ~1.5.
 - **Headings:** Semantic `<h1>`–`<h4>` only; do not skip levels.
+  One exception: the lists of a Platform Trends breakdown panel are headed by an `<h5>`, the panel's own title being an `<h4>` under its chart card's `<h3>` (#830, `staff.md`).
 
 ## Spacing
 

@@ -7,6 +7,7 @@
  */
 
 import type { ChartTooltipRow, StackedSeries } from "./chart-frame";
+import type { ChartBucketReading } from "./chart-reading";
 
 /**
  * How the chart reads a zero. On a counting view (Clicks, Attributed Sales) a
@@ -36,6 +37,11 @@ export type TooltipRowOptions = {
  * `nothingCounted` is true exactly when every series dropped — the card then
  * says so in one line rather than drawing an empty list, which reads as a
  * rendering fault.
+ *
+ * `notRecorded` narrows that: true when every series dropped because every
+ * one of them is a gap. Nothing was measured in the bucket at all, which a
+ * chart that has the words for it says instead of "nothing counted" (see
+ * `tooltipEmptyLabel`).
  */
 export function tooltipRows(
   series: readonly StackedSeries[],
@@ -43,10 +49,12 @@ export function tooltipRows(
   formatValue: (value: number) => string,
   formatDetail: (seriesId: string) => string | null,
   { zeroIsMeasured }: TooltipRowOptions,
-): { rows: ChartTooltipRow[]; nothingCounted: boolean } {
+): { rows: ChartTooltipRow[]; nothingCounted: boolean; notRecorded: boolean } {
   const rows: ChartTooltipRow[] = [];
+  let measured = false;
   for (const entry of series) {
     const value = values[entry.id] ?? null;
+    measured ||= value !== null;
     if (value === null || (value === 0 && !zeroIsMeasured)) {
       continue;
     }
@@ -58,5 +66,110 @@ export function tooltipRows(
       detail: formatDetail(entry.id),
     });
   }
-  return { rows, nothingCounted: rows.length === 0 };
+  return { rows, nothingCounted: rows.length === 0, notRecorded: !measured };
+}
+
+/**
+ * The rows a bucket's hover card shows on a bar chart, in the order the chart
+ * draws the series.
+ *
+ * Bars read a bucket differently from lines. Every drawn series is a row and
+ * a zero is stated, not left out: the reader asked about the bucket, and "it
+ * came to none" is an answer. A value left out of the bucket is that same
+ * zero, as it has always been. Only a stated null is "not recorded": it has no
+ * figure, so it has no row, and a zero there would invent one.
+ *
+ * `nothingCounted` and `notRecorded` are true together, when the chart draws
+ * series and every one of them was not recorded in the bucket. A chart with
+ * no series at all shows an empty card, as before, and neither is true.
+ */
+export function barTooltipRows(
+  series: readonly StackedSeries[],
+  values: Readonly<Record<string, number | null | undefined>>,
+  formatValue: (value: number) => string,
+  formatDetail: (seriesId: string) => string | null,
+): { rows: ChartTooltipRow[]; nothingCounted: boolean; notRecorded: boolean } {
+  const rows: ChartTooltipRow[] = [];
+  for (const entry of series) {
+    const value = values[entry.id];
+    if (value === null) {
+      continue;
+    }
+    rows.push({
+      id: entry.id,
+      name: entry.name,
+      color: entry.color,
+      value: formatValue(value ?? 0),
+      detail: formatDetail(entry.id),
+    });
+  }
+  const unrecorded = series.length > 0 && rows.length === 0;
+  return { rows, nothingCounted: unrecorded, notRecorded: unrecorded };
+}
+
+/**
+ * The one muted line a hover card says in place of its rows, or undefined when
+ * it has rows to show or the chart was given no words for having none.
+ *
+ * "Not recorded" extends "nothing counted" and does not sit beside it: a
+ * bucket that was not recorded also counted nothing, so a chart without
+ * `notRecordedLabel` says of it what it always said, and a chart with it says
+ * the more exact thing.
+ */
+export function tooltipEmptyLabel(
+  reading: { nothingCounted: boolean; notRecorded: boolean },
+  labels: { nothingCountedLabel?: string; notRecordedLabel?: string },
+): string | undefined {
+  if (!reading.nothingCounted) {
+    return undefined;
+  }
+  if (reading.notRecorded && labels.notRecordedLabel !== undefined) {
+    return labels.notRecordedLabel;
+  }
+  return labels.nothingCountedLabel;
+}
+
+/**
+ * The rows a bucket's hover card adds for the comparison series, in the order
+ * the chart draws them and after the series' own rows.
+ *
+ * A bucket the comparison does not reach has no row, as it has no point on the
+ * line. A zero is a row whatever the chart makes of its own zeros: the reader
+ * is setting two spans side by side, and "the span before came to nothing" is
+ * the answer. A row is marked `faint`, so the card draws its swatch the way
+ * the chart draws its line, and its id is prefixed so a comparison series may
+ * share an id with the series it is compared with.
+ */
+export function comparisonTooltipRows(
+  comparisonSeries: readonly StackedSeries[] | undefined,
+  bucket: ChartBucketReading,
+  formatValue: (value: number) => string,
+): ChartTooltipRow[] {
+  const rows: ChartTooltipRow[] = [];
+  for (const entry of comparisonSeries ?? []) {
+    // Read as `comparisonValue` reads it. Spelled out here because this module
+    // runs under `node --test`, where one plain module cannot import another
+    // without naming its extension, which the bundler's resolution forbids.
+    const value = bucket.comparison?.[entry.id] ?? null;
+    if (value === null) {
+      continue;
+    }
+    rows.push({
+      id: `comparison:${entry.id}`,
+      name: entry.name,
+      color: entry.color,
+      value: formatValue(value),
+      faint: true,
+    });
+  }
+  return rows;
+}
+
+/**
+ * The muted lines a hover card states under its bucket label, before any row.
+ * Today there is one: a partial bucket says it is partial, in the words the
+ * chart was given, so a figure still being counted is not read as a collapse.
+ */
+export function tooltipNotes(bucket: ChartBucketReading, labels: { partialLabel?: string }): string[] {
+  return bucket.partial === true && labels.partialLabel !== undefined ? [labels.partialLabel] : [];
 }

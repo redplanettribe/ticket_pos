@@ -1833,7 +1833,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		JOIN organizations org ON org.id = ts.organization_id
 		JOIN LATERAL (
 			SELECT
-				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
+				COALESCE(SUM(`+lineBuyerPriceSQL+`), 0) AS amount_cents,
 				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
 				COALESCE(
 					json_agg(
@@ -1966,6 +1966,11 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 // therefore load-bearing at every call site — a caller that forgets it is not
 // computing Net Proceeds, it is computing Takings under the wrong name.
 const lineNetProceedsSQL = sales.LineNetProceedsSQL
+
+// lineBuyerPriceSQL is what the Customer paid for one Ticket Sale Line, before
+// any fee is withheld from it: a sale's amount in the lists this repository
+// reads, and Platform Trends' money sold.
+const lineBuyerPriceSQL = sales.LineBuyerPriceSQL
 
 // SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's
 // recorded sales: what the Event has left the Organization, how many active

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { LOCALES } from "@ticket-pos/locale";
+import { LOCALES, type AppLocale } from "@ticket-pos/locale";
 
 /**
  * The catalogs are held to the same shape, because nothing else is holding them.
@@ -102,4 +102,124 @@ test("no message is empty", () => {
     [],
     `\n${problems.join("\n")}\nAn untranslated message is the English one, never "".\n`,
   );
+});
+
+/**
+ * Platform Trends (#821) is a section of the Operator Dashboard's Overview, so
+ * its copy is the `operator.trends...` keys. Two things are asked of it that
+ * the catalogs at large do not yet meet: no em dash, and the full terms Active
+ * Customer and Active Organization, since Active Event and Active Member mean
+ * something else.
+ */
+function platformTrendsCopy(locale: AppLocale): [string, string][] {
+  return [...catalogs.get(locale)!].filter(([key]) => key.startsWith("operator.trends"));
+}
+
+test("the Platform Trends copy holds no em dash", () => {
+  for (const locale of LOCALES) {
+    const copy = platformTrendsCopy(locale);
+    assert.ok(copy.length > 0, `${locale}.json has no Platform Trends copy`);
+    for (const [key, message] of copy) {
+      assert.ok(!message.includes("\u2014"), `${locale}.json ${key}`);
+    }
+  }
+});
+
+/**
+ * The full term in each language, and the place a bare "active" would stand.
+ * English puts the adjective before its noun and Spanish after it, so the rule
+ * is the language's own. Keyed by locale, so a new catalog does not compile
+ * until it says what its full terms are.
+ */
+const ACTIVE_TERMS: Record<AppLocale, { customers: string; organizations: string; bare: RegExp }> = {
+  en: {
+    customers: "Active Customers",
+    organizations: "Active Organizations",
+    // "Active" is always followed by the thing that is active.
+    bare: /\bactive\b(?!\s+(?:customers?|organizations?))/i,
+  },
+  es: {
+    customers: "Clientes activos",
+    organizations: "Organizaciones activas",
+    // "activo" follows the thing that is active, with nothing between them,
+    // and agrees with it. The rule is strict on purpose: a word in between
+    // ("clientes más activos") or the verb ("esto activa...") fails too, and
+    // is reworded. The word's two ends are spelled out because \b does not
+    // know an accented letter for a letter.
+    bare: /(?<!\bclientes?\s+)(?<![\p{L}\p{N}])activos?(?![\p{L}\p{N}])|(?<!\borganizaci(?:ón|ones)\s+)(?<![\p{L}\p{N}])activas?(?![\p{L}\p{N}])/iu,
+  },
+};
+
+/** The bare "active" in a message, or null when every use names what is active. */
+function bareActive(locale: AppLocale, message: string): string | null {
+  return ACTIVE_TERMS[locale].bare.exec(message)?.[0] ?? null;
+}
+
+test("a bare active is found in each language, and the full terms are not", () => {
+  for (const full of [
+    "Active Customers",
+    "An Active Organization sold or had a Member working.",
+    "Activity figures are frozen.",
+  ]) {
+    assert.equal(bareActive("en", full), null, full);
+  }
+  for (const bare of ["Days active", "Active that day", "Active Events", "Customers active"]) {
+    assert.notEqual(bareActive("en", bare), null, bare);
+  }
+
+  for (const full of [
+    "Clientes activos",
+    "Los clientes activos aún no se registran.",
+    "Organizaciones activas",
+    "Una organización activa vendió.",
+    "Un cliente activo",
+    "Las cifras de actividad quedan fijas.",
+    "Se activó el registro.",
+  ]) {
+    assert.equal(bareActive("es", full), null, full);
+  }
+  for (const bare of [
+    "Días activos",
+    "Activos ese día",
+    "Eventos activos",
+    "Activa ese día",
+    "Miembros activos",
+    "Clientes más activos",
+    // The adjective of the other term: it does not agree, so it is not the term.
+    "Organizaciones activos",
+    "Clientes activas",
+  ]) {
+    assert.notEqual(bareActive("es", bare), null, bare);
+  }
+});
+
+test("the Platform Trends copy says Active Customer and Active Organization in full", () => {
+  for (const locale of LOCALES) {
+    const copy = new Map(platformTrendsCopy(locale));
+    const terms = ACTIVE_TERMS[locale];
+    assert.equal(copy.get("operator.trendsActiveCustomers"), terms.customers);
+    assert.equal(copy.get("operator.trendsActiveOrganizations"), terms.organizations);
+    for (const [key, message] of copy) {
+      assert.equal(
+        bareActive(locale, message),
+        null,
+        `${locale}.json ${key} says "active" without Customer or Organization: ${message}`,
+      );
+    }
+  }
+});
+
+/**
+ * House Organization is "Organización propia" wherever the Spanish catalog
+ * names one (operator.houseTitle and the rest). Platform Trends reads that
+ * term and does not coin a second one (messages/README.md). This holds the
+ * one message that names one to the term, and every message of the section
+ * clear of the coinage it once carried; it cannot know a coinage not yet made.
+ */
+test("the Spanish Platform Trends copy names a House Organization as the rest of the catalog does", () => {
+  const copy = new Map(platformTrendsCopy("es"));
+  assert.match(copy.get("operator.trendsDescription") ?? "", /organizaciones propias/);
+  for (const [key, message] of copy) {
+    assert.ok(!/de la casa/i.test(message), `es.json ${key}: ${message}`);
+  }
 });

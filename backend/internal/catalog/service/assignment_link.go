@@ -374,6 +374,27 @@ func (s *Service) acceptAssignment(
 		return nil, holder, catalog.ErrAssignmentLinkInvalid()
 	}
 
+	// ACCEPTING IS THE HOLDER ACTING AS THEMSELVES (#817, ADR 0080), though
+	// no Customer Session is anywhere near this route: the click is the
+	// proof. Told only once the acceptance is written, so a link that lost
+	// the race above marks nobody.
+	//
+	// AND ONLY FOR THE ACCEPTANCE ITSELF, the pass through this gate that
+	// found the Ticket not yet accepted. Every later pass, a second click,
+	// the link opened again next week, a name or an Answer given afterwards,
+	// accepts nothing new and marks nobody: what is recorded is that a
+	// Ticket Assignment was accepted that day, and a link reopened later
+	// may by then be in a mail client's prefetch or somebody else's hands,
+	// which is the reason a Confirmation Link marks nobody at all. Two
+	// first clicks racing each other may both be told; the marker is one
+	// row either way.
+	//
+	// The person who assigned the Ticket is not marked here: that happens
+	// inside a Customer Session, which marks for itself.
+	if s.customerActivity != nil && !ticket.AcceptedAt.Valid {
+		s.customerActivity.MarkCustomerActive(ctx, customerID, s.now())
+	}
+
 	return ticket, acceptedHolder{CustomerID: customerID, FirstName: firstName, LastName: lastName}, nil
 }
 

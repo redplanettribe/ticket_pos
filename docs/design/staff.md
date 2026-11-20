@@ -111,6 +111,41 @@ Usable on phone in a pinch; tablet landscape is the primary target.
   Copy link stays a visible button; Rename / Deactivate / Delete sit behind a ⋯ menu. Create opens a dialog so
   the toolbar holds one text input.
 
+## Trend readings
+
+- A trend reading is drawn with the shared charts and the shared `TrendTile` (#820), never with a chart forked for one page.
+- **Comparison span**: a thin, dashed, half-transparent line over the chart's own series, aligned bucket to bucket.
+  Where the comparison has no data the line has a gap, never a zero.
+- **Before the data began**: a figure's own buckets before its first day of data are a gap too, on a line, on a stack and on a tile's trend line, and their hover card says they were not recorded (#842).
+  From that day on a bucket with nothing in it is a zero.
+- **Partial bucket** (today): on a line, a dashed stretch ending in a ring; on bars, a faint bar in a dashed outline.
+  The hover card says it is partial before any figure.
+- **Recording-began marker**: a dashed vertical mark with its label written toward the middle of the chart.
+- **Selecting a bucket**: by a click anywhere in its column, or by keyboard through one tab stop on the plot (arrows, Home and End move; Enter and Space choose).
+  The selected bucket is a solid mark, the keyboard's a dashed one, and the bucket the keyboard is on is shown as a chip at the plot's corner.
+- **Not recorded** is not zero: a figure with no recorded value draws no axis and no grid, only a box as tall as the chart and the words for why.
+  The box fits the visible width of its card, never the chart's minimum plot width, since there are no days to scroll through (#833); its words wrap inside it, between words.
+- **Tile**: label, figure, change, small trend line, then lesser readings under a rule; a money tile stacks one reading per currency.
+  The four states of a change are an arrow up with "+", an arrow down with "-", a dash, and a sentence saying why no change is stated, with no icon.
+  That sentence gives one of three reasons (#837): "nothing to compare against" when there is no comparison figure (as when the comparison lies wholly before recording began), or when no other reason holds; "comparison only partly recorded" when the comparison starts before recording began, even if what was recorded of it is zero; and "none in the span compared" when the comparison is wholly recorded and its figure is zero.
+  The direction is that of the percentage printed, to one decimal: a change that prints as 0% is the dash, never an arrow.
+  Colour repeats the icon and never carries the state alone.
+  Nothing on a tile wraps by the width of its figures (#840): a reading's caption (a currency, "a day") has its own line under the figure, and the lesser readings sit one to a row, so a tile is as tall for 3 as for 1,234,567 and a new span does not move the row; only a figure too wide for the tile on its own still breaks inside its line.
+- **Platform Trends** (#821) opens the Operator Dashboard's Overview, above the queues and totals: its controls, the tiles three to a row, then one chart per figure two to a row.
+  The span and the comparison live in the page's address, and choosing either draws the new reading in place, with the one before dimmed until it arrives.
+  A figure read as a trajectory is a line; Tickets Sold is bars stacked by Sales Channel.
+  Money is one chart per currency, never two currencies on one axis.
+  Each chart is drawn at its card's width, and scrolls sideways only in a card narrower than the plot's floor.
+  The Overview reads as one page (#838): its section title (`text-lg`) is never smaller than the headings of the cards under it, which are `text-base`, and every grid of cards on it shares one gap (`gap-4`), so two-column grids line up edge to edge.
+  With an odd number of charts, the last spans the full row at two columns (#839), so no chart sits beside an empty cell; the rule reads the grid's last child, not a named figure.
+  These layout values live in `apps/staff/app/operator/overview-layout.ts`; `CardTitle`'s own default is left for pages with no section title above their cards.
+- **Breakdown of a bucket** (#822): choosing a day or a week on a Platform Trends chart opens what it was made of in a bordered panel beneath that chart, inside its card, and the page is not left.
+  One panel is open at a time: a bucket chosen on another chart moves it there, and its Close button lets the selection go and returns focus to the chart.
+  The panel's title is one heading level beneath its chart card's title (an `h4` under the card's `h3`), and the headings of its lists one beneath that (an `h5`, the one exception to the foundation's `h1` to `h4`), so a reader moving by heading meets the breakdown as part of its chart.
+  Ranked contributors are a numbered list, a plain list is not numbered, and money is one group per currency, each under its own total.
+  Every row links to an Organization's operator page; an Event names its Organization beside it.
+  A breakdown of today says it is partial, one of sales alone says so, and one not recorded says that in place of a zero.
+
 ## Copy tone
 
 Direct and operational.

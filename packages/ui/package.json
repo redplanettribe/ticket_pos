@@ -8,7 +8,7 @@
     "./globals.css": "./src/styles/globals.css"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
+    "test": "node --import ./test/support/register-tsx.mjs --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

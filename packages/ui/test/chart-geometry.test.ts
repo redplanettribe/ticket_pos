@@ -9,6 +9,7 @@ import {
   TOOLTIP_DETAIL_ROW_HEIGHT,
   TOOLTIP_ROW_HEIGHT,
   Y_AXIS_WIDTH,
+  hoverCardShift,
   scrollWindowShift,
   tooltipColumnLayout,
   xAxisEdgePadding,
@@ -203,6 +204,89 @@ test("a card before the window's start is moved on to it", () => {
 
 test("a card wider than the window is pinned to its start", () => {
   assert.equal(scrollWindowShift({ start: 500, size: 900 }, seen), -400);
+});
+
+// --- the hover card's shift settles under Chrome's rect rounding (#831) ------
+
+/**
+ * What Chrome reports for a box laid out at `left` and `width` and translated
+ * by `shift`: each edge is placed in single precision, and the width is the
+ * difference of the two rounded edges. So the measured width of a translated
+ * box moves with its translation, by a few hundred-thousandths of a pixel.
+ */
+function chromeTranslatedRect(left: number, width: number, shift: number) {
+  const start = Math.fround(left + shift);
+  const end = Math.fround(left + width + shift);
+  return { left: start, width: end - start };
+}
+
+// The card that took the Operator Dashboard down at a scale factor of 1.8,
+// as measured in Chrome: a 162.7px card past the end of a 368px window.
+const window831 = {
+  left: 45.507816314697266 + Y_AXIS_WIDTH,
+  right: 45.507816314697266 + 368,
+  top: 0,
+  bottom: 220,
+};
+const frame831 = { left: 289.77447509765625, top: 0, width: 162.70834350585938, height: 130.4730987548828 };
+
+test("measured off its own translated box, the card's width moves with its shift", () => {
+  // The hazard itself, kept so the tests below cannot pass by accident: the
+  // two shifts the card alternated between measure it two different widths.
+  const a = chromeTranslatedRect(frame831.left, frame831.width, -38.97500228881836);
+  const b = chromeTranslatedRect(frame831.left, frame831.width, -38.97501754760742);
+  assert.notEqual(a.width, b.width);
+});
+
+test("a shift within rounding noise of the last is the last, so the card stops re-rendering", () => {
+  const previous = { x: -38.97500228881836, y: 0 };
+  // The width the card measured at that shift asks for a shift 1.5e-5px away:
+  // the alternation that ran into React's update limit (error #185).
+  const measured = { ...frame831, width: 162.70835876464844 };
+  assert.equal(hoverCardShift(previous, measured, window831, TOOLTIP_CURSOR_GAP), previous);
+});
+
+test("a card placed somewhere new is given its new shift", () => {
+  const next = hoverCardShift({ x: 0, y: 0 }, frame831, window831, TOOLTIP_CURSOR_GAP);
+  assert.equal(next.x, scrollWindowShift({ start: frame831.left, size: frame831.width }, { start: window831.left, end: window831.right }, TOOLTIP_CURSOR_GAP));
+  assert.equal(next.y, 0);
+});
+
+test("re-measuring the card after each shift settles within two passes, at any scale", () => {
+  // Replays the layout effect at its most exposed: the size read off the
+  // card's own translated box, as before #831, measured again after every
+  // shift. A layout effect that sets state on every pass is what React stops
+  // after 50 nested updates.
+  let seed = 831;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2 ** 31;
+    return seed / 2 ** 31;
+  };
+  for (let trial = 0; trial < 2000; trial += 1) {
+    // Layout lands on 1/64 of a device pixel; the scale makes that sub-pixel.
+    const scale = 1 + random() * 3;
+    const snap = (value: number) => Math.round(value * scale * 64) / (scale * 64);
+    const windowStart = snap(random() * 1200);
+    const window = { left: windowStart + Y_AXIS_WIDTH, right: windowStart + snap(200 + random() * 600), top: 0, bottom: 220 };
+    const left = snap(windowStart + random() * 4000);
+    const width = snap(80 + random() * 200);
+    // Placed low enough that the card often overhangs the window's foot, so
+    // the vertical shift is exercised under the same rounding.
+    const top = snap(random() * 200);
+    const height = snap(60 + random() * 120);
+    let shift = { x: 0, y: 0 };
+    for (let passes = 0; ; passes += 1) {
+      assert.ok(passes <= 2, `did not settle: ${JSON.stringify({ scale, window, left, width, top, height })}`);
+      const across = chromeTranslatedRect(left, width, shift.x);
+      const down = chromeTranslatedRect(top, height, shift.y);
+      const measured = { left, top, width: across.width, height: down.width };
+      const next = hoverCardShift(shift, measured, window, TOOLTIP_CURSOR_GAP);
+      if (next === shift) {
+        break;
+      }
+      shift = next;
+    }
+  }
 });
 
 // --- the geometry the Staff app imports keeps its meaning --------------------

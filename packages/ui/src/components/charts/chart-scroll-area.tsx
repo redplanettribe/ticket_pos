@@ -22,6 +22,22 @@ export type ChartScrollAreaProps = {
    * the honest place to ask: it is the box the charts must fit or overflow.
    */
   ref?: React.Ref<HTMLDivElement>;
+  /**
+   * Opens the window scrolled to its right-hand end, the newest days, rather
+   * than at the oldest: a span longer than the card is drawn oldest first, and
+   * the reader almost always came to see the latest days.
+   *
+   * `key` names the data drawn, and the window anchors once per key and then
+   * leaves the reader alone: a hover, a resize or a re-render with the same key
+   * must not drag them back from the days they scrolled to. Give it a new key
+   * exactly when what is drawn changes (another span, comparison or view).
+   *
+   * `contentWidth` is the width the charts are drawn at, and a reason to look
+   * again rather than a value read: charts are measured over the frames after
+   * mount, so the content only becomes wider than the window once that width
+   * settles. Until it does there is no overflow, and the anchor stays untaken.
+   */
+  openAtNewestEnd?: { key: string; contentWidth: number };
 };
 
 /**
@@ -45,10 +61,23 @@ export type ChartScrollAreaProps = {
  * hover cards find it by `CHART_SCROLL_AREA_ATTRIBUTE` to learn how much of
  * the chart is actually on screen.
  */
-export function ChartScrollArea({ ariaLabel, children, className, ref }: ChartScrollAreaProps) {
+export function ChartScrollArea({ ariaLabel, children, className, ref, openAtNewestEnd }: ChartScrollAreaProps) {
+  const element = React.useRef<HTMLDivElement | null>(null);
+  const setElement = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      element.current = node;
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref],
+  );
+  useOpenedAtNewestEnd(element, openAtNewestEnd?.key, openAtNewestEnd?.contentWidth);
   return (
     <div
-      ref={ref}
+      ref={setElement}
       {...{ [CHART_SCROLL_AREA_ATTRIBUTE]: "" }}
       role="group"
       aria-label={ariaLabel}
@@ -62,4 +91,45 @@ export function ChartScrollArea({ ariaLabel, children, className, ref }: ChartSc
       {children}
     </div>
   );
+}
+
+/**
+ * Sets the window's offset to its newest end once per key (see
+ * `openAtNewestEnd`), and does nothing without a key.
+ *
+ * It sets no state, so it cannot loop: it runs again only when the key or the
+ * content width changes, and once the anchor is taken it returns at once.
+ *
+ * A new key is a fresh anchor to take, so the flag is cleared here rather than
+ * compared against the key. Comparing would look equivalent and is not: a span
+ * that fits its card never takes its anchor, and the next key must still find
+ * its own anchor untaken.
+ *
+ * A layout effect, so the offset is set before the browser paints. In an
+ * ordinary effect the reader sees the oldest days for a frame and then a jump.
+ */
+function useOpenedAtNewestEnd(
+  element: React.RefObject<HTMLDivElement | null>,
+  key: string | undefined,
+  contentWidth: number | undefined,
+): void {
+  const anchor = React.useRef<{ key: string | undefined; taken: boolean }>({ key: undefined, taken: false });
+  React.useLayoutEffect(() => {
+    if (anchor.current.key !== key) {
+      anchor.current = { key, taken: false };
+    }
+    const area = element.current;
+    if (key === undefined || area === null || anchor.current.taken) {
+      return;
+    }
+    const overflow = area.scrollWidth - area.clientWidth;
+    if (overflow <= 0) {
+      // Either the content fits, so there is no end to open on, or nothing has
+      // been laid out yet. Neither is worth remembering: a later frame may
+      // still take the anchor.
+      return;
+    }
+    area.scrollLeft = overflow;
+    anchor.current.taken = true;
+  }, [element, key, contentWidth]);
 }

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
 
 // SalesTrendBucket is one (day, Ticket Type) cell of the Sales Trends matrix:
@@ -74,6 +76,341 @@ func (r *Repository) SalesTrends(ctx context.Context, orgID, eventID, timezone s
 			return nil, err
 		}
 		out = append(out, bucket)
+	}
+	return out, rows.Err()
+}
+
+// PlatformTicketsSoldDay is one (day, Sales Channel) cell of the platform's
+// Tickets Sold: how many tickets every Organization together sold on that
+// channel on that day. Day is a calendar date on the clock the caller named,
+// formatted YYYY-MM-DD, for the reason SalesTrendBucket's is.
+type PlatformTicketsSoldDay struct {
+	Day      string
+	Channel  string
+	Quantity int
+}
+
+// PlatformTicketsSoldByDay totals every active Ticket Sale Line on the
+// platform per day and Sales Channel, for Platform Trends (#810, ADR 0080).
+// It is the platform-wide sibling of SalesTrends and keeps its rules: the
+// quantity of active sales only, bucketed by sold_at (the day the sale was
+// MADE, so a Sale Import lands on its historical day and not on the day it
+// was typed in), with no channel filter and no Organization filter - House
+// Organizations included, so the figure agrees with every other platform
+// total.
+//
+// The day is read on the zone the caller passes, which is the platform's own
+// clock and never an Event's: a sale belongs to the platform day it happened
+// on, wherever its Event is held. Only sales sold in [from, until) are read;
+// the caller bounds that window to whole days on the same clock.
+//
+// No index is added for it. The read is operator-only and bounded by the
+// span, and a platform-wide window over ticket_sales is a large fraction of
+// the table for any span worth reading, which a sequential scan serves as
+// well as an index would; the figure is read live, as Sales Trends is, with
+// no rollup table.
+func (r *Repository) PlatformTicketsSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformTicketsSoldDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((ts.sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			ts.channel,
+			SUM(tsl.quantity)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		WHERE ts.status = 'active' AND ts.sold_at >= $1 AND ts.sold_at < $2
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformTicketsSoldDay
+	for rows.Next() {
+		var day PlatformTicketsSoldDay
+		if err := rows.Scan(&day.Day, &day.Channel, &day.Quantity); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformMoneyDay is one (day, currency) cell of the platform's money: what
+// every Organization in that currency together sold on that day, and the
+// Platform Fee the platform earned on it, both in the currency's minor units.
+// Day is a calendar date on the clock the caller named, formatted YYYY-MM-DD.
+type PlatformMoneyDay struct {
+	Day              string
+	Currency         string
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformMoneyByDay totals the platform's money per day and currency over
+// the Ticket Sales sold in [from, until), for Platform Trends (#812, ADR
+// 0080). The currency is the selling Organization's, and currencies are never
+// added together or converted, as on the operator summary (ADR 0015).
+//
+// Money sold is lineBuyerPriceSQL, the buyer price times the quantity before
+// any fee is withheld, over active Ticket Sales on every Sales Channel: a
+// reversed sale drops out of its sold day.
+//
+// Platform Fee earned is the operator summary's own definition, the fragments
+// orgMoneySQL is written with: the fee of every line of a sale whose fee is
+// earned (feeEarnedSaleSQL), which is an active Online Sale or a reversed one
+// whose fee the platform kept, excluding Fee IVA. Summed over every sold_at
+// it is therefore the Platform Fee PlatformCurrencyTotals states, per
+// currency. Import and
+// in-person sales add nothing to it.
+//
+// Days are read as PlatformTicketsSoldByDay reads them, on the zone the
+// caller passes and by sold_at, and like it this adds no index.
+func (r *Repository) PlatformMoneyByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformMoneyDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((ts.sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			org.currency,
+			COALESCE(SUM(`+lineBuyerPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE `+feeEarnedSaleSQL+`), 0)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		JOIN organizations org ON org.id = ts.organization_id
+		WHERE ts.sold_at >= $1 AND ts.sold_at < $2
+		  AND (ts.status = 'active' OR `+feeEarnedSaleSQL+`)
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformMoneyDay
+	for rows.Next() {
+		var day PlatformMoneyDay
+		if err := rows.Scan(&day.Day, &day.Currency, &day.SoldCents, &day.PlatformFeeCents); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformCurrencies is every currency an Organization on the platform is
+// in, in the order the operator summary lists them (PlatformCurrencyTotals
+// groups the same column): the series Platform Trends states its money
+// figures in, whether or not a currency sold anything in the span.
+func (r *Repository) PlatformCurrencies(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `SELECT DISTINCT currency FROM organizations ORDER BY currency ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []string{}
+	for rows.Next() {
+		var currency string
+		if err := rows.Scan(&currency); err != nil {
+			return nil, err
+		}
+		out = append(out, currency)
+	}
+	return out, rows.Err()
+}
+
+// PlatformFirstTicketSoldDay is the day, on the clock the caller names, the
+// platform's earliest Ticket Sale was sold, formatted YYYY-MM-DD, and false
+// when there is none: the first day Platform Trends' Tickets Sold has data,
+// before which a comparison has no history to read (#811). It reads sold_at
+// over every Organization as PlatformTicketsSoldByDay does, but counts
+// reversed sales too: the platform was recording sales from that day, so
+// reversing the earliest one does not turn the days after it from a measured
+// zero into missing history. Like its sibling it adds no index: it is one
+// aggregate over the table, read by operators alone.
+func (r *Repository) PlatformFirstTicketSoldDay(ctx context.Context, timezone string) (string, bool, error) {
+	var day sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT to_char((MIN(sold_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
+		FROM ticket_sales
+	`, timezone).Scan(&day)
+	if err != nil {
+		return "", false, err
+	}
+	return day.String, day.Valid, nil
+}
+
+// PlatformSaleRecordedDay says a Ticket Sale was recorded for an Organization
+// on a day. Day is a calendar date on the clock the caller named, formatted
+// YYYY-MM-DD.
+type PlatformSaleRecordedDay struct {
+	Day            string
+	OrganizationID string
+}
+
+// PlatformOrganizationsWithSalesRecordedByDay is every (day, Organization)
+// for which a Ticket Sale was recorded in [from, until), each once: the sale
+// half of Active Organizations, which the daily close freezes (#815, ADR
+// 0080).
+//
+// It is the one Platform Trends read that goes by created_at, the instant
+// the sale reached the platform, and not by sold_at: an old sale imported
+// today is the Organization working today. The status is not read, so a sale
+// reversed since still counts, and neither is the Sales Channel. Whoever
+// caused the sale, a Customer, a Member or an Integration Partner, it is the
+// Organization's.
+//
+// The day is read on the zone the caller passes, the platform's own clock.
+// No index is added: the close reads it once a night over thirty days, or
+// once over the whole table on its first run.
+func (r *Repository) PlatformOrganizationsWithSalesRecordedByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformSaleRecordedDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT DISTINCT
+			to_char((created_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			organization_id
+		FROM ticket_sales
+		WHERE created_at >= $1 AND created_at < $2
+		ORDER BY 1, 2
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformSaleRecordedDay
+	for rows.Next() {
+		var day PlatformSaleRecordedDay
+		if err := rows.Scan(&day.Day, &day.OrganizationID); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformFirstSaleRecordedDay is the day, on the clock the caller names,
+// the platform's earliest Ticket Sale was recorded, formatted YYYY-MM-DD,
+// and false when there is none: the first day the daily close freezes.
+// Reversed sales count, as in PlatformOrganizationsWithSalesRecordedByDay.
+func (r *Repository) PlatformFirstSaleRecordedDay(ctx context.Context, timezone string) (string, bool, error) {
+	var day sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT to_char((MIN(created_at) AT TIME ZONE $1)::date, 'YYYY-MM-DD')
+		FROM ticket_sales
+	`, timezone).Scan(&day)
+	if err != nil {
+		return "", false, err
+	}
+	return day.String, day.Valid, nil
+}
+
+// PlatformCustomerSaleDay says a Customer owns an Online Sale sold on a day,
+// YYYY-MM-DD on the clock the caller named.
+type PlatformCustomerSaleDay struct {
+	Day        string
+	CustomerID string
+}
+
+// PlatformCustomersWithOnlineSalesSoldByDay is every (day, Customer) for
+// which the Customer owns an Online Sale sold in [from, until), each once:
+// what "bought" means in the daily close's split of Active Customers (#817,
+// ADR 0080).
+//
+// It goes by sold_at, which for an Online Sale is the instant the Customer
+// bought, and by the online Sales Channel alone: an import or a sale typed
+// at the door is staff acting, not the Customer. The status is not read, as
+// in PlatformOrganizationsWithSalesRecordedByDay: a sale reversed since was
+// still bought that day, and activity is not money.
+//
+// Read by the close once a night over the days it freezes. No index is
+// added, for the reason given there.
+func (r *Repository) PlatformCustomersWithOnlineSalesSoldByDay(ctx context.Context, from, until time.Time, timezone string) ([]PlatformCustomerSaleDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT DISTINCT
+			to_char((sold_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day,
+			customer_id
+		FROM ticket_sales
+		WHERE sold_at >= $1 AND sold_at < $2 AND channel = 'online'
+	`, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformCustomerSaleDay
+	for rows.Next() {
+		var day PlatformCustomerSaleDay
+		if err := rows.Scan(&day.Day, &day.CustomerID); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// PlatformEventSales is what one Event sold over a window: its Tickets Sold,
+// its money sold and the Platform Fee the platform earned on it, the money in
+// the minor units of Currency, its Organization's. It carries the names an
+// operator page states beside the ids.
+type PlatformEventSales struct {
+	OrganizationID   string
+	OrganizationName string
+	EventID          string
+	EventName        string
+	Currency         string
+	Quantity         int
+	SoldCents        int
+	PlatformFeeCents int
+}
+
+// PlatformSalesByEvent totals the Ticket Sales sold in [from, until) per
+// Event, for the breakdown of Platform Trends' Tickets Sold, money sold and
+// Platform Fee earned (#818, ADR 0080): what a bucket of those figures was
+// made of.
+//
+// Each total is the figure's own definition over the same sales, so the
+// Events of a window add up to what PlatformTicketsSoldByDay and
+// PlatformMoneyByDay state for its days: the quantity and lineBuyerPriceSQL
+// over active Ticket Sales on every Sales Channel, and linePlatformFeeSQL
+// over the sales whose fee is earned (feeEarnedSaleSQL), a reversed one whose
+// fee the platform kept among them. An Event whose only sale in the window
+// was reversed with its fee kept is therefore returned with a fee and
+// nothing sold; the caller leaves out whatever is zero for the figure it
+// states.
+//
+// The window is one of instants, bounded by the caller to whole days on the
+// platform clock, and nothing is grouped by day, so no timezone is passed.
+// No index is added, for the reason PlatformTicketsSoldByDay gives.
+func (r *Repository) PlatformSalesByEvent(ctx context.Context, from, until time.Time) ([]PlatformEventSales, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			org.id, org.name, e.id, e.name, org.currency,
+			COALESCE(SUM(tsl.quantity) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+lineBuyerPriceSQL+`) FILTER (WHERE ts.status = 'active'), 0)::bigint,
+			COALESCE(SUM(`+linePlatformFeeSQL+`) FILTER (WHERE `+feeEarnedSaleSQL+`), 0)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		JOIN organizations org ON org.id = ts.organization_id
+		JOIN events e ON e.id = ts.event_id
+		WHERE ts.sold_at >= $1 AND ts.sold_at < $2
+		  AND (ts.status = 'active' OR `+feeEarnedSaleSQL+`)
+		GROUP BY org.id, e.id
+		ORDER BY org.id, e.id
+	`, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlatformEventSales
+	for rows.Next() {
+		var event PlatformEventSales
+		if err := rows.Scan(&event.OrganizationID, &event.OrganizationName, &event.EventID, &event.EventName, &event.Currency,
+			&event.Quantity, &event.SoldCents, &event.PlatformFeeCents); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
 	}
 	return out, rows.Err()
 }

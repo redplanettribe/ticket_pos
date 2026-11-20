@@ -7,12 +7,23 @@ import {
   CHART_MARGIN,
   ChartTooltipCard,
   StackedChartShell,
+  selectableChartProps,
   TOOLTIP_PROPS,
   Y_AXIS_PROPS,
   xAxisProps,
   type StackedSeries,
 } from "./chart-frame";
-import { tooltipRows } from "./chart-tooltip-rows";
+import { nothingRecorded, partialLineValues, type ChartBucketReading } from "./chart-reading";
+import {
+  comparisonLines,
+  isolatedPointDot,
+  markerLine,
+  partialStretchLines,
+  selectionMarks,
+  useBucketSelection,
+  type ChartReadingProps,
+} from "./chart-reading-marks";
+import { comparisonTooltipRows, tooltipEmptyLabel, tooltipNotes, tooltipRows } from "./chart-tooltip-rows";
 
 /**
  * One bucket of a multi-series LINE chart: its key, its axis label, and each
@@ -24,15 +35,16 @@ import { tooltipRows } from "./chart-tooltip-rows";
  * gap must be representable in the data or the chart would be forced to draw a
  * zero that means something else entirely.
  */
-export type MultiSeriesLineDatum = {
+export type MultiSeriesLineDatum = ChartBucketReading & {
   key: string;
   label: string;
   values: Record<string, number | null>;
 };
 
 /** What a multi-series line chart is told. See `StackedChartProps` for why the
- * axis geometry (`yMax`, `yTicks`, `plotWidth`) is owned by the caller. */
-export type MultiSeriesLineChartProps = {
+ * axis geometry (`yMax`, `yTicks`, `plotWidth`) is owned by the caller, and
+ * `ChartReadingProps` for what a trend reading adds. */
+export type MultiSeriesLineChartProps = ChartReadingProps & {
   data: MultiSeriesLineDatum[];
   series: StackedSeries[];
   yMax: number;
@@ -48,7 +60,8 @@ export type MultiSeriesLineChartProps = {
    * is what a counting view means by zero. See `tooltipRows`. */
   zeroIsMeasured?: boolean;
   /** What the hover card says for a bucket in which no drawn series counted
-   * anything. Passed in by the surface, which owns its words. */
+   * anything. Passed in by the surface, which owns its words. A chart also
+   * given `notRecordedLabel` says that instead where every series is a gap. */
   nothingCountedLabel: string;
   syncId?: string;
   height?: number;
@@ -87,9 +100,43 @@ export function MultiSeriesLineChart({
   height = 320,
   ariaLabel,
   className,
+  comparisonSeries,
+  partialLabel,
+  marker,
+  selection,
+  notRecordedLabel,
 }: MultiSeriesLineChartProps) {
   const formatTick = formatTickValue ?? formatValue;
   const labels = data.map((datum) => datum.label);
+  const seriesIds = series.map((entry) => entry.id);
+  const { overlay, selectedIndex, cursorIndex, onChartClick } = useBucketSelection(data, selection, {
+    plotWidth,
+    height,
+    shape: "point",
+  });
+  // A chart with a partial bucket draws each series twice: the closed line,
+  // which gives that bucket up, and the dashed stretch that reaches it. The
+  // split rides on a copy of each datum, so the hover card still reads the
+  // caller's own fields. Without a partial bucket the data is drawn as given.
+  const drawn: DrawnLineDatum[] = React.useMemo(() => {
+    if (!data.some((datum) => datum.partial === true)) {
+      return data;
+    }
+    const partial = data.map((datum) => datum.partial === true);
+    const rows: DrawnLineDatum[] = data.map((datum) => ({ ...datum, closed: {}, stretch: {} }));
+    for (const { id } of series) {
+      const split = partialLineValues(
+        data.map((datum) => datum.values[id] ?? null),
+        partial,
+      );
+      rows.forEach((row, index) => {
+        row.closed![id] = split.closed[index] ?? null;
+        row.stretch![id] = split.partial[index] ?? null;
+      });
+    }
+    return rows;
+  }, [data, series]);
+  const hasPartial = drawn !== data;
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -99,14 +146,28 @@ export function MultiSeriesLineChart({
       formatTick={formatTick}
       ariaLabel={ariaLabel}
       className={className}
+      overlay={overlay}
+      notRecordedLabel={nothingRecorded(data, seriesIds) ? notRecordedLabel : undefined}
     >
       {(width) => (
-        <LineChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
+        <LineChart
+          width={width}
+          height={height}
+          data={drawn}
+          syncId={syncId}
+          margin={CHART_MARGIN}
+          {...selectableChartProps(onChartClick)}
+        >
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
           <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
           <Tooltip
             {...TOOLTIP_PROPS}
+            // Recharts drops a line with no value from what it hands the card,
+            // and draws no card at all for a bucket in which every line is a
+            // gap. A chart with words for "not recorded" has something to say
+            // there, so it keeps them; one without draws no card, as before.
+            filterNull={notRecordedLabel === undefined}
             cursor={{
               className: "stroke-muted-foreground",
               strokeDasharray: "3 3",
@@ -119,15 +180,20 @@ export function MultiSeriesLineChart({
                 zeroIsMeasured={zeroIsMeasured}
                 nothingCountedLabel={nothingCountedLabel}
                 chartHeight={height}
+                comparisonSeries={comparisonSeries}
+                partialLabel={partialLabel}
+                notRecordedLabel={notRecordedLabel}
               />
             }
           />
+          {selectionMarks(data, { selectedIndex, cursorIndex }, "point")}
+          {comparisonLines(comparisonSeries)}
           {series.map((entry) => (
             <Line
               key={entry.id}
               // A function reads the value out of `values`, and a null stays a
               // null: with connectNulls off, that is recharts' word for a gap.
-              dataKey={(datum: MultiSeriesLineDatum) => datum.values[entry.id] ?? null}
+              dataKey={(datum: DrawnLineDatum) => (datum.closed ?? datum.values)[entry.id] ?? null}
               name={entry.name}
               type="linear"
               stroke={entry.color}
@@ -141,58 +207,25 @@ export function MultiSeriesLineChart({
               isAnimationActive={false}
             />
           ))}
+          {hasPartial
+            ? partialStretchLines(series, (datum: DrawnLineDatum, id) => datum.stretch?.[id] ?? null)
+            : null}
+          {markerLine(data, marker, "point")}
         </LineChart>
       )}
     </StackedChartShell>
   );
 }
 
-/** What recharts hands a custom dot: where the point sits, which index it is,
- * and the whole series' points beside it. Spelled structurally rather than
- * imported, so a recharts type rename cannot break the chart. */
-type LinePointDotProps = {
-  cx?: number;
-  cy?: number;
-  index?: number;
-  stroke?: string;
-  points?: readonly { value?: unknown }[];
+/**
+ * A datum as the chart draws it: the caller's own, and beside it, when the
+ * chart has a partial bucket, each series' value for the closed line and for
+ * the stretch reaching the partial bucket (see `partialLineValues`).
+ */
+type DrawnLineDatum = MultiSeriesLineDatum & {
+  closed?: Record<string, number | null>;
+  stretch?: Record<string, number | null>;
 };
-
-/**
- * hasValue reads a point the way the line does: null is a gap, and recharts
- * carries the gap through as a null (or absent) value on the point.
- */
-function hasValue(point: { value?: unknown } | undefined): boolean {
-  return point !== undefined && point.value !== null && point.value !== undefined;
-}
-
-/**
- * The dot drawn on a point with a gap on both sides — and on no other point.
- *
- * A line is drawn between consecutive values, so a value with a gap before it
- * and a gap after it has no segment to be part of; with dots off it is
- * invisible, and a Daily rate that landed a sale on one day out of seven
- * would draw nothing at all while the tooltip insisted there was a point. The
- * dot is the mark that point gets instead of a segment. Points inside a run
- * keep no dot: the line already states them, and a dot on every point turns a
- * trajectory into a scatter.
- */
-function isolatedPointDot({ cx, cy, index, stroke, points }: LinePointDotProps) {
-  if (
-    typeof cx !== "number" ||
-    typeof cy !== "number" ||
-    !Number.isFinite(cx) ||
-    !Number.isFinite(cy) ||
-    index === undefined ||
-    points === undefined
-  ) {
-    return null;
-  }
-  if (!hasValue(points[index]) || hasValue(points[index - 1]) || hasValue(points[index + 1])) {
-    return null;
-  }
-  return <circle cx={cx} cy={cy} r={3} fill={stroke} stroke="none" />;
-}
 
 type MultiSeriesLineTooltipProps = {
   series: StackedSeries[];
@@ -202,6 +235,9 @@ type MultiSeriesLineTooltipProps = {
   nothingCountedLabel: string;
   /** The chart's height, handed on so the card can fit itself to it. */
   chartHeight: number;
+  comparisonSeries?: StackedSeries[];
+  partialLabel?: string;
+  notRecordedLabel?: string;
   /** Injected by recharts when it clones this element. */
   active?: boolean;
   payload?: { payload?: MultiSeriesLineDatum }[];
@@ -211,7 +247,10 @@ type MultiSeriesLineTooltipProps = {
  * The hover card for one bucket: the drawn series that counted something
  * there, in the caller's order (see `tooltipRows` for what "counted" means and
  * why a gap and a zero are left out). When none did, the card keeps its
- * bucket label and says so in one muted line.
+ * bucket label and says so in one muted line: that nothing was counted, or,
+ * where every series is a gap and the chart has the words, that nothing was
+ * recorded. A partial bucket says so first, and the comparison series' rows
+ * follow the series' own.
  */
 export function MultiSeriesLineTooltip({
   series,
@@ -220,6 +259,9 @@ export function MultiSeriesLineTooltip({
   zeroIsMeasured,
   nothingCountedLabel,
   chartHeight,
+  comparisonSeries,
+  partialLabel,
+  notRecordedLabel,
   active,
   payload,
 }: MultiSeriesLineTooltipProps) {
@@ -227,19 +269,27 @@ export function MultiSeriesLineTooltip({
   if (!active || !datum) {
     return null;
   }
-  const { rows, nothingCounted } = tooltipRows(
+  const reading = tooltipRows(
     series,
     datum.values,
     formatValue,
     (seriesId) => formatSeriesDetail?.(seriesId, datum) ?? null,
     { zeroIsMeasured },
   );
+  const comparisonRows = comparisonTooltipRows(comparisonSeries, datum, formatValue);
   return (
     <ChartTooltipCard
       label={datum.label}
       chartHeight={chartHeight}
-      rows={rows}
-      emptyLabel={nothingCounted ? nothingCountedLabel : undefined}
+      rows={[...reading.rows, ...comparisonRows]}
+      notes={tooltipNotes(datum, { partialLabel })}
+      // Said only when the comparison has nothing to show either, or the card
+      // would say "nothing" above a row.
+      emptyLabel={
+        comparisonRows.length === 0
+          ? tooltipEmptyLabel(reading, { nothingCountedLabel, notRecordedLabel })
+          : undefined
+      }
     />
   );
 }

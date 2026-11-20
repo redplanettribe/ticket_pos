@@ -9,10 +9,19 @@ import {
   StackedChartTooltip,
   TOOLTIP_PROPS,
   Y_AXIS_PROPS,
+  selectableChartProps,
   xAxisProps,
   type StackedChartProps,
   type StackedDatum,
 } from "./chart-frame";
+import {
+  comparisonLines,
+  markerLine,
+  partialBarCells,
+  selectionMarks,
+  useBucketSelection,
+  type ChartReadingProps,
+} from "./chart-reading-marks";
 
 /**
  * The widest a single bar is drawn, however much room its bucket has.
@@ -25,7 +34,13 @@ import {
  */
 const MAX_BAR_SIZE = 48;
 
-export type StackedBarChartProps = StackedChartProps;
+/**
+ * A stacked bar chart takes what a trend reading adds (`ChartReadingProps`).
+ * A stack is parts of a whole that was counted, so a bucket is not recorded
+ * as a whole or not at all: its total is null (`StackedDatum`). Its
+ * comparison series is compared with the height of the stack.
+ */
+export type StackedBarChartProps = StackedChartProps & ChartReadingProps;
 
 /**
  * StackedBarChart draws one bar per bucket, segmented by series in the order
@@ -59,9 +74,19 @@ export function StackedBarChart({
   height = 320,
   ariaLabel,
   className,
+  comparisonSeries,
+  partialLabel,
+  marker,
+  selection,
+  notRecordedLabel,
 }: StackedBarChartProps) {
   const formatTick = formatTickValue ?? formatValue;
   const labels = data.map((datum) => datum.label);
+  const { overlay, selectedIndex, cursorIndex, onChartClick } = useBucketSelection(data, selection, {
+    plotWidth,
+    height,
+    shape: "band",
+  });
   return (
     <StackedChartShell
       plotWidth={plotWidth}
@@ -71,9 +96,18 @@ export function StackedBarChart({
       formatTick={formatTick}
       ariaLabel={ariaLabel}
       className={className}
+      overlay={overlay}
+      notRecordedLabel={data.length > 0 && data.every((datum) => datum.total === null) ? notRecordedLabel : undefined}
     >
       {(width) => (
-        <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
+        <BarChart
+          width={width}
+          height={height}
+          data={data}
+          syncId={syncId}
+          margin={CHART_MARGIN}
+          {...selectableChartProps(onChartClick)}
+        >
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
           <XAxis {...xAxisProps(labels, plotWidth)} />
           <YAxis
@@ -86,6 +120,9 @@ export function StackedBarChart({
           />
           <Tooltip
             {...TOOLTIP_PROPS}
+            // Recharts hands the card nothing for a bucket with no bar in it. A
+            // chart with words for "not recorded" has something to say there.
+            filterNull={notRecordedLabel === undefined}
             cursor={{ className: "fill-muted", opacity: 0.4 }}
             content={
               <StackedChartTooltip
@@ -93,23 +130,32 @@ export function StackedBarChart({
                 formatValue={formatValue}
                 totalLabel={totalLabel}
                 chartHeight={height}
+                comparisonSeries={comparisonSeries}
+                partialLabel={partialLabel}
+                notRecordedLabel={notRecordedLabel}
               />
             }
           />
+          {selectionMarks(data, { selectedIndex, cursorIndex }, "band")}
           {series.map((entry) => (
             <Bar
               key={entry.id}
               // A function reads the value out of `values` so a series id can be
               // any string (a Ticket Type's UUID) without colliding with the
-              // datum's own fields.
-              dataKey={(datum: StackedDatum) => datum.values[entry.id] ?? 0}
+              // datum's own fields. A bucket not recorded has no bar, never a
+              // bar of zero.
+              dataKey={(datum: StackedDatum) => (datum.total === null ? null : (datum.values[entry.id] ?? 0))}
               name={entry.name}
               stackId="stack"
               fill={entry.color}
               maxBarSize={MAX_BAR_SIZE}
               isAnimationActive={false}
-            />
+            >
+              {partialBarCells(data, entry.color)}
+            </Bar>
           ))}
+          {comparisonLines(comparisonSeries)}
+          {markerLine(data, marker, "band")}
         </BarChart>
       )}
     </StackedChartShell>

@@ -13,7 +13,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/reportertest"
 )
 
-// EVERY SCHEDULED JOB CHECKS IN (#767, ADR 0079). Each of the nine routes Cloud
+// EVERY SCHEDULED JOB CHECKS IN (#767, ADR 0079). Each of the ten routes Cloud
 // Scheduler calls checks in as started and then as ok or failed, under the
 // name its monitor carries, and flushes before it answers. The names are the
 // contract with the monitors Terraform declares, so they are spelled out here
@@ -33,6 +33,7 @@ var scheduledJobRoutes = []struct {
 	{"/api/v1/internal/assignment-reminders/sweep", "ticket-pos-assignment-reminder"},
 	{"/api/v1/internal/owed-assignment-mails/sweep", "ticket-pos-owed-assignment-mail"},
 	{"/api/v1/internal/holder-addresses/purge", "ticket-pos-holder-address-purge"},
+	{"/api/v1/internal/platform-trends/close", "ticket-pos-daily-close"},
 }
 
 func TestEachScheduledJobChecksInStartedThenOK(t *testing.T) {

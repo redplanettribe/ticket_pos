@@ -8,6 +8,27 @@ import (
 	"time"
 )
 
+// The Platform Fee the platform has earned is one definition, in the
+// fragments below, read by the operator summary (orgMoneySQL) and by Platform
+// Trends' Platform Fee earned (PlatformMoneyByDay): the fee each line
+// snapshotted, over the Ticket Sales (aliased ts) whose fee is earned. A fee
+// is earned on an active Online Sale, and on a reversed one whose Operator
+// Reversal said the platform kept its Platform Fee (#127). Fee IVA is never
+// part of it: it is tax the platform passes on, stated in its own column.
+const (
+	// linePlatformFeeSQL is the Platform Fee of one Ticket Sale Line (aliased
+	// tsl), excluding Fee IVA.
+	linePlatformFeeSQL = `tsl.quantity * tsl.fee_cents`
+	// feeActiveSaleSQL is true of an active Online Sale.
+	feeActiveSaleSQL = `ts.channel = 'online' AND ts.status = 'active'`
+	// feeKeptSaleSQL is true of a reversed Online Sale whose Platform Fee the
+	// platform kept.
+	feeKeptSaleSQL = `ts.channel = 'online' AND ts.status = 'reversed' AND ts.platform_fee_kept`
+	// feeEarnedSaleSQL is true of every Ticket Sale whose Platform Fee is
+	// earned: the two above and no other.
+	feeEarnedSaleSQL = `((` + feeActiveSaleSQL + `) OR (` + feeKeptSaleSQL + `))`
+)
+
 // orgMoneySQL is every Organization's money in one row each: what the platform
 // has withheld from it (Platform Fee and Fee IVA, accumulated from the amounts
 // each active Online Sale line snapshotted) and its Withdrawable Balance (Net
@@ -27,6 +48,10 @@ import (
 // kept its commission (#127). It is the one exception to the active-only rule,
 // it belongs to the platform's revenue alone, and it is carried in its own
 // columns so that no Organization-facing figure can pick it up by accident.
+//
+// The fee terms are written with the fragments below, which Platform Trends'
+// Platform Fee earned reads too (PlatformMoneyByDay), so the dashboard's total
+// and its trend are one definition and cannot drift (#812).
 const orgMoneySQL = `
 	SELECT
 		org.id AS organization_id,
@@ -40,24 +65,21 @@ const orgMoneySQL = `
 	LEFT JOIN LATERAL (
 		SELECT
 			SUM(` + lineNetProceedsSQL + `) AS net_proceeds_cents,
-			SUM(tsl.quantity * tsl.fee_cents) AS fee_cents,
+			SUM(` + linePlatformFeeSQL + `) AS fee_cents,
 			SUM(tsl.quantity * tsl.fee_iva_cents) AS fee_iva_cents
 		FROM ticket_sale_lines tsl
 		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
 		WHERE ts.organization_id = org.id
-		  AND ts.channel = 'online'
-		  AND ts.status = 'active'
+		  AND ` + feeActiveSaleSQL + `
 	) lines ON TRUE
 	LEFT JOIN LATERAL (
 		SELECT
-			SUM(tsl.quantity * tsl.fee_cents) AS fee_cents,
+			SUM(` + linePlatformFeeSQL + `) AS fee_cents,
 			SUM(tsl.quantity * tsl.fee_iva_cents) AS fee_iva_cents
 		FROM ticket_sale_lines tsl
 		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
 		WHERE ts.organization_id = org.id
-		  AND ts.channel = 'online'
-		  AND ts.status = 'reversed'
-		  AND ts.platform_fee_kept
+		  AND ` + feeKeptSaleSQL + `
 	) kept ON TRUE
 	LEFT JOIN LATERAL (
 		SELECT SUM(p.amount_cents) AS paid_cents
@@ -371,8 +393,8 @@ func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationR
 		JOIN events e ON e.id = ts.event_id
 		JOIN LATERAL (
 			SELECT
-				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
-				COALESCE(SUM(tsl.quantity * tsl.fee_cents), 0) AS fee_cents,
+				COALESCE(SUM(`+lineBuyerPriceSQL+`), 0) AS amount_cents,
+				COALESCE(SUM(`+linePlatformFeeSQL+`), 0) AS fee_cents,
 				COALESCE(SUM(tsl.quantity * tsl.fee_iva_cents), 0) AS fee_iva_cents,
 				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
 				COALESCE(SUM(tsl.quantity), 0) AS ticket_count,

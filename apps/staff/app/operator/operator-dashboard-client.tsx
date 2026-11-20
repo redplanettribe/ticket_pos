@@ -31,9 +31,12 @@ import {
   fetchOperatorRecipientWarningCount,
   fetchOperatorSummary,
 } from "@/lib/operator-api";
+import type { PlatformTrendsView } from "@/lib/platform-trends";
 
 import { CertificateExpiryBanner } from "./invoicing/certificate-expiry-warning";
 import { ClosingSweepBanner } from "./invoicing/closing-sweep-banner";
+import { OVERVIEW_CARD_TITLE, OVERVIEW_GRID_GAP } from "./overview-layout";
+import { PlatformTrendsSection } from "./platform-trends-section";
 
 /**
  * The one place platform revenue stops being "active sales only": fees kept on
@@ -65,13 +68,13 @@ function KeptFeeNote({ totals, locale }: { totals: OperatorCurrencyTotals; local
  * title is the currency code itself and the amounts are drawn in it; the Staff
  * Locale decides only the marks around the numbers (ADR 0041).
  */
-function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
+export function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
   const t = useTranslations("operator");
   const money = (cents: number) => formatMoney(cents, totals.currency, locale);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{totals.currency}</CardTitle>
+        <CardTitle className={OVERVIEW_CARD_TITLE}>{totals.currency}</CardTitle>
         <CardDescription>{t("totalsDescription", { currency: totals.currency })}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -98,7 +101,7 @@ function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale
 }
 
 /** A count on the Overview that exists to be walked through to the work (#193). */
-function CountCard({
+export function CountCard({
   title,
   description,
   count,
@@ -114,7 +117,7 @@ function CountCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className={OVERVIEW_CARD_TITLE}>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -135,7 +138,7 @@ function CountCard({
  * below these totals; both are destinations on the operator panel now, and the
  * counts here lead to them rather than reproducing them.
  */
-export function OperatorDashboardClient() {
+export function OperatorDashboardClient({ trendsView }: { trendsView: PlatformTrendsView }) {
   const t = useTranslations("operator");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
@@ -208,8 +211,24 @@ export function OperatorDashboardClient() {
     void load();
   }, [load]);
 
+  // Platform Trends (#821) opens the Overview, above everything that was
+  // already here. It reads on its own, as the banners below do, so its
+  // failure leaves the queues and totals standing, and it starts reading at
+  // once instead of waiting for them.
+  const header = <PageHeader title={t("title")} description={t("description")} />;
+  const platformTrends = <PlatformTrendsSection view={trendsView} />;
+
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
+    // The header and the section stand first under the same parent here as
+    // in the loaded page below, which is what keeps the section mounted, and
+    // its request alive, when the Overview's own batch lands.
+    return (
+      <div className="space-y-6">
+        {header}
+        {platformTrends}
+        <p className="text-sm text-muted-foreground">{t("loading")}</p>
+      </div>
+    );
   }
 
   if (forbidden) {
@@ -232,7 +251,8 @@ export function OperatorDashboardClient() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t("title")} description={t("description")} />
+      {header}
+      {platformTrends}
 
       {/*
         The Certificate Expiry Warning (#504, ADR 0063): above the queues,
@@ -249,7 +269,7 @@ export function OperatorDashboardClient() {
       */}
       <ClosingSweepBanner />
 
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className={`grid ${OVERVIEW_GRID_GAP} sm:grid-cols-2`}>
         {/*
           Payout requests first: it is the one figure here that somebody is
           WAITING on, while the organization count is a standing fact.

@@ -27,6 +27,7 @@ var scheduledJobs = map[string]string{
 	"POST /api/v1/internal/assignment-reminders/sweep":  "ticket-pos-assignment-reminder",
 	"POST /api/v1/internal/owed-assignment-mails/sweep": "ticket-pos-owed-assignment-mail",
 	"POST /api/v1/internal/holder-addresses/purge":      "ticket-pos-holder-address-purge",
+	"POST /api/v1/internal/platform-trends/close":       "ticket-pos-daily-close",
 }
 
 // CheckInJobs wraps mux so that every route registered on it is served through

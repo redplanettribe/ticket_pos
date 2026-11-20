@@ -77,3 +77,35 @@ func TestEcuadorDate(t *testing.T) {
 		})
 	}
 }
+
+// The instant a named calendar date begins on the platform clock: the reverse
+// of EcuadorDate, which Platform Trends needs to turn a span of days into the
+// window of instants it reads (#810).
+func TestStartOfEcuadorDate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		date string
+		want string
+	}{
+		{"2026-07-07", "2026-07-07T05:00:00Z"},
+		{"2026-12-31", "2026-12-31T05:00:00Z"},
+		{"2027-01-01", "2027-01-01T05:00:00Z"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.date, func(t *testing.T) {
+			t.Parallel()
+			date, err := time.Parse("2006-01-02", tc.date)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := platform.StartOfEcuadorDate(date)
+			if !got.Equal(mustParse(t, tc.want)) {
+				t.Fatalf("StartOfEcuadorDate(%s) = %s, want %s", tc.date, got.UTC().Format(time.RFC3339), tc.want)
+			}
+			if back := platform.EcuadorDate(got); back != tc.date {
+				t.Fatalf("EcuadorDate(StartOfEcuadorDate(%s)) = %s; the two must round-trip", tc.date, back)
+			}
+		})
+	}
+}
