@@ -432,15 +432,15 @@ export function stackedChartData(
   label: BucketLabel,
 ): TrendStackDatum[] {
   return seriesChartData(series, span, label).map((datum) => {
-    const counted = Object.values(datum.values).some((value) => value !== null);
+    const total = stackHeight(Object.values(datum.values));
     const values = Object.fromEntries(
-      series.map((entry) => [entry.key, counted ? (datum.values[entry.key] ?? 0) : null]),
+      series.map((entry) => [entry.key, total === null ? null : (datum.values[entry.key] ?? 0)]),
     );
     const compared = Object.values(datum.comparison ?? {}).filter((value) => value !== null);
     return {
       ...datum,
       values,
-      total: counted ? Object.values(values).reduce<number>((sum, value) => sum + (value ?? 0), 0) : null,
+      total,
       comparison:
         datum.comparison === undefined
           ? undefined
@@ -449,6 +449,17 @@ export function stackedChartData(
             },
     };
   });
+}
+
+/**
+ * The height of a stack of parts: their sum, or null when every part is, the
+ * bucket being before the figure's data began. A missing part in a counted
+ * bucket is a zero.
+ */
+function stackHeight(parts: readonly (number | null | undefined)[]): number | null {
+  return parts.every((part) => part === null)
+    ? null
+    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
 }
 
 /**
@@ -693,12 +704,9 @@ export function countTile(
   const length = figure.series[0]?.buckets.length ?? 0;
   // A bucket before the figure's data began is null on every series, and a
   // gap in the line: nothing was counted there, which is not a zero.
-  const trend = Array.from({ length }, (_, index) => {
-    const values = figure.series.map((entry) => entry.buckets[index]?.value ?? null);
-    return values.every((value) => value === null)
-      ? null
-      : values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
-  });
+  const trend = Array.from({ length }, (_, index) =>
+    stackHeight(figure.series.map((entry) => entry.buckets[index]?.value ?? null)),
+  );
   return {
     readings: [
       {
