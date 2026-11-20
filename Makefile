@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate ses-send-check ses-setup-wizard swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev deploy test test-integration test-parity ci ci-preflight ci-go ci-js ci-openapi migrate ses-send-check ses-setup-wizard swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json tf-apply
 
 export GOTOOLCHAIN := local
 
@@ -205,3 +205,13 @@ infra-graph-zip: infra-plan-json
 		-v $(CURDIR)/$(ROVER_DIR):/src -w /src \
 		$(ROVER_IMAGE) -planJSONPath=plan.json -standalone=true
 	@echo "Wrote $(ROVER_DIR)/rover.zip"
+
+# Plan and apply TF_ENV (prod by default) with the gitignored .env loaded: the
+# script sources .env itself, refuses to plan if any TF_VAR_* listed in
+# .env.example is empty (an empty secret DESTROYS its version on apply), checks
+# the gcloud ADC, AWS SSO and Sentry logins first, plans to a saved planfile,
+# and applies exactly that plan only after a typed yes. The planfile embeds
+# secrets and is deleted on every exit. `make tf-apply ARGS=--plan-only` stops
+# after the plan. See scripts/tf-apply.sh.
+tf-apply:
+	TF_ENV=$(TF_ENV) ./scripts/tf-apply.sh $(ARGS)

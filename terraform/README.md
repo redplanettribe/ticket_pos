@@ -36,18 +36,14 @@ gcloud auth application-default login
 gcloud config set project multiticketing
 ```
 
-`envs/prod` also manages Amazon SES in the AWS member account (see [Email](#email)), so a plan needs the `aws` CLI signed in to that account's IAM Identity Center profile and the budget alert address in the environment:
+`envs/prod` also manages Amazon SES in the AWS member account (see [Email](#email)), so a plan needs the `aws` CLI signed in to that account's IAM Identity Center profile:
 
 ```bash
 aws sso login --profile multiticketing-ses
-export TF_VAR_aws_budget_alert_email=...   # from the sourced, gitignored .env
 ```
 
-It also manages the ticket-pos side of Sentry (see [Sentry](#sentry)), so a plan needs the Sentry token in the environment too:
-
-```bash
-export TF_VAR_sentry_auth_token=...        # from the sourced, gitignored .env
-```
+Every secret and operator-supplied value (the Resend, Google and PayPhone credentials, the budget alert address, the Sentry token of [Sentry](#sentry)) comes from `TF_VAR_*` lines in the gitignored root `.env`, whose names `.env.example` lists.
+Terraform does not read that file; `make tf-apply` loads it for you (step 2).
 
 ### 1. Bootstrap — once per project, ever
 
@@ -66,14 +62,24 @@ terraform plan           # expect no changes
 
 ### 2. Production
 
+From the repository root:
+
 ```bash
-cd terraform/envs/prod
-terraform init           # reads state from gs://multiticketing-tfstate/envs/prod
-terraform plan
-terraform apply
+make tf-apply                    # init, plan, ask, apply the approved plan
+make tf-apply ARGS=--plan-only   # init and plan only
 ```
 
-A second `terraform plan` immediately after apply must report no changes.
+`make tf-apply` ([scripts/tf-apply.sh](../scripts/tf-apply.sh)) does, in order:
+
+1. Loads the root `.env` (`ENV_FILE=<path>` to load another, for example the primary checkout's from a git worktree).
+2. Refuses to plan if any `TF_VAR_*` name in `.env.example` is empty.
+   An empty secret does not fail the apply: its `count = var == "" ? 0 : 1` version is destroyed and the integration silently switches off (#73).
+3. Checks the gcloud application-default credentials, the AWS SSO session and the Sentry token, and names the login command when one has expired.
+4. Runs `terraform init` (state in `gs://multiticketing-tfstate/envs/prod`) and `terraform plan -out=<planfile>`, which prints the plan, and warns when the checkout is not on `origin/main` or lacks Terraform changes `origin/main` has.
+5. Asks `Apply this plan to prod? [y/N]` and runs `terraform apply <planfile>` only on a typed yes, so what runs is exactly the plan approved.
+6. Deletes the planfile, which embeds secret values, on every exit.
+
+A second `make tf-apply ARGS=--plan-only` immediately after the apply must report no changes.
 
 > **Build and push the API image before the first apply.** The Cloud Run service and
 > the migrate Job are created pointing at `…/ticket-pos/api:latest`, and Cloud Run
@@ -578,7 +584,7 @@ Nothing here reads, imports or changes the organization's settings or any projec
 
 | Input | Where it comes from | Default |
 | --- | --- | --- |
-| `sentry_auth_token` | `TF_VAR_sentry_auth_token`, from the sourced, gitignored `.env` | none: a plan without it stops and asks |
+| `sentry_auth_token` | `TF_VAR_sentry_auth_token`, from the gitignored `.env` that `make tf-apply` loads | none: a plan without it stops and asks |
 | `sentry_api_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
 | `sentry_staff_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
 | `sentry_storefront_enabled` | `terraform.tfvars`, when the operator writes it | `false` |
@@ -745,7 +751,7 @@ Two tokens, never the same one: one acts for Terraform and can create things, th
 | --- | --- | --- |
 | Kind | an internal integration's token (Settings, Developer Settings, Custom Integrations, a new internal integration), which outlives any one person | an organization auth token (Settings, Developer Settings, Organization Tokens) |
 | Scopes | Organization Read, Team Admin, Project Admin, Alerts Read & Write (a personal token instead: `org:read`, `team:admin`, `project:admin`, `alerts:write`) | `org:ci`, fixed, the release scope (a personal token instead: `project:releases` and `org:read`) |
-| Where it lives | `TF_VAR_sentry_auth_token` in the operator's gitignored root `.env`, sourced before every plan | the GitHub Actions repository secret `SENTRY_AUTH_TOKEN` of `redplanettribe/ticket_pos` |
+| Where it lives | `TF_VAR_sentry_auth_token` in the operator's gitignored root `.env`, which `make tf-apply` loads | the GitHub Actions repository secret `SENTRY_AUTH_TOKEN` of `redplanettribe/ticket_pos` |
 | What uses it | the `sentry` provider in `envs/prod` (variable `sentry_auth_token`), and `scripts/sentry-scrubbing.sh` | `.github/workflows/deploy.yml` (the Next builds' source map upload and `scripts/sentry-release.sh`), and `make deploy` when exported |
 
 - **Do:** create both in Sentry, then put the Terraform token in `.env`.
@@ -766,7 +772,7 @@ Two tokens, never the same one: one acts for Terraform and can create things, th
 
 ### 3. Apply, and what Terraform could not declare
 
-- **Do:** with `.env` sourced and every `sentry_*_enabled` still absent from `terraform.tfvars`, `terraform plan` then `terraform apply` in `envs/prod` ([Running it](#running-it)).
+- **Do:** with every `sentry_*_enabled` still absent from `terraform.tfvars`, `make tf-apply` ([Running it](#running-it)).
   Then the steps Terraform could not declare, below.
 - **Makes true:** the `ticket-pos` team, the three projects and their keys, the Storefront's inbound filters, nine alert rules and the three error spike metric monitors, 22 resources in all (the [Sentry](#sentry) section's table, "What a first apply creates").
   No Cloud Run service changes and no DSN is set anywhere, so nothing reports yet.
