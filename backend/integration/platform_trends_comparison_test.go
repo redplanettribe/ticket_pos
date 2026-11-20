@@ -159,7 +159,7 @@ func TestPlatformTrendsComparisonIsAlignedBucketToBucket(t *testing.T) {
 				if compared.Partial {
 					t.Fatalf("%q %s comparison bucket %d is partial; only today is", tc.query, series.Key, i)
 				}
-				if got, want := bucketDays(t, *compared), bucketDays(t, series.Buckets[i]); got != want {
+				if got, want := bucketDays(t, *compared), bucketDays(t, *series.Buckets[i]); got != want {
 					t.Fatalf("%q %s comparison bucket %d covers %d days against %d", tc.query, series.Key, i, got, want)
 				}
 				if i > 0 {
@@ -256,7 +256,7 @@ func TestPlatformTrendsComparisonStartsWhereTheDataDoes(t *testing.T) {
 	trends := readPlatformTrends(t, env, operatorSessionID, "?span=30d&compare=previous")
 	imported := seriesFor(t, trends, "import")
 	for i, compared := range imported.ComparisonBuckets {
-		day := imported.Buckets[i].FirstDay
+		day := trends.Span.Buckets[i].FirstDay
 		if wantPresent := i >= 12; (compared != nil) != wantPresent {
 			t.Fatalf("comparison bucket %d (beside %s) = %+v; want present=%v, data begins 2026-05-20", i, day, compared, wantPresent)
 		}

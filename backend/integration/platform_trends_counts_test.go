@@ -170,9 +170,11 @@ func TestPlatformTrendsCountsACustomerOnTheDayTheyVerified(t *testing.T) {
 	if got := todayValue(t, series); got != 3 {
 		t.Fatalf("today = %d, want 3: one each by passcode, Google Sign-In and Assignment Link", got)
 	}
-	for _, bucket := range series.Buckets {
-		if bucket.Value != 0 {
-			t.Fatalf("%s = %d, want 0: a Customer counts when verified, never when the record was minted", bucket.FirstDay, bucket.Value)
+	// The first Customer verified today, so no day of the span was counted:
+	// a Customer counts when verified, never when the record was minted.
+	for i, bucket := range series.Buckets {
+		if bucket != nil {
+			t.Fatalf("bucket %d = %+v, want null before the first verification", i, bucket)
 		}
 	}
 	if figure.Total == nil || *figure.Total != 0 {
@@ -355,8 +357,8 @@ func TestPlatformTrendsPutsAPageViewOnItsPlatformDay(t *testing.T) {
 }
 
 // TestPlatformTrendsCountsWithNoHistoryHaveNoComparison: with nothing ever
-// verified or viewed, the figures are zeros with nothing to compare against,
-// never a zero comparison. New Organizations is not here: the harness seeds
+// verified or viewed, the figures total zero over buckets that are all null,
+// with nothing to compare against, never a zero comparison. New Organizations is not here: the harness seeds
 // an Organization, so the platform is never without one.
 func TestPlatformTrendsCountsWithNoHistoryHaveNoComparison(t *testing.T) {
 	env := setupTest(t)
@@ -371,6 +373,12 @@ func TestPlatformTrendsCountsWithNoHistoryHaveNoComparison(t *testing.T) {
 		}
 		if figure.DataSince != nil || figure.ComparisonTotal != nil || figure.Change != nil {
 			t.Fatalf("%s data_since=%v comparison_total=%v change=%v; want all absent", name, figure.DataSince, figure.ComparisonTotal, figure.Change)
+		}
+		// Nothing was ever counted, so no day of the span is a zero (#842).
+		for i, bucket := range series.Buckets {
+			if bucket != nil {
+				t.Fatalf("%s bucket %d = %+v; want null, the figure has no data at all", name, i, bucket)
+			}
 		}
 	}
 }

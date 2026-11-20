@@ -21,6 +21,10 @@ type platformTrends struct {
 		Preset   string `json:"preset"`
 		FirstDay string `json:"first_day"`
 		LastDay  string `json:"last_day"`
+		Buckets  []struct {
+			FirstDay string `json:"first_day"`
+			LastDay  string `json:"last_day"`
+		} `json:"buckets"`
 	} `json:"span"`
 	Comparison struct {
 		Kind     string `json:"kind"`
@@ -52,10 +56,10 @@ type platformTrendsFigure struct {
 }
 
 type platformTrendsSeries struct {
-	Key     string                 `json:"key"`
-	Total   int                    `json:"total"`
-	Buckets []platformTrendsBucket `json:"buckets"`
-	Today   *platformTrendsBucket  `json:"today"`
+	Key     string                  `json:"key"`
+	Total   int                     `json:"total"`
+	Buckets []*platformTrendsBucket `json:"buckets"`
+	Today   *platformTrendsBucket   `json:"today"`
 
 	ComparisonTotal   *int                    `json:"comparison_total"`
 	Change            *float64                `json:"change"`
@@ -89,12 +93,13 @@ func seriesFor(t *testing.T, trends platformTrends, channel string) platformTren
 }
 
 // bucketOn returns the bucket a day falls in, failing when no bucket covers
-// it: a missing day is the zero-fill bug and should be reported as such.
+// it: a missing day is the zero-fill bug, or the day is before the figure's
+// data began and its bucket is null, and either should be reported as such.
 func bucketOn(t *testing.T, series platformTrendsSeries, day string) platformTrendsBucket {
 	t.Helper()
 	for _, bucket := range series.Buckets {
-		if bucket.FirstDay <= day && day <= bucket.LastDay {
-			return bucket
+		if bucket != nil && bucket.FirstDay <= day && day <= bucket.LastDay {
+			return *bucket
 		}
 	}
 	t.Fatalf("no %s bucket covers %s", series.Key, day)
@@ -271,9 +276,13 @@ func TestPlatformTrendsSetsTodayAsideAsPartial(t *testing.T) {
 		t.Fatalf("today=%s last_day=%s; want today 2026-07-07 and a span ending yesterday", trends.Today, trends.Span.LastDay)
 	}
 	online := seriesFor(t, trends, "online")
-	last := online.Buckets[len(online.Buckets)-1]
-	if last.FirstDay != "2026-07-06" || last.LastDay != "2026-07-06" || last.Partial {
-		t.Fatalf("last bucket = %+v; want yesterday, whole", last)
+	last := trends.Span.Buckets[len(trends.Span.Buckets)-1]
+	if last.FirstDay != "2026-07-06" || last.LastDay != "2026-07-06" {
+		t.Fatalf("last bucket = %+v; want yesterday", last)
+	}
+	// The data begins today, so yesterday was not counted (#842).
+	if bucket := online.Buckets[len(online.Buckets)-1]; bucket != nil {
+		t.Fatalf("yesterday = %+v; want null, before the first sale", bucket)
 	}
 	if online.Today == nil || *online.Today != (platformTrendsBucket{FirstDay: "2026-07-07", LastDay: "2026-07-07", Value: 3, Partial: true}) {
 		t.Fatalf("today = %+v; want 2026-07-07 carrying 3, flagged partial", online.Today)
@@ -285,8 +294,8 @@ func TestPlatformTrendsSetsTodayAsideAsPartial(t *testing.T) {
 
 // TestPlatformTrendsSpans: the default is 30 days; up to 90 days the buckets
 // are days and 12 months are weeks, each carrying its first and last day,
-// contiguous and zero-filled; a custom range reaching past yesterday is cut
-// there.
+// contiguous; a custom range reaching past yesterday is cut there. With no
+// sales ever, every series' bucket is null.
 func TestPlatformTrendsSpans(t *testing.T) {
 	env := setupTest(t)
 	operatorSessionID := operatorSession(t, env, "operator@example.com")
@@ -316,6 +325,31 @@ func TestPlatformTrendsSpans(t *testing.T) {
 		if trends.Granularity != tc.granularity {
 			t.Fatalf("%q granularity = %s, want %s", tc.query, trends.Granularity, tc.granularity)
 		}
+		buckets := trends.Span.Buckets
+		if len(buckets) != tc.buckets {
+			t.Fatalf("%q span carries %d buckets, want %d", tc.query, len(buckets), tc.buckets)
+		}
+		if buckets[0].FirstDay != tc.first || buckets[len(buckets)-1].LastDay != tc.last {
+			t.Fatalf("%q buckets run %s..%s, want %s..%s", tc.query,
+				buckets[0].FirstDay, buckets[len(buckets)-1].LastDay, tc.first, tc.last)
+		}
+		for i, bucket := range buckets {
+			first, _ := time.Parse("2006-01-02", bucket.FirstDay)
+			last, _ := time.Parse("2006-01-02", bucket.LastDay)
+			length := int(last.Sub(first).Hours()/24) + 1
+			if (tc.granularity == "day" && length != 1) || (tc.granularity == "week" && length != 7) {
+				t.Fatalf("%q bucket %d runs %s..%s; want one %s", tc.query, i, bucket.FirstDay, bucket.LastDay, tc.granularity)
+			}
+			if i > 0 {
+				previous, _ := time.Parse("2006-01-02", buckets[i-1].LastDay)
+				if !first.Equal(previous.AddDate(0, 0, 1)) {
+					t.Fatalf("%q bucket %d starts %s after one ending %s; the buckets skipped a day",
+						tc.query, i, bucket.FirstDay, buckets[i-1].LastDay)
+				}
+			}
+		}
+		// Nothing was ever sold, so every bucket of every series is null:
+		// not counted, rather than a zero (#842).
 		for _, series := range trends.Figures.TicketsSold.Series {
 			if len(series.Buckets) != tc.buckets {
 				t.Fatalf("%q %s carries %d buckets, want %d", tc.query, series.Key, len(series.Buckets), tc.buckets)
@@ -323,26 +357,9 @@ func TestPlatformTrendsSpans(t *testing.T) {
 			if (series.Today != nil) != tc.hasToday {
 				t.Fatalf("%q %s today = %+v; want present=%v", tc.query, series.Key, series.Today, tc.hasToday)
 			}
-			if series.Buckets[0].FirstDay != tc.first || series.Buckets[len(series.Buckets)-1].LastDay != tc.last {
-				t.Fatalf("%q %s buckets run %s..%s, want %s..%s", tc.query, series.Key,
-					series.Buckets[0].FirstDay, series.Buckets[len(series.Buckets)-1].LastDay, tc.first, tc.last)
-			}
 			for i, bucket := range series.Buckets {
-				first, _ := time.Parse("2006-01-02", bucket.FirstDay)
-				last, _ := time.Parse("2006-01-02", bucket.LastDay)
-				length := int(last.Sub(first).Hours()/24) + 1
-				if (tc.granularity == "day" && length != 1) || (tc.granularity == "week" && length != 7) {
-					t.Fatalf("%q %s bucket %d runs %s..%s; want one %s", tc.query, series.Key, i, bucket.FirstDay, bucket.LastDay, tc.granularity)
-				}
-				if bucket.Value != 0 || bucket.Partial {
-					t.Fatalf("%q %s bucket %+v; a day with no sales is a whole zero", tc.query, series.Key, bucket)
-				}
-				if i > 0 {
-					previous, _ := time.Parse("2006-01-02", series.Buckets[i-1].LastDay)
-					if !first.Equal(previous.AddDate(0, 0, 1)) {
-						t.Fatalf("%q %s bucket %d starts %s after one ending %s; the buckets skipped a day",
-							tc.query, series.Key, i, bucket.FirstDay, series.Buckets[i-1].LastDay)
-					}
+				if bucket != nil {
+					t.Fatalf("%q %s bucket %d = %+v; want null with no sales ever", tc.query, series.Key, i, bucket)
 				}
 			}
 		}

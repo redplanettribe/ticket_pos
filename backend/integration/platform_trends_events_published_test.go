@@ -301,8 +301,8 @@ func TestTheEventsPublishedMigrationStandsInCreationForWhatIsPublished(t *testin
 }
 
 // TestPlatformTrendsEventsPublishedWithNoHistoryHasNoComparison: with no
-// Event ever published the figure is zeros with nothing to compare against,
-// and still says from which day it is exact.
+// Event ever published the figure totals zero over null buckets, with nothing
+// to compare against, and still says from which day it is exact.
 func TestPlatformTrendsEventsPublishedWithNoHistoryHasNoComparison(t *testing.T) {
 	env := setupTest(t)
 	createDraftEvent(t, env, orgAdminSession(t, env), "Draft", "draft")
@@ -314,5 +314,10 @@ func TestPlatformTrendsEventsPublishedWithNoHistoryHasNoComparison(t *testing.T)
 	}
 	if figure.DataSince != nil || figure.ComparisonTotal != nil || figure.Change != nil {
 		t.Fatalf("data_since=%v comparison_total=%v change=%v; want all absent", figure.DataSince, figure.ComparisonTotal, figure.Change)
+	}
+	for i, bucket := range series.Buckets {
+		if bucket != nil {
+			t.Fatalf("bucket %d = %+v; want null, no Event was ever published (#842)", i, bucket)
+		}
 	}
 }

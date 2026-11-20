@@ -157,12 +157,23 @@ type PlatformTrends struct {
 	Figures PlatformTrendFigures `json:"figures"`
 }
 
-// PlatformTrendSpan is a resolved span's preset and its first and last day, both
-// included.
+// PlatformTrendSpan is a resolved span's preset, its first and last day, both
+// included, and its buckets.
 type PlatformTrendSpan struct {
 	Preset   SpanPreset `json:"preset"`
 	FirstDay string     `json:"first_day" example:"2026-06-07"`
 	LastDay  string     `json:"last_day" example:"2026-07-06"`
+	// Buckets is every bucket of the span, oldest first, as the days it
+	// covers: one entry per entry of every figure's buckets, at the same
+	// index. A figure's bucket may be null, where it has no data, and has no
+	// days of its own then; these name the bucket it stands in.
+	Buckets []PlatformTrendDays `json:"buckets"`
+}
+
+// PlatformTrendDays is the days one bucket of the span covers, both included.
+type PlatformTrendDays struct {
+	FirstDay string `json:"first_day" example:"2026-07-06"`
+	LastDay  string `json:"last_day" example:"2026-07-12"`
 }
 
 // PlatformTrendComparison is the comparison span: its kind and its first and
@@ -248,8 +259,9 @@ type PlatformTrendFigure struct {
 	// always been exact.
 	ExactSince *string `json:"exact_since" example:"2026-07-07"`
 	// DataSince is the first platform day this figure has data: no bucket
-	// before it is stated in a comparison, since missing history is absent
-	// and never zero. Null when the figure has no data at all.
+	// before it is stated, in the span or in its comparison, since missing
+	// history is absent and never zero, and a bucket holding it starts on it.
+	// Null when the figure has no data at all, and then no bucket is stated.
 	DataSince *string `json:"data_since" example:"2026-01-15"`
 	// Total is the figure's total for the span, today excluded. Null when its
 	// series are not in one unit (money, per currency) and cannot be summed.
@@ -279,10 +291,13 @@ type PlatformTrendSeries struct {
 	Key string `json:"key" example:"online"`
 	// Total is the series' total for the span, today excluded.
 	Total int `json:"total"`
-	// Buckets is every bucket of the span, oldest first, the last one ending
-	// on the span's last day. A bucket with nothing in it is zero, never
-	// absent.
-	Buckets []PlatformTrendBucket `json:"buckets"`
+	// Buckets has one entry per bucket of the span, oldest first, the last
+	// one ending on the span's last day. An entry is null where its bucket
+	// lies wholly before the figure's data_since, or the figure has no data
+	// at all: nothing was counted there, which is not a zero. A bucket
+	// holding data_since starts on it. A bucket from data_since on with
+	// nothing in it is zero, never absent.
+	Buckets []*PlatformTrendBucket `json:"buckets"`
 	// Today is today's bucket, flagged partial and in no total. Present only
 	// when the span ends yesterday, which every preset does; a custom range
 	// that ends earlier has no today beside it.
@@ -365,6 +380,7 @@ func (s *Service) Trends(ctx context.Context, span Span) (*PlatformTrends, error
 			Preset:   span.Preset,
 			FirstDay: span.FirstDay.Format(dayFormat),
 			LastDay:  span.LastDay.Format(dayFormat),
+			Buckets:  spanDays(span),
 		},
 		Comparison: PlatformTrendComparison{
 			Kind:     span.Comparison,
@@ -585,39 +601,19 @@ func figureOf(span Span, dataSince *time.Time, keys []string, perSeries map[stri
 	return figure
 }
 
-// seriesOf buckets one series' per-day values over the span, zero-filling
-// the days that have none, sets today aside as the partial bucket, and lines
-// the comparison span's buckets up beside the span's.
+// seriesOf buckets one series' per-day values over the span and over its
+// comparison, from dataSince on (see statedSince), and sets today aside as
+// the partial bucket.
 func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int) PlatformTrendSeries {
-	ranges := span.buckets()
-	series := PlatformTrendSeries{Key: key, Buckets: make([]PlatformTrendBucket, 0, len(ranges))}
-	for _, bucket := range ranges {
-		value := sumDays(perDay, bucket)
-		series.Total += value
-		series.Buckets = append(series.Buckets, bucket.stated(value))
-	}
+	series := PlatformTrendSeries{Key: key}
+	series.Buckets, series.Total, _ = statedSince(span.buckets(), dataSince, perDay)
 	if span.endsYesterday() {
 		today := span.Today.Format(dayFormat)
 		series.Today = &PlatformTrendBucket{FirstDay: today, LastDay: today, Value: perDay[today], Partial: true}
 	}
 
-	comparisonRanges := span.compared().buckets()
-	series.ComparisonBuckets = make([]*PlatformTrendBucket, 0, len(comparisonRanges))
-	comparisonTotal, hasComparison := 0, false
-	for _, bucket := range comparisonRanges {
-		if dataSince == nil || bucket.last.Before(*dataSince) {
-			series.ComparisonBuckets = append(series.ComparisonBuckets, nil)
-			continue
-		}
-		if bucket.first.Before(*dataSince) {
-			bucket.first = *dataSince
-		}
-		value := sumDays(perDay, bucket)
-		comparisonTotal += value
-		hasComparison = true
-		stated := bucket.stated(value)
-		series.ComparisonBuckets = append(series.ComparisonBuckets, &stated)
-	}
+	comparisonBuckets, comparisonTotal, hasComparison := statedSince(span.compared().buckets(), dataSince, perDay)
+	series.ComparisonBuckets = comparisonBuckets
 	if hasComparison {
 		series.ComparisonTotal = &comparisonTotal
 		if span.comparisonCovered(dataSince) {
@@ -625,6 +621,42 @@ func seriesOf(key string, span Span, dataSince *time.Time, perDay map[string]int
 		}
 	}
 	return series
+}
+
+// statedSince states each bucket of ranges from dataSince on, zero-filling
+// the days that have no value, with their total and whether any bucket was
+// stated (hasData). A bucket wholly before dataSince is null, and every
+// bucket is when dataSince is (the figure has no data at all): nothing was
+// counted there, and a zero would say nothing happened. A bucket holding
+// dataSince starts on it. The span and its comparison are both stated this
+// way, so the two meet missing history alike.
+func statedSince(ranges []bucketRange, dataSince *time.Time, perDay map[string]int) (stated []*PlatformTrendBucket, total int, hasData bool) {
+	stated = make([]*PlatformTrendBucket, 0, len(ranges))
+	for _, bucket := range ranges {
+		if dataSince == nil || bucket.last.Before(*dataSince) {
+			stated = append(stated, nil)
+			continue
+		}
+		if bucket.first.Before(*dataSince) {
+			bucket.first = *dataSince
+		}
+		value := sumDays(perDay, bucket)
+		total += value
+		hasData = true
+		entry := bucket.stated(value)
+		stated = append(stated, &entry)
+	}
+	return stated, total, hasData
+}
+
+// spanDays is the days of every bucket of the span, oldest first.
+func spanDays(span Span) []PlatformTrendDays {
+	ranges := span.buckets()
+	days := make([]PlatformTrendDays, 0, len(ranges))
+	for _, bucket := range ranges {
+		days = append(days, PlatformTrendDays{FirstDay: bucket.first.Format(dayFormat), LastDay: bucket.last.Format(dayFormat)})
+	}
+	return days
 }
 
 // comparisonCovered is whether a figure has data for every day of the

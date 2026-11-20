@@ -7447,6 +7447,15 @@ components:
           example: "2026-06-06"
           type: string
       type: object
+    service.PlatformTrendDays:
+      properties:
+        first_day:
+          example: "2026-07-06"
+          type: string
+        last_day:
+          example: "2026-07-12"
+          type: string
+      type: object
     service.PlatformTrendFigure:
       description: |-
         EventsPublished is the Events put up, each counted once, on the day it
@@ -7475,8 +7484,9 @@ components:
         data_since:
           description: |-
             DataSince is the first platform day this figure has data: no bucket
-            before it is stated in a comparison, since missing history is absent
-            and never zero. Null when the figure has no data at all.
+            before it is stated, in the span or in its comparison, since missing
+            history is absent and never zero, and a bucket holding it starts on it.
+            Null when the figure has no data at all, and then no bucket is stated.
           example: "2026-01-15"
           type: string
         exact_since:
@@ -7540,9 +7550,12 @@ components:
       properties:
         buckets:
           description: |-
-            Buckets is every bucket of the span, oldest first, the last one ending
-            on the span's last day. A bucket with nothing in it is zero, never
-            absent.
+            Buckets has one entry per bucket of the span, oldest first, the last
+            one ending on the span's last day. An entry is null where its bucket
+            lies wholly before the figure's data_since, or the figure has no data
+            at all: nothing was counted there, which is not a zero. A bucket
+            holding data_since starts on it. A bucket from data_since on with
+            nothing in it is zero, never absent.
           items:
             $ref: '#/components/schemas/service.PlatformTrendBucket'
           type: array
@@ -7588,6 +7601,16 @@ components:
         Span is the span the figures cover, as resolved: a custom range that
         reached today or later is stated here ending at yesterday.
       properties:
+        buckets:
+          description: |-
+            Buckets is every bucket of the span, oldest first, as the days it
+            covers: one entry per entry of every figure's buckets, at the same
+            index. A figure's bucket may be null, where it has no data, and has no
+            days of its own then; these name the bucket it stands in.
+          items:
+            $ref: '#/components/schemas/service.PlatformTrendDays'
+          type: array
+          uniqueItems: false
         first_day:
           example: "2026-06-07"
           type: string
@@ -16348,21 +16371,24 @@ paths:
         a custom range reaching today or later is cut at yesterday, and one with no
         day before today is refused. Buckets are days for a span of up to 90 days
         and weeks beyond, as granularity states; a weekly bucket is seven days counted
-        back from the span''s last day, so the oldest may be a shorter stub, and every
-        bucket states its first and last day. Days with nothing in them are zero,
-        never absent, except in an activity figure. Today is returned on each series
-        as a separate bucket flagged partial, in no total, whenever the span ends
-        yesterday. Each figure states whether it is recorded at all and the day exact
-        recording began (null when always exact). compare is previous (the default),
+        back from the span''s last day, so the oldest may be a shorter stub, and span.buckets
+        states the first and last day of every bucket, one entry per entry of every
+        figure''s buckets, at the same index. Each figure states data_since, the first
+        day it has data: a bucket of a count figure wholly before it is null, as is
+        every one of a figure with no data at all, since nothing was counted there
+        and that is not zero; a bucket holding it starts on it, and a bucket from
+        it on with nothing in it is zero, never absent. Today is returned on each
+        series as a separate bucket flagged partial, in no total, whenever the span
+        ends yesterday. Each figure states whether it is recorded at all and the day
+        exact recording began (null when always exact). compare is previous (the default),
         the span of the same length ending the day before the span starts, or year_earlier,
         the span moved back 52 weeks so every day sits beside the same weekday; comparison
         states it. Every series carries comparison_buckets, one entry per bucket at
         the same index and as long as it, its comparison_total and its change; a summable
         figure carries them across its series too. change is a signed ratio (0.5 for
         half as much again), null, never zero or infinite, when the comparison total
-        is zero or null. Each figure states data_since, the first day it has data:
-        a comparison bucket wholly before it is null and one holding it starts on
-        it, so missing history is absent, never zero, and a comparison with no data
+        is zero or null. A comparison bucket is stated from data_since on in the same
+        way, so missing history is absent, never zero, and a comparison with no data
         has a null total. A comparison span that begins before data_since is covered
         only in part: its buckets from data_since on are still stated, and its comparison_total
         over them, but change is null on the figure and on every series of it, since
