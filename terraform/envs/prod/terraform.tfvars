@@ -13,3 +13,4 @@ sale_invoice_drainer_enabled = true
 sentry_api_enabled           = true
 sentry_staff_enabled         = true
 sentry_storefront_enabled    = true
+daily_close_enabled          = true
