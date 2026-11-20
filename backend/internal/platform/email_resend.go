@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,6 +89,41 @@ type resendAttachment struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
+// EmailProviderRefusal is the mail provider answering a send with a non-2xx
+// status (#848). It carries the status so a caller can tell a refusal that
+// retrying cannot fix from one that waiting will, without parsing the message.
+//
+// Its text is exactly what the opaque error used to say, so every log line and
+// recorded cause reads as it did before the type existed.
+type EmailProviderRefusal struct {
+	Status int
+	// Body is a bounded slice of the provider's answer, for diagnosis only.
+	Body string
+}
+
+func (e *EmailProviderRefusal) Error() string {
+	return fmt.Sprintf("resend returned %d: %s", e.Status, e.Body)
+}
+
+// Permanent reports whether retrying the same message can never succeed: any
+// 4xx except 408 (the provider timed out) and 429 (the provider is rate
+// limiting), which are both over by themselves. A 403 "not authorized to send
+// from this domain" is the case that made this matter (#847).
+func (e *EmailProviderRefusal) Permanent() bool {
+	if e.Status < 400 || e.Status >= 500 {
+		return false
+	}
+	return e.Status != http.StatusRequestTimeout && e.Status != http.StatusTooManyRequests
+}
+
+// IsPermanentEmailRefusal reports whether err, anywhere in its chain, is a
+// provider refusal that retrying cannot fix. Everything else - a transient
+// refusal, a network error, a timeout, a cancelled context - is not.
+func IsPermanentEmailRefusal(err error) bool {
+	var refusal *EmailProviderRefusal
+	return errors.As(err, &refusal) && refusal.Permanent()
+}
+
 // send performs the one POST every public method funnels through.
 func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, attachments ...EmailAttachment) error {
 	message := resendRequest{
@@ -125,7 +161,7 @@ func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, 
 	// logs without risking an unbounded read on a misbehaving response.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("resend returned %d: %s", resp.StatusCode, string(body))
+		return &EmailProviderRefusal{Status: resp.StatusCode, Body: string(body)}
 	}
 	return nil
 }
@@ -484,9 +520,14 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // whoever constructed it. A production deployment builds TWO of these — see
 // server.newEmailSender and SplitEmailSender — and the one carrying the Digest
 // identity is the only one this method is ever reached on (#225).
+//
+// The failure line is Warn, not Error (#848). The drain decides what a failure
+// means - another attempt, or giving up - and its give-up is the one reported
+// event per Digest (ADR 0079). Reporting every attempt here as well made one
+// misconfiguration six Sentry events per Digest.
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
 	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
-		s.logger.Error(ctx, "resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
+		s.logger.Warn("resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}
 	return nil

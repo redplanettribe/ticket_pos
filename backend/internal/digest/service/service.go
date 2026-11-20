@@ -103,6 +103,15 @@ func (s *Service) WithClock(clock func() time.Time) *Service {
 	return s
 }
 
+// WithLogger swaps the structured logger, so a test can read what the drain
+// reports (#848). A nil logger leaves the current one in place.
+func (s *Service) WithLogger(logger platform.Logger) *Service {
+	if logger != nil {
+		s.logger = logger
+	}
+	return s
+}
+
 // WithTags attaches the resolver that names Tags in a reader's language. Wired
 // after construction because catalog is built later, exactly as customers' own
 // Tag resolver is.
@@ -221,9 +230,10 @@ type DrainResult struct {
 	// Retrying is Digests whose delivery failed and which are back in the queue
 	// on a backoff. It is the number that says a provider is unwell.
 	Retrying int `json:"retrying"`
-	// GaveUp counts the Digests THIS RUN abandoned after exhausting their
-	// attempts. Each one is a Customer who gets no Digest this week, and it is
-	// the number worth alerting on.
+	// GaveUp counts the Digests THIS RUN abandoned, after exhausting their
+	// attempts or at once on a refusal the provider will never accept (#848).
+	// Each one is a Customer who gets no Digest this week, and it is the number
+	// worth alerting on.
 	GaveUp int `json:"gave_up"`
 	// Pruned is sent-ledger rows this run dropped because their Event has ended
 	// (#226). It is housekeeping rather than delivery and it is reported anyway,
@@ -956,17 +966,36 @@ func (s *Service) storefrontTicketSalesURL() string {
 }
 
 // recordFailure puts a failed Digest back on its backoff, or gives up on it once
-// the attempts are spent.
+// the attempts are spent - or at once, when the provider refused it for a reason
+// no retry can fix (#848).
+//
+// A PERMANENT REFUSAL IS GIVEN UP ON THE ATTEMPT IT HAPPENS. A 403 for a domain
+// the key may not send from is as refused at the fifth attempt as at the first,
+// and retrying it only spends two hours and the provider's patience. On
+// 2026-11-19 one such misconfiguration became 470 refused sends (#847). Which
+// refusals are permanent is the email platform's call
+// (platform.IsPermanentEmailRefusal), not a parse of the error's text here.
+//
+// The give-up is the one Error per Digest, either way (ADR 0079): the sender's
+// per-attempt line and the requeue line below are Warn.
 //
 // A failure to WRITE the failure is logged and swallowed. The claim lease is the
 // fallback that covers exactly this, and one more failing statement per failing
 // Digest is how a bad minute becomes a worse one.
 func (s *Service) recordFailure(ctx context.Context, pending repository.PendingDigest, cause error, out *DrainResult) {
-	if pending.AttemptCount >= digestMaxAttempts {
+	permanent := platform.IsPermanentEmailRefusal(cause)
+	if permanent || pending.AttemptCount >= digestMaxAttempts {
 		out.GaveUp++
 		// Error, not Warn: the sweep gives up here and nothing retries it, so it
 		// is reported (ADR 0079). A failure that goes back on the queue stays Warn.
-		s.logger.Error(ctx, "giving up on a Follow Digest after exhausting its attempts; this Customer gets no Digest for this week",
+		// The two give-ups are worded apart so a permanent refusal is never read as
+		// an exhausted retry budget, which would send someone looking at the
+		// provider's uptime instead of at its configuration.
+		msg := "giving up on a Follow Digest after exhausting its attempts; this Customer gets no Digest for this week"
+		if permanent {
+			msg = "giving up on a Follow Digest the mail provider refused permanently; it is not retried and this Customer gets no Digest for this week"
+		}
+		s.logger.Error(ctx, msg,
 			"follow_digest_id", pending.ID,
 			"customer_id", pending.CustomerID,
 			"week_start", pending.WeekStart.Format(time.DateOnly),

@@ -17872,9 +17872,10 @@ export interface components {
              */
             empty?: number;
             /**
-             * @description GaveUp counts the Digests THIS RUN abandoned after exhausting their
-             *     attempts. Each one is a Customer who gets no Digest this week, and it is
-             *     the number worth alerting on.
+             * @description GaveUp counts the Digests THIS RUN abandoned, after exhausting their
+             *     attempts or at once on a refusal the provider will never accept (#848).
+             *     Each one is a Customer who gets no Digest this week, and it is the number
+             *     worth alerting on.
              */
             gave_up?: number;
             oldest_pending_week?: string;
