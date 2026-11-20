@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -270,3 +272,84 @@ func TestResendSendAnnulmentNoticeCarriesNoAttachments(t *testing.T) {
 		t.Fatalf("body = %s, want no attachments", gotBody)
 	}
 }
+
+// A provider refusal is classified, not parsed (#848). The 4xx answers that say
+// "this request will never be accepted as it stands" are permanent; a timeout, a
+// rate limit, a 5xx and a connection that never got an answer are transient,
+// because waiting is exactly what fixes them.
+func TestResendRefusalIsClassifiedPermanentOrTransient(t *testing.T) {
+	cases := []struct {
+		status    int
+		permanent bool
+	}{
+		{http.StatusBadRequest, true},
+		{http.StatusUnauthorized, true},
+		{http.StatusForbidden, true},
+		{http.StatusUnprocessableEntity, true},
+		{http.StatusRequestTimeout, false},
+		{http.StatusTooManyRequests, false},
+		{http.StatusInternalServerError, false},
+		{http.StatusServiceUnavailable, false},
+	}
+	for _, c := range cases {
+		t.Run(http.StatusText(c.status), func(t *testing.T) {
+			sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(`{"message":"refused"}`))
+			})
+			err := sender.SendFollowDigest(context.Background(), FollowDigest{To: "reader@example.com", Locale: DefaultLocale})
+			if err == nil {
+				t.Fatalf("status %d: SendFollowDigest returned nil, want an error", c.status)
+			}
+			if got := IsPermanentEmailRefusal(err); got != c.permanent {
+				t.Fatalf("status %d: IsPermanentEmailRefusal = %v, want %v (err %v)", c.status, got, c.permanent, err)
+			}
+			// Wrapped by a caller, the classification survives.
+			if got := IsPermanentEmailRefusal(fmt.Errorf("send follow digest: %w", err)); got != c.permanent {
+				t.Fatalf("status %d: wrapped IsPermanentEmailRefusal = %v, want %v", c.status, got, c.permanent)
+			}
+			var refusal *EmailProviderRefusal
+			if !errors.As(err, &refusal) || refusal.Status != c.status {
+				t.Fatalf("status %d: error does not carry the provider status: %v", c.status, err)
+			}
+		})
+	}
+
+	t.Run("connection failure", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		sender := NewResendEmailSender("test-key", "Multiticketing <noreply@send.multiticketing.com>", noopLogger{})
+		sender.client = &http.Client{Timeout: 2 * time.Second, Transport: rewriteHost{to: srv.URL, base: srv.Client().Transport}}
+		srv.Close() // nothing is listening any more
+		err := sender.SendFollowDigest(context.Background(), FollowDigest{To: "reader@example.com", Locale: DefaultLocale})
+		if err == nil {
+			t.Fatal("SendFollowDigest to a closed server returned nil, want an error")
+		}
+		if IsPermanentEmailRefusal(err) {
+			t.Fatalf("a connection failure classified as permanent: %v", err)
+		}
+	})
+}
+
+// A failed Follow Digest send is logged at Warn, never at Error (#848): the
+// drain retries it or gives it up, and the give-up is the one reported event
+// per Digest (ADR 0079), so the sender's own line must not report it too.
+func TestResendFollowDigestFailureIsNotReported(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusServiceUnavailable} {
+		sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+		})
+		var levels levelRecorder
+		sender.logger = &levels
+		_ = sender.SendFollowDigest(context.Background(), FollowDigest{To: "reader@example.com", Locale: DefaultLocale})
+		if levels.errors != 0 || levels.warns != 1 {
+			t.Fatalf("status %d: errors=%d warns=%d, want 0 and 1", status, levels.errors, levels.warns)
+		}
+	}
+}
+
+// levelRecorder counts lines per level.
+type levelRecorder struct{ warns, errors int }
+
+func (*levelRecorder) Info(string, ...any)                     {}
+func (l *levelRecorder) Warn(string, ...any)                   { l.warns++ }
+func (l *levelRecorder) Error(context.Context, string, ...any) { l.errors++ }

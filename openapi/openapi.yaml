@@ -4546,9 +4546,10 @@ components:
           type: integer
         gave_up:
           description: |-
-            GaveUp counts the Digests THIS RUN abandoned after exhausting their
-            attempts. Each one is a Customer who gets no Digest this week, and it is
-            the number worth alerting on.
+            GaveUp counts the Digests THIS RUN abandoned, after exhausting their
+            attempts or at once on a refusal the provider will never accept (#848).
+            Each one is a Customer who gets no Digest this week, and it is the number
+            worth alerting on.
           type: integer
         oldest_pending_week:
           type: string
