@@ -10,10 +10,10 @@
 # no further Terraform change to the service.
 #
 # Like the Resend key and the Google credentials, both values are optional and
-# supplied out of band: source the gitignored .env (which carries the TF_VAR_
-# names) before an apply — `set -a; source .env; set +a` — never a committed
-# tfvars. Applying without them sourced REMOVES the secret versions and drops
-# production back to the stub, the same trap #73 records for the Resend key.
+# supplied out of band: the gitignored .env carries the TF_VAR_ names and
+# `make tf-apply` loads it, never a committed tfvars. Applying without them
+# REMOVES the secret versions and drops production back to the stub, the same
+# trap #73 records for the Resend key; `make tf-apply` refuses to plan then.
 #
 # There is deliberately NO payphone_api_base_url variable. The base-URL
 # override exists for the integration suite's fake PayPhone server, and the API
