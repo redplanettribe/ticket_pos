@@ -29,8 +29,8 @@ func captureDigestLog(t *testing.T) *captureLogger {
 	return capture
 }
 
-// pendingRefusedDigest enqueues one Digest with something to say, for ana.
-func pendingRefusedDigest(t *testing.T, env *testEnv) {
+// pendingDigestForAna enqueues one Digest with something to say, for ana.
+func pendingDigestForAna(t *testing.T, env *testEnv) {
 	t.Helper()
 	sessionID := orgAdminSession(t, env)
 	discoverableEvent(t, env, sessionID, "Refused Fest", "refused-fest", env.fixedClock.Add(72*time.Hour))
@@ -40,7 +40,7 @@ func pendingRefusedDigest(t *testing.T, env *testEnv) {
 
 func TestFollowDigestPermanentlyRefusedIsAbandonedOnTheFirstAttempt(t *testing.T) {
 	env := setupTest(t)
-	pendingRefusedDigest(t, env)
+	pendingDigestForAna(t, env)
 	logs := captureDigestLog(t)
 
 	env.email.FailWith(&platform.EmailProviderRefusal{Status: 403, Body: `{"message":"not authorized to send from this domain"}`})
@@ -88,7 +88,7 @@ func TestFollowDigestTransientFailureKeepsItsBackoffAndFiveAttempts(t *testing.T
 	} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			env := setupTest(t)
-			pendingRefusedDigest(t, env)
+			pendingDigestForAna(t, env)
 			logs := captureDigestLog(t)
 			env.email.FailWith(cause)
 			t.Cleanup(func() { env.email.FailWith(nil) })

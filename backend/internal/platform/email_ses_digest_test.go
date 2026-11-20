@@ -93,7 +93,7 @@ func TestSESSendsTheFollowDigestFromTheDigestIdentity(t *testing.T) {
 }
 
 // A rejected Digest reaches the drain, which retries it on its ladder. The
-// error and the one failure log name the message type and the provider's
+// error and the one failure log, a Warn, name the message type and the provider's
 // error and never the recipient (#377), even when SES quotes it back.
 func TestSESReturnsAFollowDigestFailureAndNeverLogsTheRecipient(t *testing.T) {
 	logger := &lineLogger{}
@@ -118,9 +118,19 @@ func TestSESReturnsAFollowDigestFailureAndNeverLogsTheRecipient(t *testing.T) {
 		t.Fatalf("error %q names the recipient", err)
 	}
 
-	lines := logger.errors()
+	// Warn, never Error (#848): the drain's give-up is the one reported event
+	// per Digest (ADR 0079), so the per-attempt line must not report it too.
+	if lines := logger.errors(); len(lines) != 0 {
+		t.Fatalf("logged %d error lines, want 0: %v", len(lines), lines)
+	}
+	var lines []recordedLog
+	for _, l := range logger.lines {
+		if l.level == "warn" {
+			lines = append(lines, l)
+		}
+	}
 	if len(lines) != 1 {
-		t.Fatalf("logged %d error lines, want 1: %v", len(lines), lines)
+		t.Fatalf("logged %d warn lines, want 1: %v", len(lines), lines)
 	}
 	line := lines[0].String()
 	for _, want := range []string{"ses send follow digest failed", "MessageRejected", "locale es", "new 1", "happening 1"} {

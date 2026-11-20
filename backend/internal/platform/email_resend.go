@@ -108,8 +108,7 @@ func (e *EmailProviderRefusal) Error() string {
 // Permanent reports whether retrying the same message can never succeed: any
 // 4xx except 408 (the provider timed out) and 429 (the provider is rate
 // limiting), which are both over by themselves. A 403 "not authorized to send
-// from this domain" is the case that made this matter: on 2026-11-19 it was
-// retried five times for each of 94 Digests (#847).
+// from this domain" is the case that made this matter (#847).
 func (e *EmailProviderRefusal) Permanent() bool {
 	if e.Status < 400 || e.Status >= 500 {
 		return false
@@ -528,7 +527,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // misconfiguration six Sentry events per Digest.
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
 	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
-		s.logger.Warn( "resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
+		s.logger.Warn("resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}
 	return nil

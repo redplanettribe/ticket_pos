@@ -363,9 +363,13 @@ func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Cer
 // as sent (ADR 0030). This method is only ever reached on the sender built
 // with the Digest identity's From: the wiring routes the Digest there through
 // SplitEmailSender, so it never leaves on the transactional domain.
+//
+// Its failure line is Warn rather than fail's Error (#848), as the Resend
+// sender's is: the drain's give-up is the one reported event per Digest.
 func (s *SESEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
 	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text()); err != nil {
-		return s.fail(ctx, "follow digest", err, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening))
+		s.logger.Warn("ses send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
+		return err
 	}
 	return nil
 }
