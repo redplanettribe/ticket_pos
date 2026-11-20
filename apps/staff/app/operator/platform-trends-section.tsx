@@ -71,6 +71,7 @@ import {
   type TrendChartDatum,
   type TrendStackDatum,
   type TrendTileInput,
+  type TrendTileSecondaryInput,
 } from "@/lib/platform-trends";
 import {
   bucketSelectionIn,
@@ -390,8 +391,19 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
     partlyRecorded: t("trendsComparisonPartlyRecorded"),
     noneCompared: t("trendsNoneCompared"),
   };
-  const secondaryLabel = (id: string) =>
-    id === "distinct_7d" ? t("trendsDistinct7Days") : id === "distinct_30d" ? t("trendsDistinct30Days") : channelName(id);
+  const secondaryLabel = ({ id, recordedDays }: TrendTileSecondaryInput) => {
+    if (id === "distinct_7d") {
+      return recordedDays === undefined
+        ? t("trendsDistinct7Days")
+        : t("trendsDistinct7DaysPartlyRecorded", { days: recordedDays });
+    }
+    if (id === "distinct_30d") {
+      return recordedDays === undefined
+        ? t("trendsDistinct30Days")
+        : t("trendsDistinct30DaysPartlyRecorded", { days: recordedDays });
+    }
+    return channelName(id);
+  };
   const tile = (id: string, label: string, input: TrendTileInput) => ({
     id,
     label,
@@ -403,7 +415,7 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
       noChange: reading.noChange === undefined ? undefined : noChangeWords[reading.noChange],
       trend: reading.trend,
     })),
-    secondary: input.secondary?.map((entry) => ({ ...entry, label: secondaryLabel(entry.id) })),
+    secondary: input.secondary?.map((entry) => ({ id: entry.id, value: entry.value, label: secondaryLabel(entry) })),
   });
   const activityFormat = { mean, count };
   const tiles = [

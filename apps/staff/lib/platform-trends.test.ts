@@ -714,6 +714,27 @@ test("an activity tile states the mean a day, its change, and the 7-day and 30-d
   ]);
 });
 
+test("a distinct count over a run of days recorded only in part carries how many are recorded", () => {
+  const secondaryOf = (distinct_7d_days: number, distinct_30d_days: number) =>
+    activityTile(activity({ distinct_7d_days, distinct_30d_days }), COMPARED, { mean: String, count }).secondary;
+
+  // Fourteen days since recording began: the 7 days are whole, the 30 are not.
+  assert.deepEqual(secondaryOf(7, 14), [
+    { id: "distinct_7d", value: "#12" },
+    { id: "distinct_30d", value: "#40", recordedDays: 14 },
+  ]);
+  // Both runs short, as in the first days of recording.
+  assert.deepEqual(secondaryOf(3, 3), [
+    { id: "distinct_7d", value: "#12", recordedDays: 3 },
+    { id: "distinct_30d", value: "#40", recordedDays: 3 },
+  ]);
+  // A day closed while recording was off breaks a run that is otherwise long enough.
+  assert.deepEqual(secondaryOf(6, 29), [
+    { id: "distinct_7d", value: "#12", recordedDays: 6 },
+    { id: "distinct_30d", value: "#40", recordedDays: 29 },
+  ]);
+});
+
 test("Active Customers is not recorded while recording is off: no figure, no change, never a zero", () => {
   const tile = activityTile(
     activity({
@@ -725,6 +746,8 @@ test("Active Customers is not recorded while recording is off: no figure, no cha
       change: null,
       distinct_7d: null,
       distinct_30d: null,
+      distinct_7d_days: null,
+      distinct_30d_days: null,
       buckets: [null, null],
       comparison_buckets: [null, null],
     }),
@@ -737,7 +760,15 @@ test("Active Customers is not recorded while recording is off: no figure, no cha
 
 test("a recorded activity figure with no frozen day in the span has no figure and no counts", () => {
   const tile = activityTile(
-    activity({ mean: null, change: null, distinct_7d: null, distinct_30d: null, buckets: [null] }),
+    activity({
+      mean: null,
+      change: null,
+      distinct_7d: null,
+      distinct_30d: null,
+      distinct_7d_days: null,
+      distinct_30d_days: null,
+      buckets: [null],
+    }),
     COMPARED,
     { mean: String, count },
   );
@@ -758,6 +789,8 @@ function activity(extra: Partial<PlatformTrendActivityFigure> = {}): PlatformTre
     change: 0.25,
     distinct_7d: 12,
     distinct_30d: 40,
+    distinct_7d_days: 7,
+    distinct_30d_days: 30,
     buckets: [],
     comparison_buckets: [],
     ...extra,

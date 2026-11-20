@@ -2331,6 +2331,8 @@
     "trendsMeanADay": "al día, en promedio",
     "trendsDistinct7Days": "Diferentes en 7 días",
     "trendsDistinct30Days": "Diferentes en 30 días",
+    "trendsDistinct7DaysPartlyRecorded": "Diferentes en 7 días ({days, plural, one {# día con datos} other {# días con datos}})",
+    "trendsDistinct30DaysPartlyRecorded": "Diferentes en 30 días ({days, plural, one {# día con datos} other {# días con datos}})",
     "trendsNotRecorded": "Sin registro todavía",
     "trendsNoFigure": "Sin cifra para este periodo",
     "trendsChangeGrowth": "Sube",

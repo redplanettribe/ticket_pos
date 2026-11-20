@@ -2331,6 +2331,8 @@
     "trendsMeanADay": "a day, on average",
     "trendsDistinct7Days": "Different over 7 days",
     "trendsDistinct30Days": "Different over 30 days",
+    "trendsDistinct7DaysPartlyRecorded": "Different over 7 days ({days, plural, one {# day recorded} other {# days recorded}})",
+    "trendsDistinct30DaysPartlyRecorded": "Different over 30 days ({days, plural, one {# day recorded} other {# days recorded}})",
     "trendsNotRecorded": "Not yet recorded",
     "trendsNoFigure": "No figure for this span",
     "trendsChangeGrowth": "Up",

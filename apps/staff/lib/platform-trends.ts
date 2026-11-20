@@ -87,6 +87,10 @@ export type PlatformTrendActivityFigure = {
   change: number | null;
   distinct_7d: number | null;
   distinct_30d: number | null;
+  /** How many of the 7 and the 30 days each distinct count is over are
+   * recorded; null exactly when its count is. */
+  distinct_7d_days: number | null;
+  distinct_30d_days: number | null;
   /** One entry per bucket of the span; null where no day of it is frozen. */
   buckets: (PlatformTrendActivityBucket | null)[];
   comparison_buckets: (PlatformTrendActivityBucket | null)[];
@@ -671,8 +675,10 @@ export type TrendTileReadingInput = {
 };
 
 /** A lesser figure of a tile, named by its id: a series' key (a Sales
- * Channel), or `distinct_7d` and `distinct_30d`. The section owns the words. */
-export type TrendTileSecondaryInput = { id: string; value: string };
+ * Channel), or `distinct_7d` and `distinct_30d`. The section owns the words.
+ * `recordedDays` is set on a distinct count whose run of days is recorded
+ * only in part, and says how many of its days are; the label then says so. */
+export type TrendTileSecondaryInput = { id: string; value: string; recordedDays?: number };
 
 export type TrendTileInput = {
   readings: TrendTileReadingInput[];
@@ -757,7 +763,9 @@ export function moneyTile(
  * activityTile is the tile of an activity figure. A count of different
  * subjects cannot be added across days, so the figure is the mean a day, with
  * its change, and beneath it the different subjects active over the last 7
- * and 30 days where the backend states them.
+ * and 30 days where the backend states them. A count whose days are not all
+ * recorded carries how many are, since its label would otherwise claim the
+ * whole run (#843).
  *
  * A figure that is not recorded says so and nothing else: no change, no line
  * and no counts, so nothing on the tile can be read as a zero.
@@ -771,12 +779,18 @@ export function activityTile(
     return NOT_RECORDED_TILE;
   }
   const secondary: TrendTileSecondaryInput[] = [];
-  if (figure.distinct_7d !== null) {
-    secondary.push({ id: "distinct_7d", value: format.count(figure.distinct_7d) });
-  }
-  if (figure.distinct_30d !== null) {
-    secondary.push({ id: "distinct_30d", value: format.count(figure.distinct_30d) });
-  }
+  const distinct = (id: string, value: number | null, recordedDays: number | null, windowDays: number) => {
+    if (value === null) {
+      return;
+    }
+    secondary.push({
+      id,
+      value: format.count(value),
+      ...(recordedDays !== null && recordedDays < windowDays ? { recordedDays } : {}),
+    });
+  };
+  distinct("distinct_7d", figure.distinct_7d, figure.distinct_7d_days, 7);
+  distinct("distinct_30d", figure.distinct_30d, figure.distinct_30d_days, 30);
   return {
     readings: [
       {
