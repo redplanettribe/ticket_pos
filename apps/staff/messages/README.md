@@ -51,7 +51,8 @@ instead of scattering it.
 
 | Namespace | The surface it speaks for                                                        |
 | --------- | -------------------------------------------------------------------------------- |
-| `shell`   | Chrome around every page: both side panels, the organization switcher, logout, language — and the dashboard at `/`, which says nothing the chrome does not already say |
+| `shell`   | Chrome around every page: both side panels, the organization switcher, logout, language |
+| `home`    | **Home** at `/` (**Inicio**, ADR 0081): what stands now across the Organization, and Organization Trends beneath it |
 | `login`   | The sign-in page, the one surface reachable without a session                     |
 | `events`  | The events list, the create-event page, and the **Event status** vocabulary — every surface that draws a status badge reads it from here rather than coining a second word for "Published" |
 | `event`   | One Event: its own side panel, the header bar, and the Details form — venue, registration, service fee, description, cover image and cover video |
@@ -123,17 +124,9 @@ turn.
 Operator Dashboard has screens of its own that `operator` speaks for, but the
 panel around them is chrome, and one switcher and one session serve both surfaces.
 
-`shell` also holds the **dashboard at `/`** — `dashboardTitle` and the
-`session…` keys — rather than a namespace of its own. That page renders exactly
-one thing: the Staff Session read back, as an email address, an active
-Organization and a role. Every one of those words is already `shell`'s
-(`organizationHeading`, `roleOrgAdmin`), and a `dashboard` namespace would have
-been a surface whose whole vocabulary was borrowed from another. Its role is
-drawn by `useRoleName` like every other, which is why the card is a client
-component (`app/session-card.tsx`) hanging off a Server Component page.
-**#293 found this page still entirely in English** — it is the one surface the
-five extraction batches missed, and the lint rule below found it on its first
-run.
+`home` is **Home** at `/`, the page a Member lands on (#858, ADR 0081).
+It replaced a dashboard that read the Staff Session back and said nothing the chrome did not, which is why that page's words used to sit in `shell`; Home has a vocabulary of its own, so it has a namespace of its own.
+Its nav entry is still `shell.navHome`, because the panel is chrome.
 
 `operator` is ONE namespace for six routes because a Platform Operator looking at
 any of them is looking at the Operator Dashboard — the surface, not the page, is

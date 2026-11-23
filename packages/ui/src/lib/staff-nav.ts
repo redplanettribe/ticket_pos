@@ -13,7 +13,7 @@
  * it is why the tests below assert an order of keys rather than an order of
  * sentences: a copy edit is not a change to this module's behaviour.
  */
-export const STAFF_NAV_KEYS = ["dashboard", "events", "payouts", "settings"] as const;
+export const STAFF_NAV_KEYS = ["home", "events", "payouts", "settings"] as const;
 
 export type StaffNavKey = (typeof STAFF_NAV_KEYS)[number];
 
@@ -66,7 +66,7 @@ export function staffNavItems({
   showSettings = false,
 }: StaffNavVisibility): StaffNavEntry[] {
   return [
-    { key: "dashboard", href: "/" },
+    { key: "home", href: "/" },
     ...(showEvents ? [{ key: "events" as const, href: "/events" }] : []),
     ...(showPayouts ? [{ key: "payouts" as const, href: "/payouts" }] : []),
     ...(showSettings ? [{ key: "settings" as const, href: "/settings" }] : []),
