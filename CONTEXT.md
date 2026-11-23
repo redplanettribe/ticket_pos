@@ -592,6 +592,25 @@ The Daily view answers which days sold and what sold on them; the Cumulative vie
 Restricted to Org Admins and Event Owners, the guard the Event's money already carries, rather than the Sales list's.
 _Avoid_: Report, analytics, dashboard, sales graph, chart (as the surface's name). For the Cumulative view: burn-up, burn down, running total (as its name)
 
+**Home**:
+The page a Member lands on after choosing an Organization: what stands now across the Organization, with Organization Trends beneath it.
+What stands now is the Active Events, the next Event to start with its Tickets Sold so far, today's Tickets Sold and Takings so far marked as partial, and, for an Org Admin, the Payable Balance.
+Always the whole Organization and never a slice of it, whichever Member reads it.
+An Event Staff Member reads it without money: every count, no Takings and no balance, the guard an Event's money carries everywhere else.
+In Spanish, **Inicio**.
+_Avoid_: Dashboard, overview, landing page, start page. In Spanish: Tablero, Panel
+
+**Organization Trends**:
+The part of Home for reading how an Organization is doing over time: Takings and Tickets Sold, each split by Sales Channel, the count of Ticket Sales, Page Views, and the Events held, each read over a chosen span of time and against the span before it or the same span a year earlier, then ranked Event by Event beneath.
+The Organization's counterpart to Platform Trends, and read the way Sales Trends reads: a sale counts on the day it was made, and a Sale Reversal takes it out of that day, so last March reads as March's sales stand today rather than as they stood when March closed.
+Every day on it is the platform's day, one clock for every Event the Organization holds, so the Events beneath add up to the Organization above them.
+Today is shown but marked partial and left out of every total and comparison.
+A long span is read month by month, and the longest span is all time, which is how far the Organization has come since its first sale.
+An Event is held in the span its start falls in, if it is published; a draft or a cancelled Event is never held.
+Any day, week or month on it opens into the Events that made it, ranked.
+Carries no rate built on Page Views, for the reason Platform Trends carries none.
+_Avoid_: Dashboard, analytics, metrics, KPIs, statistics, insights, report, Organization Dashboard
+
 **Payout**:
 A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
 May answer a Payout Request or stand alone: an Organization that asked is settled by fulfilling its request, and one that asked through some other conversation is settled by recording the Payout directly. Neither route changes what a Payout is.
