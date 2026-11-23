@@ -104,7 +104,7 @@ export function HomeNowStrip({ home, role, now }: HomeNowStripProps) {
 
       <StripCard
         title={t("nextEventTitle")}
-        badge={next?.ongoing ? <Badge variant="success">{t("happeningNow")}</Badge> : null}
+        badge={next?.ongoing ? <Badge variant="success">{t("ongoing")}</Badge> : null}
       >
         {next ? (
           <>

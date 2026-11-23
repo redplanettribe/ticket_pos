@@ -74,14 +74,14 @@ test("an Org Admin sees every count, today's Takings and the Payable Balance lin
   assert.match(words, /Today so far Partial/);
   assert.match(words, /Tickets sold 7/);
   assert.match(words, /Takings \$123\.45/);
-  assert.match(words, /Payable Balance \$500\.00 Go to Payouts/);
+  assert.match(words, /Payable balance \$500\.00 Go to Payouts/);
   assert.match(markup, /href="\/payouts"/);
 });
 
 test("an Event Owner sees today's Takings and no Payable Balance", () => {
   const words = text(render(asEventOwner, "event_owner"));
   assert.match(words, /Takings \$123\.45/);
-  assert.doesNotMatch(words, /Payable Balance/);
+  assert.doesNotMatch(words, /Payable balance/);
   assert.doesNotMatch(words, /Go to Payouts/);
 });
 
@@ -92,21 +92,21 @@ test("Event Staff see every count and no money at all", () => {
   assert.match(words, /120 tickets sold so far/);
   assert.match(words, /Tickets sold 7/);
   assert.doesNotMatch(words, /Takings/);
-  assert.doesNotMatch(words, /Payable Balance/);
+  assert.doesNotMatch(words, /Payable balance/);
   assert.doesNotMatch(words, /\$/);
 });
 
-test("an Ongoing next Event is marked happening now, with no countdown", () => {
+test("an Ongoing next Event is marked Ongoing, with no countdown", () => {
   const words = text(
     render({ ...asOrgAdmin, next_event: { ...base.next_event!, starts_at: "2026-07-06T12:00:00Z", ongoing: true } }, "org_admin"),
   );
-  assert.match(words, /Next event Happening now/);
+  assert.match(words, /Next event Ongoing/);
   assert.doesNotMatch(words, /Starts /);
 });
 
 test("with no next Event the card says so", () => {
   const words = text(render({ ...asOrgAdmin, next_event: null }, "org_admin"));
-  assert.match(words, /No published event coming up\./);
+  assert.match(words, /No published event still to start or running\./);
 });
 
 test("an Organization with no Events says so, and points an Org Admin to creating the first", () => {
