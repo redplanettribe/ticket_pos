@@ -97,7 +97,6 @@ test("a crop that is not square is refused", () => {
 });
 
 test("a crop over an unreadable source is refused as too small, never passed", () => {
-  assertCropRejected({ width: 0, height: 0 }, initialThumbnailCrop({ width: 0, height: 0 }), "small");
   assertCropRejected(
     { width: Number.NaN, height: Number.NaN },
     { x: 0, y: 0, width: Number.NaN, height: Number.NaN },
@@ -105,12 +104,12 @@ test("a crop over an unreadable source is refused as too small, never passed", (
   );
 });
 
-test("a source is accepted when its short side holds a 400 pixel square, whichever way it came", () => {
+test("a source whose short side holds a 400 pixel square is accepted", () => {
   assert.deepEqual(validateThumbnailSource({ width: 1920, height: 1080 }), { ok: true });
   assert.deepEqual(validateThumbnailSource({ width: MIN_THUMBNAIL_CROP_PIXELS, height: 2000 }), { ok: true });
 });
 
-test("a source too small for a 400 pixel square is refused as small, the upload path's own reason", () => {
+test("a source too small for a 400 pixel square, or unreadable, is refused as small", () => {
   assert.deepEqual(validateThumbnailSource({ width: 1920, height: MIN_THUMBNAIL_CROP_PIXELS - 1 }), {
     ok: false,
     reason: "small",

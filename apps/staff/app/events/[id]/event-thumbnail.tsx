@@ -102,7 +102,7 @@ type EventThumbnailProps = {
   thumbnailUrl: string | null;
   // Never written. Previewed: with no Thumbnail, the Discover Timeline shows
   // the Cover Image cropped to its centre, and this card says so. And offered
-  // as a source: "Crop from cover" frames a square over it.
+  // as a source: "Crop from cover" frames a square over the Cover Image.
   coverImageUrl: string | null;
   patchBody: EventPatchBody;
   onUpdated: (event: EventDetail) => void;
@@ -116,6 +116,17 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [loadingCover, setLoadingCover] = useState(false);
+  // Read after the Cover Image fetch resolves: the Cover Image card stays
+  // usable meanwhile, and this card may have gone.
+  const currentCoverRef = useRef(coverImageUrl);
+  currentCoverRef.current = coverImageUrl;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!source) {
@@ -166,7 +177,7 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
   // The Cover Image passed the Cover Image's own file rules when it was
   // uploaded, which are the Thumbnail's too, so only the source size is checked.
   // The Thumbnail is cropped from a copy of its bytes: it keeps no link to the
-  // Cover Image, and replacing or removing the cover later leaves it alone.
+  // Cover Image, and replacing or removing the Cover Image later leaves it alone.
   async function handleCropFromCover() {
     if (!coverImageUrl) {
       return;
@@ -175,13 +186,23 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
     try {
       const bytes = await fetchCoverImage(coverImageUrl);
       const decoded = bytes ? await decodeImage(bytes) : null;
+      // The Cover Image was replaced or removed while it loaded, or the card
+      // is gone: these bytes are no longer the current Cover Image.
+      if (!mountedRef.current || currentCoverRef.current !== coverImageUrl) {
+        if (decoded) {
+          URL.revokeObjectURL(decoded.url);
+        }
+        return;
+      }
       if (!decoded) {
         toast.error(t("thumbnailCoverUnavailable"));
         return;
       }
       openCropDialog(decoded);
     } finally {
-      setLoadingCover(false);
+      if (mountedRef.current) {
+        setLoadingCover(false);
+      }
     }
   }
 
