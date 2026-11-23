@@ -61,14 +61,27 @@ export function EventCardMedia({ event, frame, className }: EventCardMediaProps)
 
           Words and not only a colour, here as on the Event page. */}
       {event.sold_out ? (
-        <div className="absolute right-2 top-2">
-          <Badge variant="secondary">{t("soldOut")}</Badge>
-        </div>
+        <CornerBadge>{t("soldOut")}</CornerBadge>
       ) : event.all_closed ? (
-        <div className="absolute right-2 top-2">
-          <Badge variant="secondary">{t("salesClosed")}</Badge>
-        </div>
+        <CornerBadge>{t("salesClosed")}</CornerBadge>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The badge in the frame's top-right corner. A square frame is as narrow as
+ * 96px and the Spanish words need more than that on one line, so the badge may
+ * wrap: insets on both sides keep its margins even, and a wrapped badge spans
+ * the frame with its lines centred and balanced rather than ragged. A badge
+ * that fits stays a pill in the corner.
+ */
+function CornerBadge({ children }: { children: string }) {
+  return (
+    <div className="absolute left-2 right-2 top-2 flex justify-end">
+      <Badge variant="secondary" className="justify-center text-center text-balance">
+        {children}
+      </Badge>
     </div>
   );
 }

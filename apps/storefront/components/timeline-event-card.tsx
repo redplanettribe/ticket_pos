@@ -82,7 +82,9 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
         <EventCardMedia
           event={event}
           frame="square"
-          className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted sm:h-28 sm:w-28"
+          // The hairline is drawn over the image, so a white Thumbnail (a
+          // transparent PNG comes out white) keeps its edge on the white card.
+          className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:ring-1 after:ring-inset after:ring-black/10 sm:h-28 sm:w-28"
         />
       </Card>
     </Link>
