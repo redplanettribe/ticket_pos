@@ -8,11 +8,13 @@ import {
   MIN_THUMBNAIL_CROP_PIXELS,
   initialThumbnailCrop,
   moveThumbnailCrop,
+  thumbnailRejectionKey,
   thumbnailExportSize,
   validateThumbnailCrop,
   validateThumbnailFile,
   zoomThumbnailCrop,
   type ThumbnailCropRejectionReason,
+  type ThumbnailRejectionReason,
   type ThumbnailFileRejectionReason,
 } from "./thumbnail-crop.ts";
 
@@ -159,15 +161,14 @@ test("zooming keeps the crop square, centred where it was, and inside the source
 });
 
 test("every rejection has a sentence to be said in, in both languages", () => {
-  const reasons = ["type", "size", "small", "outside", "square"];
-  const keyFor = (reason: string) => `thumbnailReject${reason[0].toUpperCase()}${reason.slice(1)}`;
+  const reasons: ThumbnailRejectionReason[] = ["type", "size", "small", "outside", "square"];
 
   for (const locale of ["en", "es"]) {
     const catalog = JSON.parse(
       readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
     ) as { event: Record<string, string> };
     for (const reason of reasons) {
-      assert.ok(catalog.event[keyFor(reason)], `${locale}.json is missing ${keyFor(reason)}`);
+      assert.ok(catalog.event[thumbnailRejectionKey(reason)], `${locale}.json is missing ${thumbnailRejectionKey(reason)}`);
     }
   }
 });

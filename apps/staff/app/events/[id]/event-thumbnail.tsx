@@ -25,19 +25,16 @@ import {
   THUMBNAIL_EXPORT_QUALITY,
   THUMBNAIL_EXPORT_TYPE,
   THUMBNAIL_FILE_TYPES,
+  THUMBNAIL_LIMITS,
   initialThumbnailCrop,
   thumbnailExportSize,
+  thumbnailRejectionKey,
   validateThumbnailCrop,
   validateThumbnailFile,
   type ThumbnailCrop,
 } from "@/lib/thumbnail-crop";
 
-import {
-  THUMBNAIL_LIMITS,
-  ThumbnailCropDialog,
-  thumbnailRejectionKey,
-  type ThumbnailSource,
-} from "./thumbnail-crop-dialog";
+import { ThumbnailCropDialog, type ThumbnailSource } from "./thumbnail-crop-dialog";
 
 /**
  * The chosen file decoded into an image, or null when the browser cannot read
@@ -217,7 +214,7 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
         {previewUrl ? (
           <div className="flex items-center gap-4">
             {/* The Timeline row card's own frame: 96 px, 112 px from the sm breakpoint. */}
-            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md border bg-muted sm:h-28 sm:w-28">
+            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted sm:h-28 sm:w-28">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}

@@ -42,9 +42,10 @@ import { EventThumbnail } from "./event-thumbnail";
 type EventDetailFormProps = {
   eventId: string;
   canManageTags: boolean;
+  canEditThumbnail: boolean;
 };
 
-export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps) {
+export function EventDetailForm({ eventId, canManageTags, canEditThumbnail }: EventDetailFormProps) {
   const t = useTranslations("event");
   const errorCopy = useMessages().errors;
   const router = useRouter();
@@ -291,16 +292,18 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
         }}
       />
 
-      <EventThumbnail
-        eventId={eventId}
-        thumbnailUrl={thumbnailUrl}
-        coverImageUrl={coverImageUrl}
-        patchBody={patchBody}
-        onUpdated={(event) => {
-          applyEvent(event);
-          router.refresh();
-        }}
-      />
+      {canEditThumbnail ? (
+        <EventThumbnail
+          eventId={eventId}
+          thumbnailUrl={thumbnailUrl}
+          coverImageUrl={coverImageUrl}
+          patchBody={patchBody}
+          onUpdated={(event) => {
+            applyEvent(event);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       <EventCoverVideo
         eventId={eventId}

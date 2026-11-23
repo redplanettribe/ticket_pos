@@ -1,6 +1,7 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useTranslations } from "next-intl";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 
 import {
@@ -13,11 +14,13 @@ import {
   DialogTitle,
 } from "@ticket-pos/ui";
 
+import { formatNumber } from "@/lib/format";
 import {
-  MAX_THUMBNAIL_FILE_BYTES,
   MIN_THUMBNAIL_CROP_PIXELS,
+  THUMBNAIL_LIMITS,
   initialThumbnailCrop,
   moveThumbnailCrop,
+  thumbnailRejectionKey,
   validateThumbnailCrop,
   zoomThumbnailCrop,
   type ThumbnailCrop,
@@ -46,6 +49,7 @@ type ThumbnailCropDialogProps = {
  */
 export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: ThumbnailCropDialogProps) {
   const t = useTranslations("event");
+  const locale = toAppLocale(useLocale());
   const imageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ pointerId: number; clientX: number; clientY: number; crop: ThumbnailCrop } | null>(null);
   const [crop, setCrop] = useState<ThumbnailCrop | null>(null);
@@ -63,6 +67,9 @@ export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: Thumb
   // only a source that cannot hold an acceptable square is ever refused here.
   const minSide = Math.min(MIN_THUMBNAIL_CROP_PIXELS, maxSide);
   const validation = validateThumbnailCrop(source, crop);
+  // The slider reads as zoom, right is closer: its value runs opposite to the
+  // square's side, so the one mapping serves both directions.
+  const sliderForSide = (side: number) => maxSide + minSide - side;
 
   /** Source pixels per screen pixel, from the image as it is laid out now. */
   function sourceScale() {
@@ -143,14 +150,14 @@ export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: Thumb
               max={maxSide}
               step={1}
               // Right is zoomed in: a smaller square over the source.
-              value={maxSide + minSide - crop.width}
+              value={sliderForSide(crop.width)}
               disabled={busy || minSide === maxSide}
               onChange={(event) =>
-                setCrop(zoomThumbnailCrop(source, crop, maxSide + minSide - Number(event.target.value)))
+                setCrop(zoomThumbnailCrop(source, crop, sliderForSide(Number(event.target.value))))
               }
             />
           </label>
-          <p className="text-xs text-muted-foreground">{t("thumbnailCropSize", { size: String(crop.width) })}</p>
+          <p className="text-xs text-muted-foreground">{t("thumbnailCropSize", { size: formatNumber(crop.width, locale) })}</p>
           {validation.ok ? null : (
             <p role="alert" className="text-sm text-destructive">
               {t(thumbnailRejectionKey(validation.reason), THUMBNAIL_LIMITS)}
@@ -169,23 +176,4 @@ export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: Thumb
       </DialogContent>
     </Dialog>
   );
-}
-
-/**
- * The rules' own numbers as ICU arguments. Strings, not numbers, as for the
- * Cover Video: a pixel count reads as "1080" in both languages.
- */
-export const THUMBNAIL_LIMITS = {
-  pixels: String(MIN_THUMBNAIL_CROP_PIXELS),
-  megabytes: String(MAX_THUMBNAIL_FILE_BYTES / 1024 / 1024),
-};
-
-/** The `event` catalog key a crop or file rejection reason is said with. */
-export function thumbnailRejectionKey(reason: "type" | "size" | "small" | "outside" | "square") {
-  return `thumbnailReject${reason[0].toUpperCase()}${reason.slice(1)}` as
-    | "thumbnailRejectType"
-    | "thumbnailRejectSize"
-    | "thumbnailRejectSmall"
-    | "thumbnailRejectOutside"
-    | "thumbnailRejectSquare";
 }

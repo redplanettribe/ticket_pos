@@ -40,6 +40,23 @@ export type ThumbnailCrop = { x: number; y: number; width: number; height: numbe
 export type ThumbnailFileRejectionReason = "type" | "size";
 export type ThumbnailCropRejectionReason = "small" | "outside" | "square";
 
+export type ThumbnailRejectionReason = ThumbnailFileRejectionReason | ThumbnailCropRejectionReason;
+
+/** The `event` catalog key a rejection is said with. */
+export function thumbnailRejectionKey(reason: ThumbnailRejectionReason) {
+  return `thumbnailReject${reason[0].toUpperCase()}${reason.slice(1)}` as `thumbnailReject${Capitalize<ThumbnailRejectionReason>}`;
+}
+
+/**
+ * The rules' own numbers as ICU arguments for the rejection sentences. Strings,
+ * not numbers, as for the Cover Video: a pixel limit reads as "400" in both
+ * languages, never grouped.
+ */
+export const THUMBNAIL_LIMITS = {
+  pixels: String(MIN_THUMBNAIL_CROP_PIXELS),
+  megabytes: String(MAX_THUMBNAIL_FILE_BYTES / 1024 / 1024),
+};
+
 export type ThumbnailValidation<Reason> = { ok: true } | { ok: false; reason: Reason };
 
 /** The chosen file's type and size, before it is even decoded. */
