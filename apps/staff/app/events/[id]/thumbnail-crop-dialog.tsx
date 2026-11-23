@@ -115,7 +115,9 @@ export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: Thumb
         </DialogHeader>
 
         <div className="flex justify-center">
-          <div className="relative inline-block touch-none select-none">
+          {/* overflow-hidden keeps the square's dimming shadow on the image:
+              unclipped, its 9999px spread darkens the whole dialog. */}
+          <div className="relative inline-block touch-none select-none overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               ref={imageRef}
@@ -145,7 +147,9 @@ export function ThumbnailCropDialog({ source, busy, onCancel, onConfirm }: Thumb
             <span className="shrink-0">{t("thumbnailCropZoom")}</span>
             <input
               type="range"
-              className="w-full"
+              // The dialog focuses the slider on open, so it wears the design
+              // system's ring and colour rather than the browser's defaults.
+              className="w-full cursor-pointer rounded-full accent-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               min={minSide}
               max={maxSide}
               step={1}

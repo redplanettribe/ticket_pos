@@ -283,8 +283,10 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
       <CardContent className="space-y-4">
         {previewUrl ? (
           <div className="flex items-center gap-4">
-            {/* The Timeline row card's own frame: 96 px, 112 px from the sm breakpoint. */}
-            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted sm:h-28 sm:w-28">
+            {/* The Timeline row card's own frame: 96 px, 112 px from the sm breakpoint,
+                with the same hairline drawn over the image so a white Thumbnail
+                (a transparent PNG comes out white) keeps its edge on a white card. */}
+            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:ring-1 after:ring-inset after:ring-black/10 sm:h-28 sm:w-28">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}

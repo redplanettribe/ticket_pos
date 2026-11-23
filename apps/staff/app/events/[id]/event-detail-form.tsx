@@ -2,7 +2,7 @@
 
 import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Alert,
@@ -92,6 +92,14 @@ export function EventDetailForm({ eventId, canManageTags, canEditThumbnail }: Ev
     setRequiresNamedTickets(event.requires_named_tickets);
   }, []);
 
+  // The copy is read through a ref so that loading depends on the Event alone.
+  // Every media card calls router.refresh() after a save, which hands this
+  // component fresh `t` and `errorCopy` identities; were they dependencies, the
+  // refresh would refetch the Event and swap the whole form for the loading
+  // line, throwing the organizer back to the top of the page.
+  const copyRef = useRef({ t, errorCopy });
+  copyRef.current = { t, errorCopy };
+
   const loadEvent = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -99,14 +107,15 @@ export function EventDetailForm({ eventId, canManageTags, canEditThumbnail }: Ev
       const event = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}`);
       applyEvent(event);
     } catch (loadError) {
+      const copy = copyRef.current;
       setError(
-        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
-          t("loadFailed"),
+        apiErrorMessage(copy.errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          copy.t("loadFailed"),
       );
     } finally {
       setLoading(false);
     }
-  }, [applyEvent, errorCopy, eventId, t]);
+  }, [applyEvent, eventId]);
 
   useEffect(() => {
     void loadEvent();
