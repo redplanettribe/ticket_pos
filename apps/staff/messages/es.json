@@ -2471,6 +2471,7 @@
       "COVER_VIDEO_REQUIRES_COVER_IMAGE": "Un video de portada necesita una imagen de portada como póster: agregue primero la imagen, y quite el video antes de quitar la imagen.",
       "INVALID_IMAGE_CONTENT_TYPE": "Ese formato de imagen no es compatible. Use JPEG, PNG o WebP.",
       "INVALID_VIDEO_CONTENT_TYPE": "Ese formato de video no es compatible. Use MP4.",
+      "INVALID_THUMBNAIL_CONTENT_TYPE": "Ese formato de miniatura no es compatible. Use JPEG.",
       "TICKET_TYPE_NOT_FOUND": "Ese tipo de entrada ya no existe.",
       "TICKET_TYPE_DELETE_FORBIDDEN": "Un tipo de entrada solo se puede eliminar mientras el evento sea un borrador.",
       "CAPACITY_EXCEEDED": "No queda aforo suficiente en ese tipo de entrada.",

@@ -2471,6 +2471,7 @@
       "COVER_VIDEO_REQUIRES_COVER_IMAGE": "A cover video needs a cover image as its poster: add the image first, and remove the video before removing the image.",
       "INVALID_IMAGE_CONTENT_TYPE": "That image format isn't supported. Use JPEG, PNG, or WebP.",
       "INVALID_VIDEO_CONTENT_TYPE": "That video format isn't supported. Use MP4.",
+      "INVALID_THUMBNAIL_CONTENT_TYPE": "That thumbnail format isn't supported. Use JPEG.",
       "TICKET_TYPE_NOT_FOUND": "That ticket type no longer exists.",
       "TICKET_TYPE_DELETE_FORBIDDEN": "A ticket type can only be deleted while the event is a draft.",
       "CAPACITY_EXCEEDED": "There is not enough capacity left on that ticket type.",

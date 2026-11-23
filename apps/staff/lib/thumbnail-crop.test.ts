@@ -185,3 +185,18 @@ test("every rejection has a sentence to be said in, in both languages", () => {
     }
   }
 });
+
+test("the API's Thumbnail content-type refusal has a sentence in both languages", () => {
+  // The upload URL endpoint refuses anything but image/jpeg on content_type with
+  // this field code. The editor always sends JPEG, but if the API ever refuses,
+  // a Spanish-reading Org Admin should not read the API's English.
+  for (const locale of ["en", "es"]) {
+    const catalog = JSON.parse(
+      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+    ) as { errors: { envelope: Record<string, string> } };
+    assert.ok(
+      catalog.errors.envelope.INVALID_THUMBNAIL_CONTENT_TYPE,
+      `${locale}.json is missing errors.envelope.INVALID_THUMBNAIL_CONTENT_TYPE`,
+    );
+  }
+});
