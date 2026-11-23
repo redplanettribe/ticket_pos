@@ -37,6 +37,7 @@ import {
 import { EventCoverImage } from "./event-cover-image";
 import { EventCoverVideo } from "./event-cover-video";
 import { EventTagsSection } from "./event-tags-section";
+import { EventThumbnail } from "./event-thumbnail";
 
 type EventDetailFormProps = {
   eventId: string;
@@ -62,6 +63,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [coverVideoUrl, setCoverVideoUrl] = useState<string | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
   const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("tickets");
   const [registrationUrl, setRegistrationUrl] = useState("");
@@ -82,6 +84,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     setDescription(event.description ?? "");
     setCoverImageUrl(event.cover_image_url);
     setCoverVideoUrl(event.cover_video_url);
+    setThumbnailUrl(event.thumbnail_url);
     setFeeHandling(event.fee_handling);
     setRegistrationMode(event.registration_mode);
     setRegistrationUrl(event.registration_url ?? "");
@@ -281,6 +284,17 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
         eventId={eventId}
         coverImageUrl={coverImageUrl}
         coverVideoUrl={coverVideoUrl}
+        patchBody={patchBody}
+        onUpdated={(event) => {
+          applyEvent(event);
+          router.refresh();
+        }}
+      />
+
+      <EventThumbnail
+        eventId={eventId}
+        thumbnailUrl={thumbnailUrl}
+        coverImageUrl={coverImageUrl}
         patchBody={patchBody}
         onUpdated={(event) => {
           applyEvent(event);
