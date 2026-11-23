@@ -1,0 +1,16 @@
+-- Thumbnail: an Event's optional square image, framed by the organizer in the
+-- browser and shown wherever an Event appears in a compact square frame, such
+-- as the Storefront Timeline row (spec #853).
+--
+-- One nullable object key, sibling to cover_image_key (migration 004) and
+-- cover_video_key (migration 033), and shaped exactly like them: the platform
+-- stores where the image lives, never the image, and the public URL is computed
+-- at read time. Keys live under the `thumbnails/` bucket prefix, disjoint from
+-- `covers/` and `videos/`, so a key minted for one slot never validates for
+-- another (ADR 0020).
+--
+-- Only the finished square is recorded: no crop coordinates and no reference
+-- to the image it was cropped from, because the Thumbnail is independent of the
+-- Cover Image once it exists. No backfill: every existing Event starts without
+-- one and keeps showing its Cover Image, cropped to the centre.
+ALTER TABLE events ADD COLUMN thumbnail_key TEXT;

@@ -102,6 +102,9 @@ const (
 	CodeInvalidImageContentType = "INVALID_IMAGE_CONTENT_TYPE"
 	// CodeInvalidVideoContentType — "must be video/mp4".
 	CodeInvalidVideoContentType = "INVALID_VIDEO_CONTENT_TYPE"
+	// CodeInvalidThumbnailContentType - "must be image/jpeg". A Thumbnail is
+	// always the browser's JPEG export of the organizer's crop.
+	CodeInvalidThumbnailContentType = "INVALID_THUMBNAIL_CONTENT_TYPE"
 	// CodeInvalidUpload — "must be a valid multipart upload".
 	CodeInvalidUpload = "INVALID_UPLOAD"
 

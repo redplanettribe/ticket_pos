@@ -2436,6 +2436,8 @@
       "INVALID_REGISTRATION_URL": "The registration link must be an https address.",
       "COVER_UPLOAD_UNAVAILABLE": "Cover image uploads are unavailable right now. Please try again later.",
       "VIDEO_UPLOAD_UNAVAILABLE": "Cover video uploads are unavailable right now. Please try again later.",
+      "THUMBNAIL_UPLOAD_UNAVAILABLE": "Thumbnail uploads are unavailable right now. Please try again later.",
+      "INVALID_THUMBNAIL_KEY": "That thumbnail does not belong to this event. Upload it again from this event.",
       "COVER_VIDEO_REQUIRES_COVER_IMAGE": "A cover video needs a cover image as its poster: add the image first, and remove the video before removing the image.",
       "INVALID_IMAGE_CONTENT_TYPE": "That image format isn't supported. Use JPEG, PNG, or WebP.",
       "INVALID_VIDEO_CONTENT_TYPE": "That video format isn't supported. Use MP4.",

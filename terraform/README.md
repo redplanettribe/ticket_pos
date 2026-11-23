@@ -123,7 +123,7 @@ gcloud and the console. Both must be flipped off, in two applies, before the ins
 Single-zone is deliberate and recorded in ADR 0007. Regional HA is `availability_type = "REGIONAL"` in
 `cloud_sql.tf` — an in-place update, not a recreate, and roughly double the bill.
 
-**Bucket.** One public-read bucket for `covers/`, `logos/`, and `avatars/`. Two things about it matter:
+**Bucket.** One public-read bucket for `covers/`, `videos/`, `thumbnails/`, `logos/`, and `avatars/`. Two things about it matter:
 
 - *Everything in it is world-readable to anyone with the URL, forever.* The `allUsers` grant is
   bucket-wide and uniform access gives no per-object escape. Nothing private goes here.

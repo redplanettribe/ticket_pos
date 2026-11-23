@@ -2,34 +2,42 @@ import { Badge } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
 import type { PublicEventCard } from "@/lib/api";
+import { cardImageUrl, type CardFrame } from "@/lib/card-image";
 
 type EventCardMediaProps = {
   event: PublicEventCard;
   /**
-   * The frame the Cover Image fills — the caller owns the shape (the grid
-   * card's 16:9 top, the Timeline row card's square side) and must make it
-   * `relative` and `overflow-hidden`; what goes inside the frame is decided
-   * here once.
+   * The shape of the frame, which decides the image: a square frame shows the
+   * Thumbnail before the Cover Image, a wide one only the Cover Image
+   * (lib/card-image.ts).
+   */
+  frame: CardFrame;
+  /**
+   * The frame the image fills - the caller owns the shape (the grid card's
+   * 16:9 top, the Timeline row card's square side) and must make it `relative`
+   * and `overflow-hidden`; what goes inside the frame is decided here once.
    */
   className: string;
 };
 
 /**
- * What every card shows inside its Cover Image frame: the image itself (never
- * the Cover Video — listings are scanned, not watched, ADR 0020), the
- * initial-on-gradient stand-in when an Event has no Cover Image, and the badge
+ * What every card shows inside its image frame: the image cardImageUrl chooses
+ * for the frame's shape (the Thumbnail or the Cover Image, never the Cover
+ * Video - listings are scanned, not watched, ADR 0020), the
+ * initial-on-gradient stand-in when there is no image for it, and the badge
  * over the corner saying an Event has nothing left to sell — because it ran out,
  * or because it stopped. Shared so the three-way choice cannot drift between
  * card shapes.
  */
-export function EventCardMedia({ event, className }: EventCardMediaProps) {
+export function EventCardMedia({ event, frame, className }: EventCardMediaProps) {
   const t = useTranslations("event");
+  const imageUrl = cardImageUrl(event, frame);
   return (
     <div className={className}>
-      {event.cover_image_url ? (
+      {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={event.cover_image_url}
+          src={imageUrl}
           alt=""
           className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
         />

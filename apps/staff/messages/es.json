@@ -2436,6 +2436,8 @@
       "INVALID_REGISTRATION_URL": "El enlace de inscripción debe ser una dirección https.",
       "COVER_UPLOAD_UNAVAILABLE": "Ahora mismo no se pueden subir imágenes de portada. Vuelva a intentarlo más tarde.",
       "VIDEO_UPLOAD_UNAVAILABLE": "Ahora mismo no se pueden subir videos de portada. Vuelva a intentarlo más tarde.",
+      "THUMBNAIL_UPLOAD_UNAVAILABLE": "Ahora mismo no se pueden subir miniaturas. Vuelva a intentarlo más tarde.",
+      "INVALID_THUMBNAIL_KEY": "Esa miniatura no pertenece a este evento. Súbala de nuevo desde este evento.",
       "COVER_VIDEO_REQUIRES_COVER_IMAGE": "Un video de portada necesita una imagen de portada como póster: agregue primero la imagen, y quite el video antes de quitar la imagen.",
       "INVALID_IMAGE_CONTENT_TYPE": "Ese formato de imagen no es compatible. Use JPEG, PNG o WebP.",
       "INVALID_VIDEO_CONTENT_TYPE": "Ese formato de video no es compatible. Use MP4.",

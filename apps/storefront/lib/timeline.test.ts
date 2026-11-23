@@ -25,6 +25,7 @@ function card(overrides: Partial<PublicEventCard> & { slug: string }): PublicEve
     timezone: "America/Guayaquil",
     venue_name: null,
     cover_image_url: null,
+    thumbnail_url: null,
     organization: { name: "Org", slug: "org", logo_url: null },
     currency: "USD",
     price_from_cents: null,

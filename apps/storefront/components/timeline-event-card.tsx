@@ -24,7 +24,8 @@ type TimelineEventCardProps = {
 
 /**
  * The Timeline's row card: a horizontal read — when, what, who, where, how
- * much — with the Cover Image in a small square frame on the side rather than
+ * much - with the Event's Thumbnail (else its Cover Image, cropped to the
+ * centre) in a small square frame on the side rather than the Cover Image
  * across the top as the grid card wears it. Same words as the grid card, from
  * the same Event namespace, said in a shape made to sit under a date header.
  */
@@ -80,6 +81,7 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
         </div>
         <EventCardMedia
           event={event}
+          frame="square"
           className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted sm:h-28 sm:w-28"
         />
       </Card>
