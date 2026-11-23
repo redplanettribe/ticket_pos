@@ -171,12 +171,12 @@ not a fake sale. Work the list in order; the domain steps have external latency.
      pre-go-live pass ([manual-verification-payphone.md](manual-verification-payphone.md)).
    - **Production** credentials move real money and are the only pair that may reach Secret Manager.
 4. **Wire the secrets through Terraform.** Put the production pair in the gitignored `.env` as
-   `TF_VAR_payphone_api_token` and `TF_VAR_payphone_store_id`, then
-   `set -a; source .env; set +a` and `terraform -chdir=terraform/envs/prod apply`. The apply writes
+   `TF_VAR_payphone_api_token` and `TF_VAR_payphone_store_id`, then run `make tf-apply`, which
+   loads `.env` and refuses to plan while either is empty. The apply writes
    both to Secret Manager and mounts them on the API service (`payphone.tf` in the module); no
    value ever appears in a Cloud Run env var in plaintext. The same trap as the Resend key (#73)
-   applies: an apply without the `.env` sourced **removes** the secret versions and silently drops
-   production back to the stub.
+   applies: an apply without them **removes** the secret versions and silently drops production
+   back to the stub, which is why `make tf-apply` checks them first.
 5. **Do not set `PAYPHONE_API_BASE_URL` anywhere in production.** It exists so the integration
    suite can point Prepare/Confirm at a fake PayPhone server, and the API **refuses to start** in
    production with it set — anyone able to point it elsewhere could "approve" payments no one ever

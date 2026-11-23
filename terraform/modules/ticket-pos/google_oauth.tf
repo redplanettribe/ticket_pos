@@ -22,10 +22,10 @@
 # created empty, no versions are written, no env is mounted, and both surfaces
 # hide the Google button. Supplying the values is what switches the feature on.
 #
-# Supply them by sourcing the gitignored .env (which carries the TF_VAR_ names)
-# before an apply — `set -a; source .env; set +a` — never a committed tfvars.
-# Applying without them REMOVES the secret versions, exactly the trap #73 records
-# for the Resend key.
+# Supply them in the gitignored .env (which carries the TF_VAR_ names), which
+# `make tf-apply` loads, never a committed tfvars. Applying without them REMOVES
+# the secret versions, exactly the trap #73 records for the Resend key;
+# `make tf-apply` refuses to plan then.
 
 variable "google_staff_client_id" {
   description = "Client ID of the `staff` Google OAuth client. Public information, but it lives beside its secret so the pair is supplied together. Empty hides the Google button on Staff."
