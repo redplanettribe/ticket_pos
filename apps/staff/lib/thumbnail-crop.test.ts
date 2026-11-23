@@ -12,6 +12,7 @@ import {
   thumbnailExportSize,
   validateThumbnailCrop,
   validateThumbnailFile,
+  validateThumbnailSource,
   zoomThumbnailCrop,
   type ThumbnailCropRejectionReason,
   type ThumbnailRejectionReason,
@@ -102,6 +103,19 @@ test("a crop over an unreadable source is refused as too small, never passed", (
     { x: 0, y: 0, width: Number.NaN, height: Number.NaN },
     "small",
   );
+});
+
+test("a source is accepted when its short side holds a 400 pixel square, whichever way it came", () => {
+  assert.deepEqual(validateThumbnailSource({ width: 1920, height: 1080 }), { ok: true });
+  assert.deepEqual(validateThumbnailSource({ width: MIN_THUMBNAIL_CROP_PIXELS, height: 2000 }), { ok: true });
+});
+
+test("a source too small for a 400 pixel square is refused as small, the upload path's own reason", () => {
+  assert.deepEqual(validateThumbnailSource({ width: 1920, height: MIN_THUMBNAIL_CROP_PIXELS - 1 }), {
+    ok: false,
+    reason: "small",
+  });
+  assert.deepEqual(validateThumbnailSource({ width: 0, height: 0 }), { ok: false, reason: "small" });
 });
 
 test("the export is the crop's own size, capped at 1080 and never upscaled", () => {

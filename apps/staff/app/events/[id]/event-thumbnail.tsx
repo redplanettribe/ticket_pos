@@ -26,23 +26,23 @@ import {
   THUMBNAIL_EXPORT_TYPE,
   THUMBNAIL_FILE_TYPES,
   THUMBNAIL_LIMITS,
-  initialThumbnailCrop,
   thumbnailExportSize,
   thumbnailRejectionKey,
   validateThumbnailCrop,
   validateThumbnailFile,
+  validateThumbnailSource,
   type ThumbnailCrop,
 } from "@/lib/thumbnail-crop";
 
 import { ThumbnailCropDialog, type ThumbnailSource } from "./thumbnail-crop-dialog";
 
 /**
- * The chosen file decoded into an image, or null when the browser cannot read
- * it. The object URL lives until the crop dialog closes.
+ * The image bytes decoded into an image, or null when the browser cannot read
+ * them. The object URL lives until the crop dialog closes.
  */
-function decodeImage(file: File): Promise<ThumbnailSource | null> {
+function decodeImage(bytes: Blob): Promise<ThumbnailSource | null> {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(bytes);
     const image = new Image();
     image.onload = () => resolve({ image, url, width: image.naturalWidth, height: image.naturalHeight });
     image.onerror = () => {
@@ -51,6 +51,24 @@ function decodeImage(file: File): Promise<ThumbnailSource | null> {
     };
     image.src = url;
   });
+}
+
+/**
+ * The current Cover Image, read from the public bucket, or null when it cannot
+ * be fetched. Read as bytes through a CORS request rather than pointed at by an
+ * image element: the canvas then draws a same-origin object URL and is never
+ * tainted, exactly like an uploaded file. The bucket allows the Staff origin to
+ * GET (terraform/modules/ticket-pos/storage.tf; MinIO allows any origin).
+ * no-store skips a cached copy fetched without CORS by the cover's own preview,
+ * which carries no Access-Control-Allow-Origin and would be refused.
+ */
+async function fetchCoverImage(coverImageUrl: string): Promise<Blob | null> {
+  try {
+    const response = await fetch(coverImageUrl, { mode: "cors", credentials: "omit", cache: "no-store" });
+    return response.ok ? await response.blob() : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -82,8 +100,9 @@ function exportThumbnail(source: ThumbnailSource, crop: ThumbnailCrop): Promise<
 type EventThumbnailProps = {
   eventId: string;
   thumbnailUrl: string | null;
-  // Only previewed: with no Thumbnail, the Discover Timeline shows the Cover
-  // Image cropped to its centre, and this card says so. Never written.
+  // Never written. Previewed: with no Thumbnail, the Discover Timeline shows
+  // the Cover Image cropped to its centre, and this card says so. And offered
+  // as a source: "Crop from cover" frames a square over it.
   coverImageUrl: string | null;
   patchBody: EventPatchBody;
   onUpdated: (event: EventDetail) => void;
@@ -96,6 +115,7 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
   const [source, setSource] = useState<ThumbnailSource | null>(null);
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [loadingCover, setLoadingCover] = useState(false);
 
   useEffect(() => {
     if (!source) {
@@ -124,17 +144,45 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
       toast.error(t("thumbnailUnreadable"));
       return;
     }
+    openCropDialog(decoded);
+  }
 
-    // A source too small for any acceptable square is refused now, rather than
-    // opening a dialog whose every position would be refused.
-    const cropValidation = validateThumbnailCrop(decoded, initialThumbnailCrop(decoded));
-    if (!cropValidation.ok) {
+  /**
+   * Opens the crop dialog on a decoded source, whether an uploaded file or the
+   * Cover Image. A source too small for any acceptable square is refused now,
+   * with the one sentence both paths share, rather than opening a dialog whose
+   * every position would be refused.
+   */
+  function openCropDialog(decoded: ThumbnailSource) {
+    const sourceValidation = validateThumbnailSource(decoded);
+    if (!sourceValidation.ok) {
       URL.revokeObjectURL(decoded.url);
-      toast.error(t(thumbnailRejectionKey(cropValidation.reason), THUMBNAIL_LIMITS));
+      toast.error(t(thumbnailRejectionKey(sourceValidation.reason), THUMBNAIL_LIMITS));
       return;
     }
-
     setSource(decoded);
+  }
+
+  // The Cover Image passed the Cover Image's own file rules when it was
+  // uploaded, which are the Thumbnail's too, so only the source size is checked.
+  // The Thumbnail is cropped from a copy of its bytes: it keeps no link to the
+  // Cover Image, and replacing or removing the cover later leaves it alone.
+  async function handleCropFromCover() {
+    if (!coverImageUrl) {
+      return;
+    }
+    setLoadingCover(true);
+    try {
+      const bytes = await fetchCoverImage(coverImageUrl);
+      const decoded = bytes ? await decodeImage(bytes) : null;
+      if (!decoded) {
+        toast.error(t("thumbnailCoverUnavailable"));
+        return;
+      }
+      openCropDialog(decoded);
+    } finally {
+      setLoadingCover(false);
+    }
   }
 
   async function handleConfirm(crop: ThumbnailCrop) {
@@ -203,6 +251,7 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
   }
 
   const previewUrl = thumbnailUrl ?? coverImageUrl;
+  const busy = uploading || removing || loadingCover;
 
   return (
     <Card>
@@ -239,16 +288,16 @@ export function EventThumbnail({ eventId, thumbnailUrl, coverImageUrl, patchBody
         />
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={uploading || removing}
-            onClick={() => inputRef.current?.click()}
-          >
+          <Button type="button" variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
             {uploading ? t("uploading") : thumbnailUrl ? t("thumbnailReplace") : t("thumbnailUpload")}
           </Button>
+          {coverImageUrl ? (
+            <Button type="button" variant="outline" disabled={busy} onClick={() => void handleCropFromCover()}>
+              {loadingCover ? t("thumbnailCoverLoading") : t("thumbnailCropFromCover")}
+            </Button>
+          ) : null}
           {thumbnailUrl ? (
-            <Button type="button" variant="ghost" disabled={uploading || removing} onClick={() => void handleRemove()}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => void handleRemove()}>
               {removing ? t("removing") : t("thumbnailRemove")}
             </Button>
           ) : null}

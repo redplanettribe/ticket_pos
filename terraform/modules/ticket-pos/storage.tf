@@ -33,6 +33,11 @@ resource "google_storage_bucket" "media" {
   # preflighted, and an origin the bucket does not list gets a preflight
   # failure the browser reports only as an opaque network error. MinIO is
   # permissive by default, so an upload path that works locally breaks here.
+  #
+  # GET is load-bearing too: "Crop from cover" in the Staff Event editor fetches
+  # the Cover Image with a CORS request to draw it onto a canvas, and without an
+  # Access-Control-Allow-Origin for the Staff origin the browser refuses the
+  # bytes (an image loaded without CORS would taint the canvas instead).
   cors {
     origin = var.storage_cors_origins
     method = ["GET", "HEAD", "PUT", "OPTIONS"]

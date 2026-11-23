@@ -110,6 +110,15 @@ export function validateThumbnailCrop(
   return { ok: true };
 }
 
+/**
+ * Whether a decoded source can yield any acceptable square at all: its largest
+ * square checked against the rules. Run before the crop dialog opens, for an
+ * uploaded file and for the Cover Image alike, so both are refused the same way.
+ */
+export function validateThumbnailSource(source: SourceSize): ThumbnailValidation<ThumbnailCropRejectionReason> {
+  return validateThumbnailCrop(source, initialThumbnailCrop(source));
+}
+
 /** The exported JPEG's side: the crop's own size, capped, never upscaled. */
 export function thumbnailExportSize(crop: ThumbnailCrop): number {
   return Math.min(Math.floor(crop.width), MAX_THUMBNAIL_EXPORT_PIXELS);
