@@ -138,7 +138,12 @@ func TestThumbnailUploadURLRefusesEveryTypeButJPEG(t *testing.T) {
 
 	// PNG and WebP are fine for a Cover Image, but a Thumbnail is always the
 	// browser's own JPEG export of the crop, never a raw upload.
-	for _, contentType := range []string{"image/png", "image/webp", "image/gif", ""} {
+	for contentType, fieldCode := range map[string]string{
+		"image/png":  "INVALID_THUMBNAIL_CONTENT_TYPE",
+		"image/webp": "INVALID_THUMBNAIL_CONTENT_TYPE",
+		"image/gif":  "INVALID_THUMBNAIL_CONTENT_TYPE",
+		"":           "REQUIRED",
+	} {
 		resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/thumbnail-upload-url", map[string]string{
 			"content_type": contentType,
 		}, authHeader(sessionID))
@@ -147,6 +152,22 @@ func TestThumbnailUploadURLRefusesEveryTypeButJPEG(t *testing.T) {
 		}
 		if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
 			t.Fatalf("%q: expected VALIDATION_FAILED, got %+v", contentType, body.Error)
+		}
+		raw, err := json.Marshal(body.Error.Details)
+		if err != nil {
+			t.Fatalf("%q: marshal details: %v", contentType, err)
+		}
+		var details struct {
+			Fields []struct {
+				Field string `json:"field"`
+				Code  string `json:"code"`
+			} `json:"fields"`
+		}
+		if err := json.Unmarshal(raw, &details); err != nil {
+			t.Fatalf("%q: decode details %s: %v", contentType, raw, err)
+		}
+		if len(details.Fields) != 1 || details.Fields[0].Field != "content_type" || details.Fields[0].Code != fieldCode {
+			t.Fatalf("%q: expected content_type %s, got %s", contentType, fieldCode, raw)
 		}
 	}
 }
