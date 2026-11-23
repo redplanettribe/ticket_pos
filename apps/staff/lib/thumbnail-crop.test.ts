@@ -173,29 +173,36 @@ test("zooming keeps the crop square, centred where it was, and inside the source
   }
 });
 
+type Catalog = {
+  event: Record<string, string>;
+  errors: { envelope: Record<string, string> };
+};
+
+function catalog(locale: string): Catalog {
+  return JSON.parse(
+    readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+  ) as Catalog;
+}
+
 test("every rejection has a sentence to be said in, in both languages", () => {
   const reasons: ThumbnailRejectionReason[] = ["type", "size", "small", "outside", "square"];
 
   for (const locale of ["en", "es"]) {
-    const catalog = JSON.parse(
-      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
-    ) as { event: Record<string, string> };
+    const { event } = catalog(locale);
     for (const reason of reasons) {
-      assert.ok(catalog.event[thumbnailRejectionKey(reason)], `${locale}.json is missing ${thumbnailRejectionKey(reason)}`);
+      assert.ok(event[thumbnailRejectionKey(reason)], `${locale}.json is missing ${thumbnailRejectionKey(reason)}`);
     }
   }
 });
 
-test("the API's Thumbnail content-type refusal has a sentence in both languages", () => {
-  // The upload URL endpoint refuses anything but image/jpeg on content_type with
-  // this field code. The editor always sends JPEG, but if the API ever refuses,
-  // a Spanish-reading Org Admin should not read the API's English.
+test("the API's Thumbnail content-type code is cataloged beside its media siblings", () => {
+  // Presence only, in errors.envelope next to INVALID_IMAGE_CONTENT_TYPE and
+  // INVALID_VIDEO_CONTENT_TYPE, as #867 asks. Like theirs, this copy is not
+  // rendered yet: the API sends the code as a field error on content_type under
+  // VALIDATION_FAILED, and the card resolves only the envelope code.
   for (const locale of ["en", "es"]) {
-    const catalog = JSON.parse(
-      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
-    ) as { errors: { envelope: Record<string, string> } };
     assert.ok(
-      catalog.errors.envelope.INVALID_THUMBNAIL_CONTENT_TYPE,
+      catalog(locale).errors.envelope.INVALID_THUMBNAIL_CONTENT_TYPE,
       `${locale}.json is missing errors.envelope.INVALID_THUMBNAIL_CONTENT_TYPE`,
     );
   }
