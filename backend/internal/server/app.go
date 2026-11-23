@@ -38,6 +38,8 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/invoicing/sri"
 	operatorhandler "github.com/peter/ticket_pos/backend/internal/operator/handler"
 	operatorsvc "github.com/peter/ticket_pos/backend/internal/operator/service"
+	organizationtrendshandler "github.com/peter/ticket_pos/backend/internal/organizationtrends/handler"
+	organizationtrendssvc "github.com/peter/ticket_pos/backend/internal/organizationtrends/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
@@ -107,6 +109,10 @@ type App struct {
 	// reads live; it composes the modules that own the data.
 	PlatformTrendsService *platformtrendssvc.Service
 	PlatformTrendsHandler *platformtrendshandler.Handler
+
+	// OrganizationTrendsService reads Home (#858, ADR 0081).
+	OrganizationTrendsService *organizationtrendssvc.Service
+	OrganizationTrendsHandler *organizationtrendshandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -744,6 +750,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	catalogService.WithCustomerActivity(platformTrendsService)
 	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
 
+	// Home (#858, ADR 0081): what stands now across one Organization, read
+	// live through sales and catalog on the platform clock. It owns no table.
+	organizationTrendsService := organizationtrendssvc.New(salesService, catalogService)
+	if options.clock != nil {
+		organizationTrendsService = organizationTrendsService.WithClock(options.clock)
+	}
+	organizationTrendsHandler := organizationtrendshandler.New(organizationTrendsService)
+
 	return &App{
 		Config:            cfg,
 		Logger:            logger,
@@ -781,6 +795,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 		PlatformTrendsService: platformTrendsService,
 		PlatformTrendsHandler: platformTrendsHandler,
+
+		OrganizationTrendsService: organizationTrendsService,
+		OrganizationTrendsHandler: organizationTrendsHandler,
 	}, nil
 }
 

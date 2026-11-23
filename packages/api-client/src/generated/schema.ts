@@ -14002,6 +14002,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/home/now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get what stands now on the Organization's Home
+         * @description Returns the top of the Active Member's Organization's Home, the whole Organization whichever Member reads it. active_events counts the Active Events, those neither cancelled nor over (the end instant passed, or the start where there is no end), drafts included; has_events is false for an Organization with no Event in any status. next_event is the published, non-cancelled Event with the earliest start that is not over, so an Ongoing Event (started, end not reached) is chosen over a later one and ongoing says so; a draft is never next. It carries the Event's Tickets Sold so far on every Sales Channel, reversed sales left out, and is null when there is no such Event. today_so_far is today's sales on the platform clock (America/Guayaquil), by the instant each sale was made, so a Sale Import backdated to today counts and one backdated to another day does not; reversed Ticket Sales are left out, as Sales Trends leaves them out. It is always partial. takings_cents is the Takings of those sales, as Sales Trends computes it, in the Organization's currency: null for Event Staff, never zero in its place. payable_balance_cents is the Payable Balance exactly as the Payouts page states it, null for anyone but an Org Admin. Any Member.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHomeNow"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organization/payout-profile": {
         parameters: {
             query?: never;
@@ -16051,6 +16108,11 @@ export interface components {
         };
         "openapi.EnvelopeHolderList": {
             data?: components["schemas"]["service.HolderListPage"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeHomeNow": {
+            data?: components["schemas"]["service.HomeNow"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -18395,6 +18457,79 @@ export interface components {
             ticket_sale_id?: string;
             ticket_type_id?: string;
             ticket_type_name?: string;
+        };
+        /**
+         * @description NextEvent is the published, non-cancelled Event with the earliest
+         *     start that is not over, an Ongoing one included. Null when there is
+         *     none.
+         */
+        "service.HomeNextEvent": {
+            id?: string;
+            name?: string;
+            /** @description Ongoing is true while the Event has started and not yet ended. */
+            ongoing?: boolean;
+            starts_at?: string;
+            /**
+             * @description TicketsSold is the Event's Tickets Sold so far, on every Sales
+             *     Channel, reversed sales left out.
+             */
+            tickets_sold?: number;
+            /**
+             * @description Timezone is the Event's own, which its start is printed in. Empty
+             *     where the Event names none.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+        };
+        "service.HomeNow": {
+            /**
+             * @description ActiveEvents is how many of the Organization's Events are Active
+             *     Events: neither cancelled nor over, drafts included.
+             */
+            active_events?: number;
+            /**
+             * @description Currency is the Organization's, which every money figure is stated in.
+             * @example USD
+             */
+            currency?: string;
+            /**
+             * @description HasEvents is false for an Organization that has no Event at all, in
+             *     any status.
+             */
+            has_events?: boolean;
+            next_event?: components["schemas"]["service.HomeNextEvent"];
+            /**
+             * @description PayableBalanceCents is the Payable Balance, as the Payouts page states
+             *     it, in the Organization's minor units and signed. Null for anyone but
+             *     an Org Admin.
+             */
+            payable_balance_cents?: number;
+            /**
+             * @description Timezone names the platform clock today is read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Today is the platform day the reading was taken on, YYYY-MM-DD.
+             * @example 2026-07-07
+             */
+            today?: string;
+            today_so_far?: components["schemas"]["service.HomeTodaySoFar"];
+        };
+        /**
+         * @description TodaySoFar is today's sales so far, which today being unfinished makes
+         *     partial.
+         */
+        "service.HomeTodaySoFar": {
+            /** @description Partial is always true: today has not ended. */
+            partial?: boolean;
+            /**
+             * @description TakingsCents is the Takings of today's active Ticket Sales, in the
+             *     Organization's minor units. Null for Event Staff.
+             */
+            takings_cents?: number;
+            /** @description TicketsSold is the quantity over today's active Ticket Sales. */
+            tickets_sold?: number;
         };
         "service.InvoiceActionDetail": {
             abandon_note?: string;

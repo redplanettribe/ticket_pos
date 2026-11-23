@@ -1136,6 +1136,12 @@ func registerStaffRoutes(mux Router, app *App) {
 	// and it is Org-Admin-only because the Organization's finances are not hired
 	// staff's business (ADR 0014).
 	mux.Handle("GET /api/v1/staff/organization/payouts", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayouts)))
+	// Home (#858, ADR 0081): what stands now across the Organization, the
+	// page every Member lands on. Open to any Member, Event Staff included,
+	// because the guard here is on the response and not on the door: the
+	// service withholds Takings from Event Staff and the Payable Balance from
+	// anyone but an Org Admin, the guards Sales Trends and Payouts carry.
+	mux.Handle("GET /api/v1/staff/organization/home/now", member(http.HandlerFunc(app.OrganizationTrendsHandler.GetHomeNow)))
 	// Where that money goes: the Payout Profile (ADR 0026). It sits beside the
 	// balance above and is gated identically — same handler, same Org-Admin-only
 	// authority — because it answers the other half of the same question, and a

@@ -2344,6 +2344,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeHomeNow": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HomeNow"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeInvoiceActionDetail": {
                 "properties": {
                     "data": {
@@ -6024,6 +6038,90 @@
                     },
                     "ticket_type_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HomeNextEvent": {
+                "description": "NextEvent is the published, non-cancelled Event with the earliest\nstart that is not over, an Ongoing one included. Null when there is\nnone.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "ongoing": {
+                        "description": "Ongoing is true while the Event has started and not yet ended.",
+                        "type": "boolean"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the Event's Tickets Sold so far, on every Sales\nChannel, reversed sales left out.",
+                        "type": "integer"
+                    },
+                    "timezone": {
+                        "description": "Timezone is the Event's own, which its start is printed in. Empty\nwhere the Event names none.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HomeNow": {
+                "properties": {
+                    "active_events": {
+                        "description": "ActiveEvents is how many of the Organization's Events are Active\nEvents: neither cancelled nor over, drafts included.",
+                        "type": "integer"
+                    },
+                    "currency": {
+                        "description": "Currency is the Organization's, which every money figure is stated in.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "has_events": {
+                        "description": "HasEvents is false for an Organization that has no Event at all, in\nany status.",
+                        "type": "boolean"
+                    },
+                    "next_event": {
+                        "$ref": "#/components/schemas/service.HomeNextEvent"
+                    },
+                    "payable_balance_cents": {
+                        "description": "PayableBalanceCents is the Payable Balance, as the Payouts page states\nit, in the Organization's minor units and signed. Null for anyone but\nan Org Admin.",
+                        "type": "integer"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock today is read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "today": {
+                        "description": "Today is the platform day the reading was taken on, YYYY-MM-DD.",
+                        "example": "2026-07-07",
+                        "type": "string"
+                    },
+                    "today_so_far": {
+                        "$ref": "#/components/schemas/service.HomeTodaySoFar"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HomeTodaySoFar": {
+                "description": "TodaySoFar is today's sales so far, which today being unfinished makes\npartial.",
+                "properties": {
+                    "partial": {
+                        "description": "Partial is always true: today has not ended.",
+                        "type": "boolean"
+                    },
+                    "takings_cents": {
+                        "description": "TakingsCents is the Takings of today's active Ticket Sales, in the\nOrganization's minor units. Null for Event Staff.",
+                        "type": "integer"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the quantity over today's active Ticket Sales.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -25880,6 +25978,52 @@
                     }
                 ],
                 "summary": "List memberships",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/organization/home/now": {
+            "get": {
+                "description": "Returns the top of the Active Member's Organization's Home, the whole Organization whichever Member reads it. active_events counts the Active Events, those neither cancelled nor over (the end instant passed, or the start where there is no end), drafts included; has_events is false for an Organization with no Event in any status. next_event is the published, non-cancelled Event with the earliest start that is not over, so an Ongoing Event (started, end not reached) is chosen over a later one and ongoing says so; a draft is never next. It carries the Event's Tickets Sold so far on every Sales Channel, reversed sales left out, and is null when there is no such Event. today_so_far is today's sales on the platform clock (America/Guayaquil), by the instant each sale was made, so a Sale Import backdated to today counts and one backdated to another day does not; reversed Ticket Sales are left out, as Sales Trends leaves them out. It is always partial. takings_cents is the Takings of those sales, as Sales Trends computes it, in the Organization's currency: null for Event Staff, never zero in its place. payable_balance_cents is the Payable Balance exactly as the Payouts page states it, null for anyone but an Org Admin. Any Member.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHomeNow"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get what stands now on the Organization's Home",
                 "tags": [
                     "staff"
                 ]
