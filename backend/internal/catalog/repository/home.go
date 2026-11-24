@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // eventOverSQL says an Event `e` is over at the instant $2: its end has
@@ -75,4 +77,38 @@ func (r *Repository) OrganizationNextEvent(ctx context.Context, orgID string, no
 	}
 	out.Timezone = timezone.String
 	return out, true, nil
+}
+
+// OrganizationEventsHeldByDay counts one Organization's Events held per day,
+// for Organization Trends (#863): an Event is held on the day, on the zone the
+// caller passes, its start instant falls in, when that start is in [from,
+// until) and the Event is published. A draft and a cancelled Event are never
+// held; an Event that registers its audience elsewhere is held like any
+// other. Days on which no Event was held have no entry.
+func (r *Repository) OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((e.starts_at AT TIME ZONE $4)::date, 'YYYY-MM-DD') AS day,
+			COUNT(*)::bigint
+		FROM events e
+		WHERE e.organization_id = $1
+		  AND e.status = 'published'
+		  AND e.starts_at >= $2 AND e.starts_at < $3
+		GROUP BY 1
+		ORDER BY 1
+	`, orgID, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.DayCount
+	for rows.Next() {
+		var day platform.DayCount
+		if err := rows.Scan(&day.Day, &day.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
 }

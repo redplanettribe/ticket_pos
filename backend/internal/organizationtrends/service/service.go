@@ -46,10 +46,18 @@ type TicketSales interface {
 }
 
 // Events is what Home needs from catalog: how many Events and Active Events
-// an Organization has, and which Event is next.
+// an Organization has, which Event is next, and, for Organization Trends, its
+// Events held per day.
 type Events interface {
 	OrganizationEventCounts(ctx context.Context, orgID string, now time.Time) (catalogsvc.OrganizationEventCounts, error)
 	OrganizationNextEvent(ctx context.Context, orgID string, now time.Time) (catalogsvc.NextEvent, bool, error)
+	OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
+}
+
+// PageViews is what Organization Trends needs from affiliates, which keeps
+// the hourly Page View buckets: an Organization's Page Views per day.
+type PageViews interface {
+	OrganizationPageViewsByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
 }
 
 // Reader is who is reading Home: the Active Member's Organization and role.
@@ -72,14 +80,15 @@ func (r Reader) seesPayableBalance() bool {
 
 // Service reads Home.
 type Service struct {
-	sales  TicketSales
-	events Events
-	now    func() time.Time
+	sales     TicketSales
+	events    Events
+	pageViews PageViews
+	now       func() time.Time
 }
 
 // New returns a Home service reading through the given modules.
-func New(sales TicketSales, events Events) *Service {
-	return &Service{sales: sales, events: events, now: time.Now}
+func New(sales TicketSales, events Events, pageViews PageViews) *Service {
+	return &Service{sales: sales, events: events, pageViews: pageViews, now: time.Now}
 }
 
 // WithClock overrides the clock now is read from (tests).

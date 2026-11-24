@@ -9,7 +9,7 @@ import (
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
-// Organization Trends (#861, #862): the figures of the Organization over a chosen
+// Organization Trends (#861, #862, #863): the figures of the Organization over a chosen
 // span, beneath Home now. The span arithmetic is trendspan's, in month mode;
 // every figure is read live per platform day and stated over the span with
 // trendspan.Span.Series, so today stays apart and in no total.
@@ -100,6 +100,8 @@ type OrganizationTrendComparison struct {
 }
 
 // OrganizationTrendFigures is every figure Organization Trends states.
+// TicketSales stays last: swag describes the shared OrganizationTrendFigure
+// schema by the last field naming it.
 type OrganizationTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the platform
 	// day each was made, one series per Sales Channel.
@@ -111,6 +113,15 @@ type OrganizationTrendFigures struct {
 	// naming it, does not describe every figure by it.
 	Takings     *OrganizationTrendFigure `json:"takings"`
 	TicketsSold OrganizationTrendFigure  `json:"tickets_sold"`
+	// PageViews is how many times the Organization's Event pages were loaded,
+	// every Event's summed, from the hourly Page View buckets, each hour on
+	// its platform day, in one series keyed all. Loads, not people: no rate
+	// is built on it.
+	PageViews OrganizationTrendFigure `json:"page_views"`
+	// EventsHeld is how many published Events started, each on the platform
+	// day of its start, in one series keyed all; a draft or a cancelled Event
+	// is never held, an External Registration Event is.
+	EventsHeld OrganizationTrendFigure `json:"events_held"`
 	// TicketSales is how many active Ticket Sales were made, by the platform
 	// day each was made, in one series keyed all.
 	TicketSales OrganizationTrendFigure `json:"ticket_sales"`
@@ -188,8 +199,9 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 	// year-earlier comparison does not read the year between. Where the two
 	// overlap (a custom range longer than a year) the same cells are read
 	// twice, so each is set, never added.
+	windows := readWindows(span)
 	seen := map[[2]string]bool{}
-	for _, window := range readWindows(span) {
+	for _, window := range windows {
 		days, err := s.sales.OrganizationSalesByDay(ctx, reader.OrganizationID, window.from, window.until, platform.EcuadorTimeZone)
 		if err != nil {
 			return nil, false, err
@@ -210,6 +222,15 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 		}
 	}
 
+	pageViewsByDay, err := readDayCounts(ctx, windows, reader.OrganizationID, s.pageViews.OrganizationPageViewsByDay)
+	if err != nil {
+		return nil, false, err
+	}
+	heldByDay, err := readDayCounts(ctx, windows, reader.OrganizationID, s.events.OrganizationEventsHeldByDay)
+	if err != nil {
+		return nil, false, err
+	}
+
 	ticketSeries := make([]trendspan.Series, 0, len(salesChannels))
 	keys := make([]string, 0, len(salesChannels))
 	for _, channel := range salesChannels {
@@ -225,7 +246,9 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 		Granularity: OrganizationTrendGranularity(span.Granularity),
 		Figures: OrganizationTrendFigures{
 			TicketsSold: figureOf(keys, ticketSeries),
-			TicketSales: figureOf([]string{countSeriesKey}, []trendspan.Series{span.Series(salesByDay)}),
+			TicketSales: countFigureOf(span, salesByDay),
+			PageViews:   countFigureOf(span, pageViewsByDay),
+			EventsHeld:  countFigureOf(span, heldByDay),
 		},
 	}
 	if reader.seesTakings() {
@@ -263,6 +286,26 @@ func allTimeSince(origin salessvc.OrganizationOrigin) time.Time {
 	return since
 }
 
+// dayCountRead reads a count per platform day over [from, until) for one
+// Organization.
+type dayCountRead func(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
+
+// readDayCounts reads a count per platform day over every window. A day two
+// windows share is read twice, so it is set, never added.
+func readDayCounts(ctx context.Context, windows []readWindow, orgID string, read dayCountRead) (map[string]int, error) {
+	out := map[string]int{}
+	for _, window := range windows {
+		days, err := read(ctx, orgID, window.from, window.until, platform.EcuadorTimeZone)
+		if err != nil {
+			return nil, err
+		}
+		for _, day := range days {
+			out[day.Day] = day.Count
+		}
+	}
+	return out, nil
+}
+
 type readWindow struct {
 	from, until time.Time
 }
@@ -298,6 +341,12 @@ func spanOf(span trendspan.Span) OrganizationTrendSpan {
 		})
 	}
 	return out
+}
+
+// countFigureOf states a figure that is a plain count, in one series keyed
+// all.
+func countFigureOf(span trendspan.Span, perDay map[string]int) OrganizationTrendFigure {
+	return figureOf([]string{countSeriesKey}, []trendspan.Series{span.Series(perDay)})
 }
 
 // figureOf states a figure from its series, keyed in the same order: the

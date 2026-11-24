@@ -12,7 +12,7 @@ import (
 func TestResolveSpanIsMonthModeOnTheServiceClock(t *testing.T) {
 	t.Parallel()
 
-	svc := New(nil, nil).WithClock(func() time.Time { return time.Date(2026, 7, 8, 3, 0, 0, 0, time.UTC) })
+	svc := New(nil, nil, nil).WithClock(func() time.Time { return time.Date(2026, 7, 8, 3, 0, 0, 0, time.UTC) })
 
 	twelve, ok := svc.ResolveSpan(trendspan.Query{Preset: trendspan.Preset12Months})
 	if !ok || twelve.Granularity != trendspan.GranularityMonth || twelve.FirstDay.Format(trendspan.DayFormat) != "2025-08-01" {

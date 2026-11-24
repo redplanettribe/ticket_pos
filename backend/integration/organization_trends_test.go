@@ -66,6 +66,8 @@ type organizationTrends struct {
 		TicketsSold orgTrendFigure  `json:"tickets_sold"`
 		TicketSales orgTrendFigure  `json:"ticket_sales"`
 		Takings     *orgTrendFigure `json:"takings"`
+		PageViews   orgTrendFigure  `json:"page_views"`
+		EventsHeld  orgTrendFigure  `json:"events_held"`
 	} `json:"figures"`
 }
 

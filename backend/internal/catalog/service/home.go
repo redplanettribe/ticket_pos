@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // OrganizationEventCounts is how many Events an Organization has in any
@@ -32,4 +33,13 @@ type NextEvent = repository.NextEventRow
 // one included, and false when there is none (#859). A draft is never next.
 func (s *Service) OrganizationNextEvent(ctx context.Context, orgID string, now time.Time) (NextEvent, bool, error) {
 	return s.repo.OrganizationNextEvent(ctx, orgID, now)
+}
+
+// OrganizationEventsHeldByDay is one Organization's Events held per day over
+// the starts in [from, until), read for Organization Trends (#863): each
+// published Event once, on the day of the named timezone its start falls in.
+// A draft and a cancelled Event are never held; an External Registration
+// Event is. Days on which no Event was held have no entry.
+func (s *Service) OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error) {
+	return s.repo.OrganizationEventsHeldByDay(ctx, orgID, from, until, timezone)
 }

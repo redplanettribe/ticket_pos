@@ -751,8 +751,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	platformTrendsHandler := platformtrendshandler.New(platformTrendsService)
 
 	// Home (#858, ADR 0081): what stands now across one Organization, read
-	// live through sales and catalog on the platform clock. It owns no table.
-	organizationTrendsService := organizationtrendssvc.New(salesService, catalogService)
+	// live through sales, catalog and affiliates (Page Views) on the platform
+	// clock. It owns no table.
+	organizationTrendsService := organizationtrendssvc.New(salesService, catalogService, affiliatesService)
 	if options.clock != nil {
 		organizationTrendsService = organizationTrendsService.WithClock(options.clock)
 	}

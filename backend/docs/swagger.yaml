@@ -6899,6 +6899,10 @@ components:
     service.OrganizationTrendFigures:
       description: Figures carries one entry per figure.
       properties:
+        events_held:
+          $ref: '#/components/schemas/service.OrganizationTrendFigure'
+        page_views:
+          $ref: '#/components/schemas/service.OrganizationTrendFigure'
         takings:
           $ref: '#/components/schemas/service.OrganizationTrendFigure'
         ticket_sales:
@@ -22834,10 +22838,17 @@ paths:
         takings is the Takings of the active Ticket Sales in the Organization''s minor
         units, computed exactly as Sales Trends computes it (every Sales Channel,
         no channel filter), one series per Sales Channel like tickets_sold; it is
-        null for Event Staff, never zero in its place. A bucket nothing sold in is
-        zero, never absent. Each figure''s total is its series'' summed. change is
-        a signed ratio (0.5 for half as much again), null when the comparison total
-        is zero or there is none. currency is the Organization''s. Any Member.'
+        null for Event Staff, never zero in its place. page_views is how many times
+        the Organization''s Event pages were loaded, every Event''s summed, read from
+        the hourly Page View buckets with each hour on the platform day it falls in;
+        a load through an Affiliate Link counts once. It counts loads, not people.
+        events_held is how many published Events started, each on the platform day
+        of its start instant; a draft or a cancelled Event is never held, an External
+        Registration Event is. Both are one series keyed all. A bucket nothing sold,
+        loaded or started in is zero, never absent. Each figure''s total is its series''
+        summed. change is a signed ratio (0.5 for half as much again), null when the
+        comparison total is zero or there is none. currency is the Organization''s.
+        Any Member.'
       parameters:
       - description: Span
         in: query
