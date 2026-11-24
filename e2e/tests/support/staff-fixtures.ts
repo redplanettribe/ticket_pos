@@ -118,7 +118,7 @@ export async function organizerSession(
     }
     throw error;
   }
-  const code = readPasscode(ORGANIZER_EMAIL);
+  const code = await readPasscode(ORGANIZER_EMAIL);
   if (code === null) {
     return { skipped: "no passcode in the API log — this journey needs the dev stack (`make dev`)" };
   }

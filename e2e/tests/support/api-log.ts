@@ -5,11 +5,12 @@ import path from "node:path";
 /**
  * Reading the dev stack's API log.
  *
- * `make dev` runs on the logging email sender (no RESEND_API_KEY), so every
- * message the platform "sends" is one JSON line in the API's log and nowhere
- * else. Any journey that needs what a mail carried — a passcode, an Assignment
- * Link — reads it from here, through one reader, so the log line changing is
- * one thing to fix.
+ * `make dev` delivers mail to Mailpit (#872), where the readers look first
+ * (mailpit.ts). A stack on the logging email sender, such as a branch build
+ * whose log E2E_API_LOG_FILE names, writes every message the platform "sends"
+ * as one JSON line in the API's log and nowhere else, so the readers fall back
+ * to it here, through one reader, so the log line changing is one thing to
+ * fix.
  */
 
 /**

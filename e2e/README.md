@@ -29,8 +29,12 @@ and the origin the Payment Provider redirects back to.
 `tests/ticket-assignment.spec.ts` walks a buyer of two tickets giving one away and the Holder answering a
 Ticket Question from the mailed link. It needs both features open on the dev stack — set
 `TICKET_QUESTIONS_ENABLED=true` and `TICKET_ASSIGNMENT_ENABLED=true` in the root `.env` and recreate the
-backend (`docker compose up -d backend`) — and it reads the Assignment Link out of the API log the same way
+backend (`docker compose up -d backend`) - and it reads the Assignment Link out of the mail the same way
 the sign-in specs read a passcode.
+
+The specs read a passcode or an Assignment Link from the newest mail to the address in the dev stack's
+Mailpit (`http://localhost:64825`, or `E2E_MAILPIT_URL`), and fall back to the API log for a stack on the
+logging sender. With `E2E_API_LOG_FILE` set they read only that log.
 
 It does not use the dev-seed Event: a database restored with `make prod-to-local` has none, so the spec
 provisions its own Organizer, Organization and Event under `e2e-` identifiers through the staff API on the
