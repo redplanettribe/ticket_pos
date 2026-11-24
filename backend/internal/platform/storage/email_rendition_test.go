@@ -100,27 +100,64 @@ var (
 	white = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 )
 
-func TestTheWideRenditionIsAJPEG1200PxWideKeepingTheAspect(t *testing.T) {
+// rows paints a w x h image in three horizontal bands, red, green and blue
+// from the top, so a crop shows which part of a tall original it kept.
+func rows(w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		c := red
+		switch {
+		case y >= 2*h/3:
+			c = blue
+		case y >= h/3:
+			c = green
+		}
+		for x := range w {
+			img.Set(x, y, c)
+		}
+	}
+	return img
+}
+
+func TestTheWideRenditionIsTheCentre16By9OfAWideCoverAt1200Px(t *testing.T) {
+	// A 3:1 banner: the Storefront shows its centre in a 16:9 frame, so the
+	// mail does too, and the outer bands are only partly kept.
 	out, err := RenderEmailWide(bytes.NewReader(encodePNG(t, bands(2400, 800))))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	img := decodeRenditionJPEG(t, out)
-	if got := img.Bounds().Size(); got != (image.Point{X: 1200, Y: 400}) {
-		t.Fatalf("size = %v, want 1200x400", got)
+	if got := img.Bounds().Size(); got != (image.Point{X: 1200, Y: 675}) {
+		t.Fatalf("size = %v, want 1200x675", got)
 	}
-	assertNear(t, img, 100, 200, red)
-	assertNear(t, img, 600, 200, green)
-	assertNear(t, img, 1100, 200, blue)
+	assertNear(t, img, 100, 337, red)
+	assertNear(t, img, 600, 337, green)
+	assertNear(t, img, 1100, 337, blue)
 }
 
-func TestTheWideRenditionNeverUpscalesASmallerCover(t *testing.T) {
-	out, err := RenderEmailWide(bytes.NewReader(encodeJPEG(t, bands(600, 300))))
+func TestTheWideRenditionCropsATallCoverToItsCentre16By9(t *testing.T) {
+	// A portrait poster would otherwise open the mail with a 750px image and
+	// push every fact below the fold.
+	out, err := RenderEmailWide(bytes.NewReader(encodePNG(t, rows(1080, 1800))))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if got := decodeRenditionJPEG(t, out).Bounds().Size(); got != (image.Point{X: 600, Y: 300}) {
-		t.Fatalf("size = %v, want the original 600x300", got)
+	img := decodeRenditionJPEG(t, out)
+	if got := img.Bounds().Size(); got != (image.Point{X: 1080, Y: 608}) {
+		t.Fatalf("size = %v, want 1080x608", got)
+	}
+	for _, p := range []image.Point{{10, 10}, {540, 304}, {1070, 597}} {
+		assertNear(t, img, p.X, p.Y, green)
+	}
+}
+
+func TestTheWideRenditionNeverUpscalesASmallerCover(t *testing.T) {
+	out, err := RenderEmailWide(bytes.NewReader(encodeJPEG(t, bands(640, 360))))
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if got := decodeRenditionJPEG(t, out).Bounds().Size(); got != (image.Point{X: 640, Y: 360}) {
+		t.Fatalf("size = %v, want the original 640x360", got)
 	}
 }
 
@@ -173,10 +210,11 @@ func TestAWebPOriginalRendersToJPEG(t *testing.T) {
 		t.Fatalf("render wide: %v", err)
 	}
 	img := decodeRenditionJPEG(t, wide)
-	if got := img.Bounds().Size(); got != (image.Point{X: 300, Y: 100}) {
-		t.Fatalf("wide size = %v, want 300x100", got)
+	if got := img.Bounds().Size(); got != (image.Point{X: 178, Y: 100}) {
+		t.Fatalf("wide size = %v, want the centre 16:9 of 300x100, 178x100", got)
 	}
-	assertNear(t, img, 50, 50, red)
+	assertNear(t, img, 20, 50, red)
+	assertNear(t, img, 89, 50, green)
 
 	square, err := RenderEmailSquare(bytes.NewReader(webp))
 	if err != nil {

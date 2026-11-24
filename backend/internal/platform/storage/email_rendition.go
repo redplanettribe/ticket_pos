@@ -24,8 +24,8 @@ import (
 // photo nobody should download on a phone. Each Event has two, produced on
 // the server from its originals:
 //
-//   - the wide rendition, the Cover Image as a JPEG 1200px wide (2x the 600px
-//     card), and
+//   - the wide rendition, the centre 16:9 of the Cover Image as a JPEG 1200px
+//     wide (2x the 600px card), the frame the Storefront shows it in, and
 //   - the square rendition, a 128px square JPEG (2x the 64px Event row cell)
 //     from the Thumbnail, or from the Cover Image cropped to its centre when
 //     there is no Thumbnail, which is the Storefront's own fallback.
@@ -68,20 +68,31 @@ func BuildEmailSquareObjectKey(organizationID, eventID string) string {
 	return fmt.Sprintf("email-square/%s/%s/%s.jpg", organizationID, eventID, uuid.NewString())
 }
 
-// RenderEmailWide reads an original image and returns its wide rendition: a
-// JPEG at most EmailWideWidth wide, keeping the aspect ratio.
+// RenderEmailWide reads an original image and returns its wide rendition: the
+// largest centred 16:9 part of it, the frame the Storefront shows a Cover
+// Image in, as a JPEG at most EmailWideWidth wide. Without the crop a portrait
+// poster would open the mail with an image taller than the screen.
 func RenderEmailWide(original io.Reader) ([]byte, error) {
 	src, err := decodeOriginal(original)
 	if err != nil {
 		return nil, err
 	}
 	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
+	cw, ch := b.Dx(), b.Dy()
+	if cw*9 > ch*16 {
+		cw = max(1, (ch*16+4)/9)
+	} else {
+		ch = max(1, (cw*9+8)/16)
+	}
+	x0 := b.Min.X + (b.Dx()-cw)/2
+	y0 := b.Min.Y + (b.Dy()-ch)/2
+	crop := image.Rect(x0, y0, x0+cw, y0+ch)
+	w, h := cw, ch
 	if w > EmailWideWidth {
 		h = max(1, (h*EmailWideWidth+w/2)/w)
 		w = EmailWideWidth
 	}
-	return encodeRendition(src, b, w, h)
+	return encodeRendition(src, crop, w, h)
 }
 
 // RenderEmailSquare reads an original image and returns its square rendition:
