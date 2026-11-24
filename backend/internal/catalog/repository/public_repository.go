@@ -64,7 +64,7 @@ type PublicEventFilter struct {
 const publicEventColumns = `
 	e.id, e.organization_id, e.name, e.slug, e.status,
 	e.starts_at, e.ends_at, e.timezone, e.venue_name, e.venue_address,
-	e.description, e.cover_image_key, e.cover_video_key, e.discoverable, e.fee_handling,
+	e.description, e.cover_image_key, e.cover_video_key, e.thumbnail_key, e.discoverable, e.fee_handling,
 	e.registration_mode, e.registration_url, e.requires_named_tickets, e.created_at,
 	o.name, o.slug, o.logo_image_key, o.support_whatsapp, o.currency,
 	tt.min_price, tt.all_sold_out, tt.all_closed, tt.ticket_count, tt.tickets_sold
@@ -163,7 +163,7 @@ func scanPublicEventRow(rows interface {
 	if err := rows.Scan(
 		&row.ID, &row.OrganizationID, &row.Name, &row.Slug, &status,
 		&row.StartsAt, &row.EndsAt, &row.Timezone, &row.VenueName, &row.VenueAddress,
-		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.Discoverable, &row.FeeHandling,
+		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.ThumbnailKey, &row.Discoverable, &row.FeeHandling,
 		&row.RegistrationMode, &row.RegistrationURL, &row.RequiresNamedTickets, &row.CreatedAt,
 		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgSupportWhatsApp, &row.OrgCurrency,
 		&row.MinPriceCents, &row.AllSoldOut, &row.AllClosed, &row.TicketCount, &row.TicketsSold,

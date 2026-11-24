@@ -46,6 +46,7 @@ services:
       mc mb local/ticket-pos --ignore-existing &&
       mc anonymous set download local/ticket-pos/covers &&
       mc anonymous set download local/ticket-pos/videos &&
+      mc anonymous set download local/ticket-pos/thumbnails &&
       mc anonymous set download local/ticket-pos/logos &&
       mc anonymous set download local/ticket-pos/avatars
       "

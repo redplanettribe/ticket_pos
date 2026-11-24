@@ -52,6 +52,11 @@ export type EventDetail = {
    * it at read time. Plays in the Storefront hero over the cover image. */
   cover_video_key: string | null;
   cover_video_url: string | null;
+  /** The Event's optional Thumbnail, its own square image for compact square
+   * frames such as the Storefront Timeline row; independent of the cover image.
+   * Null when there is none: the API never substitutes the cover image. */
+  thumbnail_key: string | null;
+  thumbnail_url: string | null;
   discoverable: boolean;
   /** How this Event handles the Platform Fee and its Fee IVA (ADR 0014). */
   fee_handling: FeeHandling;

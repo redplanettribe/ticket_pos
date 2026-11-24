@@ -1249,6 +1249,15 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.thumbnailUploadURLBody": {
+                "properties": {
+                    "content_type": {
+                        "description": "ContentType must be image/jpeg: the staff app always exports the\norganizer's square crop as JPEG, so nothing else is ever a Thumbnail.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.ticketQuestionBody": {
                 "properties": {
                     "kind": {
@@ -1370,6 +1379,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "starts_at": {
+                        "type": "string"
+                    },
+                    "thumbnail_key": {
+                        "description": "ThumbnailKey attaches or clears the Thumbnail, behaving exactly like\ncover_image_key: absent leaves it alone, an empty string clears it.",
                         "type": "string"
                     },
                     "timezone": {
@@ -5694,6 +5707,13 @@ const docTemplate = `{
                     "status": {
                         "type": "string"
                     },
+                    "thumbnail_key": {
+                        "description": "ThumbnailKey and ThumbnailURL are the Event's optional Thumbnail, its own\nsquare image, independent of the Cover Image. The URL is null when there is\nno Thumbnail: the Cover Image is never substituted for it (spec #853).",
+                        "type": "string"
+                    },
+                    "thumbnail_url": {
+                        "type": "string"
+                    },
                     "ticket_assignment_enabled": {
                         "description": "TicketAssignmentEnabled is the platform's Ticket Assignment feature flag\n(ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff\napp decides from this payload whether to offer the Holder List entry —\nwhich the API serves while EITHER flag is open (#333) — and a frontend\nenvironment variable would be a second copy of the answer, free to\ndisagree with the one that matters.",
                         "type": "boolean"
@@ -8562,6 +8582,10 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "thumbnail_url": {
+                        "description": "ThumbnailURL is the Event's square Thumbnail for compact square frames,\nnull when it has none. Never the Cover Image in disguise: a consumer that\nwants a fallback crops the Cover Image itself (spec #853).",
+                        "type": "string"
+                    },
                     "tickets_sold": {
                         "description": "TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line\nquantities on active Ticket Sales across every Sales Channel, Capacity\nHolds excluded — floored at 5: an integer at or above the floor, null\nbeneath it, and null on an Event with External Registration, which sells\nno tickets here (ADR 0072). Null and 0 are different statements — null\nsays the figure is withheld, and 0 is never sent — so a client must not\nturn one into the other. It is the same figure, from the same aggregate\nand the same floor, that the Event page states as tickets_sold: the\nexplorer, the Organization page and the page itself never disagree about\nhow many are going. Not narrowed by the Sales Cutoff — a closed Ticket\nType's tickets are still going, even as price_from_cents stops quoting\nit. The Storefront renders it as \"N going\" after the price slot.",
                         "type": "integer"
@@ -8646,6 +8670,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "thumbnail_url": {
+                        "description": "ThumbnailURL is the Event's square Thumbnail, null when it has none and\nnever substituted with the Cover Image (spec #853).",
+                        "type": "string"
                     },
                     "ticket_types": {
                         "items": {
@@ -23741,6 +23769,103 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Set event tags",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/thumbnail-upload-url": {
+            "post": {
+                "description": "Returns a presigned PUT URL for uploading an event Thumbnail, the event's square image (JPEG only).",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.thumbnailUploadURLBody",
+                                        "summary": "body",
+                                        "description": "Upload details"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Upload details",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCoverUploadURL"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create thumbnail upload URL",
                 "tags": [
                     "staff"
                 ]
