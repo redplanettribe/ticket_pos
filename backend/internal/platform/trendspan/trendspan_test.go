@@ -102,6 +102,14 @@ func TestWeekModeTwelveMonthsIsFiftyTwoWeeks(t *testing.T) {
 	assertSpan(t, compared, "2024-07-09", "2025-07-07")
 }
 
+func TestResolveRefusesALongGrainOfDays(t *testing.T) {
+	t.Parallel()
+
+	if _, ok := Resolve(Query{Preset: Preset7Days}, GranularityDay, now); ok {
+		t.Fatal("accepted days as the grain of a long span")
+	}
+}
+
 func TestWeekModeRefusesAllTime(t *testing.T) {
 	t.Parallel()
 

@@ -92,7 +92,10 @@ const (
 // last day asked for, both included and From never after To. An empty Preset
 // is the default, 30 days, and an empty Compare the default, the previous
 // span. Since is read by all time alone: the day its first month holds,
-// supplied by the caller.
+// supplied by the caller. Like From and To it is a civil date carried as
+// midnight UTC, never an instant: a caller holding an instant, such as a
+// creation time, turns it into its platform day with CivilDate first, or an
+// instant late on a month's last evening would land in the next month.
 type Query struct {
 	Preset  Preset
 	From    time.Time
@@ -127,7 +130,7 @@ func (s Span) EndsYesterday() bool {
 // Resolve turns a query into the span it names on the platform clock, long
 // being the grain of a span longer than MaxDailyDays: GranularityWeek or
 // GranularityMonth. It reports false for a custom range with no closed day in
-// it, and for all time in week mode.
+// it, for all time in week mode, and for a long grain that is neither.
 //
 // A span ends at the close of yesterday: today is never inside one, because a
 // day still running would read as a collapse beside the days before it. A
@@ -139,6 +142,9 @@ func (s Span) EndsYesterday() bool {
 // yesterday when it reaches today or later; one whose first day is today or
 // later has nothing left once cut.
 func Resolve(query Query, long Granularity, now time.Time) (Span, bool) {
+	if long != GranularityWeek && long != GranularityMonth {
+		return Span{}, false
+	}
 	today := CivilDate(now)
 	yesterday := today.AddDate(0, 0, -1)
 
