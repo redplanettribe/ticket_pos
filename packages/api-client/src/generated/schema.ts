@@ -14454,7 +14454,7 @@ export interface paths {
         };
         /**
          * Get Organization Trends for a span
-         * @description Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. takings is the Takings of the active Ticket Sales in the Organization's minor units, computed exactly as Sales Trends computes it (every Sales Channel, no channel filter), one series per Sales Channel like tickets_sold; it is null for Event Staff, never zero in its place. page_views is how many times the Organization's Event pages were loaded, every Event's summed, read from the hourly Page View buckets with each hour on the platform day it falls in; a load through an Affiliate Link counts once. It counts loads, not people. events_held is how many published Events started, each on the platform day of its start instant; a draft or a cancelled Event is never held, an External Registration Event is. Both are one series keyed all. A bucket nothing sold, loaded or started in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. currency is the Organization's. Any Member.
+         * @description Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. takings is the Takings of the active Ticket Sales in the Organization's minor units, computed exactly as Sales Trends computes it (every Sales Channel, no channel filter), one series per Sales Channel like tickets_sold; it is null for Event Staff, never zero in its place. page_views is how many times the Organization's Event pages were loaded, every Event's summed, read from the hourly Page View buckets with each hour on the platform day it falls in; a load through an Affiliate Link counts once. It counts loads, not people. events_held is how many published Events started, each on the platform day of its start instant; a draft or a cancelled Event is never held, an External Registration Event is. Both are one series keyed all. A bucket nothing sold, loaded or started in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. events is the Event table: every Event of the Organization held, loaded or sold in the span, today left out, each with its id, name, start (null where it names none) and timezone, its Tickets Sold, Takings and Page Views over the span by the same day rules, so the rows add up to the span's totals of tickets_sold, takings and page_views. An Event held in the span that nothing sold or loaded is listed with zeros. It is ranked by takings for an Org Admin or an Event Owner, and by tickets_sold for Event Staff, each then by page_views and name; takings_cents is null in every row for Event Staff, never zero in its place. currency is the Organization's. Any Member.
          */
         get: {
             parameters: {
@@ -19903,6 +19903,32 @@ export interface components {
             last_day?: string;
             partial?: boolean;
         };
+        "service.OrganizationTrendEvent": {
+            /** @description EventID is what the Event's Sales Trends and Reach are linked on. */
+            event_id?: string;
+            name?: string;
+            /** @description PageViews is how many times the Event's page was loaded in the span. */
+            page_views?: number;
+            /** @description StartsAt is the Event's start, null for an Event that names none. */
+            starts_at?: string;
+            /**
+             * @description TakingsCents is the Takings of those sales (ADR 0040), in the
+             *     Organization's minor units. Null for Event Staff, never zero in its
+             *     place.
+             */
+            takings_cents?: number;
+            /**
+             * @description TicketsSold is the quantity over the Event's active Ticket Sales made in
+             *     the span, every Sales Channel.
+             */
+            tickets_sold?: number;
+            /**
+             * @description Timezone is the Event's own, which its start is printed in. Empty
+             *     where the Event names none.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+        };
         /**
          * @description TicketSales is how many active Ticket Sales were made, by the platform
          *     day each was made, in one series keyed all.
@@ -19981,6 +20007,13 @@ export interface components {
              * @example USD
              */
             currency?: string;
+            /**
+             * @description Events is the Event table: every Event held, loaded or sold in the
+             *     span, today left out, ranked by Takings for a reader handed Takings and
+             *     by Tickets Sold for one who is not. Its rows add up to the span's totals
+             *     of Tickets Sold, Takings and Page Views.
+             */
+            events?: components["schemas"]["service.OrganizationTrendEvent"][];
             figures?: components["schemas"]["service.OrganizationTrendFigures"];
             granularity?: components["schemas"]["service.OrganizationTrendGranularity"];
             span?: components["schemas"]["service.OrganizationTrendSpan"];

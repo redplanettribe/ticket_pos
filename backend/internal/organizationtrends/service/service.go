@@ -49,12 +49,14 @@ type TicketSales interface {
 
 // Events is what Home needs from catalog: how many Events and Active Events
 // an Organization has, which Event is next, and, for Organization Trends, its
-// Events held per day, and the Events held in a window for its breakdown.
+// Events held per day, the Events held in a window for its breakdown, and
+// the name and start of the Events its Event table lists.
 type Events interface {
 	OrganizationEventCounts(ctx context.Context, orgID string, now time.Time) (catalogsvc.OrganizationEventCounts, error)
 	OrganizationNextEvent(ctx context.Context, orgID string, now time.Time) (catalogsvc.NextEvent, bool, error)
 	OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
 	OrganizationEventsHeld(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error)
+	OrganizationEventStarts(ctx context.Context, orgID string, eventIDs []string) (map[string]catalogsvc.EventStart, error)
 }
 
 // PageViews is what Organization Trends needs from affiliates, which keeps

@@ -9,7 +9,7 @@ import (
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
-// Organization Trends (#861, #862, #863): the figures of the Organization over a chosen
+// Organization Trends (#861, #862, #863, #865): the figures of the Organization over a chosen
 // span, beneath Home now. The span arithmetic is trendspan's, in month mode;
 // every figure is read live per platform day and stated over the span with
 // trendspan.Span.Series, so today stays apart and in no total.
@@ -70,6 +70,11 @@ type OrganizationTrends struct {
 	Granularity OrganizationTrendGranularity `json:"granularity" enums:"day,month"`
 	// Figures carries one entry per figure.
 	Figures OrganizationTrendFigures `json:"figures"`
+	// Events is the Event table: every Event held, loaded or sold in the
+	// span, today left out, ranked by Takings for a reader handed Takings and
+	// by Tickets Sold for one who is not. Its rows add up to the span's totals
+	// of Tickets Sold, Takings and Page Views.
+	Events []OrganizationTrendEvent `json:"events"`
 }
 
 // OrganizationTrendSpan is a resolved span's preset, its first and last day,
@@ -258,6 +263,9 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 		}
 		takings := figureOf(keys, takingsSeries)
 		out.Figures.Takings = &takings
+	}
+	if out.Events, err = s.eventTable(ctx, reader, span); err != nil {
+		return nil, false, err
 	}
 	if compared, ok := span.Compared(); ok {
 		kind := ComparePrevious

@@ -141,3 +141,49 @@ func (r *Repository) OrganizationEventsHeld(ctx context.Context, orgID string, f
 	}
 	return out, rows.Err()
 }
+
+// EventStartRow is one Event's name, start and timezone, as the Event table
+// of Organization Trends prints them. StartsAt is nil for a dateless draft
+// and Timezone empty where the Event names none.
+type EventStartRow struct {
+	ID       string
+	Name     string
+	StartsAt *time.Time
+	Timezone string
+}
+
+// OrganizationEventStarts is the name, start and timezone of each of the
+// given Events of one Organization, keyed by id, for the Event table of
+// Organization Trends (#865), which knows the Events of a span by id. An id
+// no Event of the Organization has is absent from the answer.
+func (r *Repository) OrganizationEventStarts(ctx context.Context, orgID string, eventIDs []string) (map[string]EventStartRow, error) {
+	out := make(map[string]EventStartRow, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT e.id, e.name, e.starts_at, e.timezone
+		FROM events e
+		WHERE e.organization_id = $1 AND e.id = ANY($2::uuid[])
+	`, orgID, eventIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var row EventStartRow
+		var startsAt sql.NullTime
+		var timezone sql.NullString
+		if err := rows.Scan(&row.ID, &row.Name, &startsAt, &timezone); err != nil {
+			return nil, err
+		}
+		if startsAt.Valid {
+			start := startsAt.Time.UTC()
+			row.StartsAt = &start
+		}
+		row.Timezone = timezone.String
+		out[row.ID] = row
+	}
+	return out, rows.Err()
+}

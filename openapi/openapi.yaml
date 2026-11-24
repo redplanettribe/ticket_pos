@@ -6931,6 +6931,40 @@ components:
         partial:
           type: boolean
       type: object
+    service.OrganizationTrendEvent:
+      properties:
+        event_id:
+          description: EventID is what the Event's Sales Trends and Reach are linked
+            on.
+          type: string
+        name:
+          type: string
+        page_views:
+          description: PageViews is how many times the Event's page was loaded in
+            the span.
+          type: integer
+        starts_at:
+          description: StartsAt is the Event's start, null for an Event that names
+            none.
+          type: string
+        takings_cents:
+          description: |-
+            TakingsCents is the Takings of those sales (ADR 0040), in the
+            Organization's minor units. Null for Event Staff, never zero in its
+            place.
+          type: integer
+        tickets_sold:
+          description: |-
+            TicketsSold is the quantity over the Event's active Ticket Sales made in
+            the span, every Sales Channel.
+          type: integer
+        timezone:
+          description: |-
+            Timezone is the Event's own, which its start is printed in. Empty
+            where the Event names none.
+          example: America/Guayaquil
+          type: string
+      type: object
     service.OrganizationTrendFigure:
       description: |-
         TicketSales is how many active Ticket Sales were made, by the platform
@@ -7068,6 +7102,16 @@ components:
           description: Currency is the Organization's.
           example: USD
           type: string
+        events:
+          description: |-
+            Events is the Event table: every Event held, loaded or sold in the
+            span, today left out, ranked by Takings for a reader handed Takings and
+            by Tickets Sold for one who is not. Its rows add up to the span's totals
+            of Tickets Sold, Takings and Page Views.
+          items:
+            $ref: '#/components/schemas/service.OrganizationTrendEvent'
+          type: array
+          uniqueItems: false
         figures:
           $ref: '#/components/schemas/service.OrganizationTrendFigures'
         granularity:
@@ -22925,7 +22969,15 @@ paths:
         Registration Event is. Both are one series keyed all. A bucket nothing sold,
         loaded or started in is zero, never absent. Each figure''s total is its series''
         summed. change is a signed ratio (0.5 for half as much again), null when the
-        comparison total is zero or there is none. currency is the Organization''s.
+        comparison total is zero or there is none. events is the Event table: every
+        Event of the Organization held, loaded or sold in the span, today left out,
+        each with its id, name, start (null where it names none) and timezone, its
+        Tickets Sold, Takings and Page Views over the span by the same day rules,
+        so the rows add up to the span''s totals of tickets_sold, takings and page_views.
+        An Event held in the span that nothing sold or loaded is listed with zeros.
+        It is ranked by takings for an Org Admin or an Event Owner, and by tickets_sold
+        for Event Staff, each then by page_views and name; takings_cents is null in
+        every row for Event Staff, never zero in its place. currency is the Organization''s.
         Any Member.'
       parameters:
       - description: Span

@@ -51,3 +51,14 @@ func (s *Service) OrganizationEventsHeldByDay(ctx context.Context, orgID string,
 func (s *Service) OrganizationEventsHeld(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error) {
 	return s.repo.OrganizationEventsHeld(ctx, orgID, from, until)
 }
+
+// EventStart is one Event's name, start and timezone.
+type EventStart = repository.EventStartRow
+
+// OrganizationEventStarts is the name, start and timezone of each of the
+// given Events of one Organization, keyed by id, read for the Event table of
+// Organization Trends (#865). An id no Event of the Organization has is
+// absent.
+func (s *Service) OrganizationEventStarts(ctx context.Context, orgID string, eventIDs []string) (map[string]EventStart, error) {
+	return s.repo.OrganizationEventStarts(ctx, orgID, eventIDs)
+}
