@@ -1,25 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Button,
-  CHART_PLOT_INSET,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ChartScrollArea,
   ChartViewToggle,
-  Input,
-  Label,
-  MultiSeriesLineChart,
   Skeleton,
   StackedAreaChart,
   StackedBarChart,
@@ -32,12 +21,22 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import {
+  STACK_COMPARISON_COLOR,
+  TrendChartWindow,
+  TrendFigureCard,
+  TrendLineChart,
+  TrendSeriesKey,
+  TrendsSpanPicker,
+  chartSelection,
+  useSalesChannelName,
+  useTrendYAxis,
+} from "@/components/trends-reading";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
-  ORGANIZATION_TREND_COMPARISONS,
-  ORGANIZATION_TREND_SPANS,
+  ORGANIZATION_TRENDS_SPAN_SCHEME,
   countedNothing,
   cumulativeStackData,
   dailyStackData,
@@ -46,9 +45,6 @@ import {
   organizationTrendTile,
   organizationTrendsQuery,
   organizationTrendsScrollAnchor,
-  organizationTrendsViewAfterComparisonChange,
-  organizationTrendsViewAfterRangeChange,
-  organizationTrendsViewAfterSpanChange,
   type OrganizationTrendComparison,
   type OrganizationTrendDays,
   type OrganizationTrendFigure,
@@ -56,19 +52,14 @@ import {
   type OrganizationTrends,
   type OrganizationTrendsView,
 } from "@/lib/organization-trends";
-import {
-  organizationBucketSelectionIn,
-  type OrganizationTrendBucketSelection,
-  type OrganizationTrendFigureId,
-} from "@/lib/organization-trends-breakdown";
+import type { OrganizationTrendBucketSelection, OrganizationTrendFigureId } from "@/lib/organization-trends-breakdown";
+import { formatTakingsTick, type TrendsView } from "@/lib/sales-trends";
 import {
   STACK_COMPARISON_ID,
+  bucketSelectionIn,
   formatTrendChange,
-  trendChartYMax,
   type TrendStackDatum,
-} from "@/lib/platform-trends";
-import { cumulativePlotWidth, formatTakingsTick, trendsYTicks, type TrendsView } from "@/lib/sales-trends";
-import { useElementWidth } from "@/lib/use-element-width";
+} from "@/lib/trends-chart";
 
 import { OrganizationTrendBreakdownPanel } from "./organization-trends-breakdown";
 import { OrganizationEventTableCard } from "./organization-trends-events";
@@ -76,8 +67,8 @@ import { OrganizationEventTableCard } from "./organization-trends-events";
 /** Home's own path: the reading's address is this plus its query. */
 const HOME_PATH = "/";
 
-const SELECT_CLASS =
-  "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60";
+/** What the span picker's controls are named by: `organization-trends-span` and the rest. */
+const ID_PREFIX = "organization-trends";
 
 /** One column on a phone, two tiles to a row from sm. */
 export const ORGANIZATION_TRENDS_TILES_GRID = "grid grid-cols-1 gap-4 sm:grid-cols-2";
@@ -96,18 +87,6 @@ const COMPARISON_KEYS = {
   year: "compareYear",
 } as const satisfies Record<OrganizationTrendComparison, string>;
 
-/** The Sales Channels by their keys in `sales`, which coined the words. A
- * channel the API adds before this app names it is shown by its own key. */
-const CHANNEL_KEYS: Record<string, "channelOnline" | "channelInPerson" | "channelImport"> = {
-  online: "channelOnline",
-  in_person: "channelInPerson",
-  import: "channelImport",
-};
-
-/** The line a stack is compared with stands for every channel, so it takes
- * none of their colours: the text colour, as on Platform Trends. */
-const STACK_COMPARISON_COLOR = "var(--foreground)";
-
 const CHART_HEIGHT = 240;
 
 /** The figures a chart is drawn for, by their names in the API, which a
@@ -118,9 +97,6 @@ const FIGURE_IDS = {
   pageViews: "page_views",
   eventsHeld: "events_held",
 } as const satisfies Record<string, OrganizationTrendFigureId>;
-
-/** What a chart's choosable buckets are drawn as, for focus to return to. */
-const BUCKET_LISTBOX = '[role="listbox"]';
 
 /**
  * Organization Trends (#861, #862, #863, spec #858, ADR 0081), beneath what stands
@@ -220,112 +196,26 @@ export function OrganizationTrendsPicker({
   onShow: (next: OrganizationTrendsView) => void;
 }) {
   const t = useTranslations("organizationTrends");
-  const allTime = view.span === "all";
   return (
-    <div className="grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-2 lg:grid-cols-4">
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="organization-trends-span">{t("spanLabel")}</Label>
-        <select
-          id="organization-trends-span"
-          className={SELECT_CLASS}
-          value={view.span}
-          onChange={(event) =>
-            onShow(organizationTrendsViewAfterSpanChange(view, event.target.value as OrganizationTrendSpan, shown))
-          }
-        >
-          {ORGANIZATION_TREND_SPANS.map((span) => (
-            // Custom starts from the span on screen, so it waits for it.
-            <option key={span} value={span} disabled={span === "custom" && view.span !== "custom" && waiting}>
-              {t(SPAN_KEYS[span])}
-            </option>
-          ))}
-        </select>
-      </div>
-      {view.span === "custom" ? (
-        <CustomRangeForm
-          from={view.from}
-          to={view.to}
-          onApply={(range) => onShow(organizationTrendsViewAfterRangeChange(view, range))}
-        />
-      ) : null}
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="organization-trends-compare">{t("compareLabel")}</Label>
-        <select
-          id="organization-trends-compare"
-          className={SELECT_CLASS}
-          value={allTime ? "none" : view.compare}
-          disabled={allTime}
-          onChange={(event) =>
-            onShow(organizationTrendsViewAfterComparisonChange(view, event.target.value as OrganizationTrendComparison))
-          }
-        >
-          {allTime ? <option value="none">{t("compareNone")}</option> : null}
-          {ORGANIZATION_TREND_COMPARISONS.map((comparison) => (
-            <option key={comparison} value={comparison}>
-              {t(COMPARISON_KEYS[comparison])}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The two days of a custom range, applied by its button and not as a day
- * changes, as on Platform Trends: a year typed into a date input passes
- * through whole, valid days on its way, and each would be a new address.
- */
-function CustomRangeForm({
-  from,
-  to,
-  onApply,
-}: {
-  from: string;
-  to: string;
-  onApply: (range: { from: string; to: string }) => void;
-}) {
-  const t = useTranslations("organizationTrends");
-  const [range, setRange] = useState({ from, to });
-  useEffect(() => {
-    setRange({ from, to });
-  }, [from, to]);
-  return (
-    <form
-      className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onApply(range);
+    <TrendsSpanPicker
+      scheme={ORGANIZATION_TRENDS_SPAN_SCHEME}
+      view={view}
+      shown={shown}
+      waiting={waiting}
+      onShow={onShow}
+      idPrefix={ID_PREFIX}
+      oneColumnOnPhone
+      copy={{
+        spanLabel: t("spanLabel"),
+        compareLabel: t("compareLabel"),
+        noComparison: t("compareNone"),
+        fromLabel: t("fromLabel"),
+        toLabel: t("toLabel"),
+        applyRange: t("applyRange"),
+        spanName: (span) => t(SPAN_KEYS[span]),
+        comparisonName: (comparison) => t(COMPARISON_KEYS[comparison]),
       }}
-    >
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="organization-trends-from">{t("fromLabel")}</Label>
-        <Input
-          id="organization-trends-from"
-          type="date"
-          required
-          value={range.from}
-          max={range.to || undefined}
-          onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))}
-          className="h-9"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="organization-trends-to">{t("toLabel")}</Label>
-        <Input
-          id="organization-trends-to"
-          type="date"
-          required
-          value={range.to}
-          min={range.from || undefined}
-          onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))}
-          className="h-9"
-        />
-      </div>
-      <Button type="submit" variant="outline" size="sm" className="h-9">
-        {t("applyRange")}
-      </Button>
-    </form>
+    />
   );
 }
 
@@ -361,7 +251,7 @@ export function OrganizationTrendsReading({
   initialSelection?: OrganizationTrendBucketSelection | null;
 }) {
   const t = useTranslations("organizationTrends");
-  const tSales = useTranslations("sales");
+  const channelName = useSalesChannelName();
   const [chartView, setChartView] = useState<TrendsView>(initialChartView);
   const { figures, comparison } = trends;
 
@@ -433,11 +323,6 @@ export function OrganizationTrendsReading({
     ],
     [t],
   );
-  const channelName = (key: string) => {
-    const messageKey = CHANNEL_KEYS[key];
-    return messageKey === undefined ? key : tSales(messageKey);
-  };
-
   const reading = {
     from: formatCalendarDay(trends.span.first_day, locale),
     to: formatCalendarDay(trends.span.last_day, locale),
@@ -594,32 +479,29 @@ function FigureCard({
   bucketName: (selection: OrganizationTrendBucketSelection) => string;
   children: ReactNode;
 }) {
-  const content = useRef<HTMLDivElement>(null);
   return (
-    <Card className="min-w-0">
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent ref={content} className="space-y-3">
-        {children}
-        {breakdown === undefined ? null : (
-          <OrganizationTrendBreakdownPanel
-            selection={breakdown.selection}
-            figure={title}
-            bucket={bucketName(breakdown.selection)}
-            formatValue={breakdown.formatValue}
-            onClose={() => {
-              // The Close button goes with the panel. Focus returns to the
-              // chart the bucket was chosen on, so a keyboard reader is not
-              // dropped at the top of the page.
-              content.current?.querySelector<HTMLElement>(BUCKET_LISTBOX)?.focus();
-              breakdown.onClose();
-            }}
-          />
-        )}
-      </CardContent>
-    </Card>
+    <TrendFigureCard
+      title={title}
+      description={description}
+      breakdown={
+        breakdown === undefined
+          ? undefined
+          : (returnFocus) => (
+              <OrganizationTrendBreakdownPanel
+                selection={breakdown.selection}
+                figure={title}
+                bucket={bucketName(breakdown.selection)}
+                formatValue={breakdown.formatValue}
+                onClose={() => {
+                  returnFocus();
+                  breakdown.onClose();
+                }}
+              />
+            )
+      }
+    >
+      {children}
+    </TrendFigureCard>
   );
 }
 
@@ -628,27 +510,21 @@ function FigureCard({
  * selected, what a choice opens, and how each is read aloud. Choosing the
  * selected bucket again keeps it open; the panel is closed by its own button.
  */
-function chartSelection(
+function organizationChartSelection(
   data: readonly TrendStackDatum[],
   { figureId, selected, onSelect }: BucketChoice,
   label: string,
   describe: (datum: TrendStackDatum) => string,
 ): ChartBucketSelection {
-  const find = (key: string) => data.find((datum) => datum.key === key);
-  return {
-    selectedKey: organizationBucketSelectionIn(selected, figureId, data),
-    onSelect: (key) => {
-      const datum = find(key);
-      if (datum !== undefined) {
-        onSelect({ figure: figureId, key, firstDay: datum.firstDay, lastDay: datum.lastDay });
-      }
+  return chartSelection(
+    data,
+    {
+      selectedKey: bucketSelectionIn(selected, figureId, data),
+      onChoose: (datum) => onSelect({ figure: figureId, key: datum.key, firstDay: datum.firstDay, lastDay: datum.lastDay }),
     },
     label,
-    describeBucket: (key) => {
-      const datum = find(key);
-      return datum === undefined ? key : describe(datum);
-    },
-  };
+    describe,
+  );
 }
 
 /** How a Daily chart's bucket is read aloud: its name and its value (a
@@ -716,8 +592,7 @@ function StackedFigureChart({
     name: channelName(entry.key),
     color: chartSeriesColor(index),
   }));
-  const yMax = useMemo(() => trendChartYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+  const { yMax, yTicks } = useTrendYAxis(data);
   const ariaLabel = cumulative
     ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
     : t("chartLabel", { figure: figureName, granularity: trends.granularity });
@@ -725,17 +600,11 @@ function StackedFigureChart({
   return (
     <>
       {/* A figure of one series is named by its card, and has no key. */}
-      {series.length > 1 ? (
-        <ul aria-label={t("channelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {series.map((entry) => (
-            <li key={entry.id} className="flex items-center gap-1.5">
-              <span aria-hidden className="size-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
-              {entry.name}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <FigureChartWindow trends={trends} figureName={figureName} view={view}>
+      {series.length > 1 ? <TrendSeriesKey label={t("channelsLabel")} series={series} /> : null}
+      <TrendChartWindow
+        ariaLabel={t("scrollLabel", { figure: figureName })}
+        scrollAnchor={organizationTrendsScrollAnchor(trends, view)}
+      >
         {(plotWidth) =>
           cumulative ? (
             <StackedAreaChart
@@ -763,7 +632,7 @@ function StackedFigureChart({
               formatTickValue={formatTickValue}
               totalLabel={totalLabel}
               partialLabel={t("partial")}
-              selection={chartSelection(
+              selection={organizationChartSelection(
                 data,
                 { figureId, selected, onSelect },
                 t("selectBucket", { figure: figureName, granularity: trends.granularity }),
@@ -773,7 +642,7 @@ function StackedFigureChart({
             />
           )
         }
-      </FigureChartWindow>
+      </TrendChartWindow>
     </>
   );
 }
@@ -795,37 +664,6 @@ function comparisonLine(
       color,
     },
   ];
-}
-
-/**
- * The window a chart is drawn in, at its card's width, scrolling sideways
- * when the card is narrower than the floor and opening on its newest end once
- * per reading and view.
- */
-function FigureChartWindow({
-  trends,
-  figureName,
-  view,
-  children,
-}: {
-  trends: OrganizationTrends;
-  figureName: string;
-  view: TrendsView;
-  children: (plotWidth: number) => ReactNode;
-}) {
-  const t = useTranslations("organizationTrends");
-  const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
-  const availableWidth = useElementWidth(scrollArea);
-  const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
-  return (
-    <ChartScrollArea
-      ref={setScrollArea}
-      ariaLabel={t("scrollLabel", { figure: figureName })}
-      openAtNewestEnd={{ key: organizationTrendsScrollAnchor(trends, view), contentWidth: plotWidth }}
-    >
-      {children(plotWidth)}
-    </ChartScrollArea>
-  );
 }
 
 /**
@@ -869,41 +707,33 @@ function LineFigureChart({
     [cumulative, source, trends.span.buckets, label],
   );
   const series: StackedSeries[] = [{ id: source.series[0]?.key ?? "all", name: figureName, color: chartSeriesColor(0) }];
-  const yMax = useMemo(() => trendChartYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
   const ariaLabel = cumulative
     ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
     : t("chartLabel", { figure: figureName, granularity: trends.granularity });
 
   return (
-    <FigureChartWindow trends={trends} figureName={figureName} view={view}>
-      {(plotWidth) => (
-        <MultiSeriesLineChart
-          data={data}
-          series={series}
-          comparisonSeries={cumulative ? undefined : comparisonLine(trends, t, chartSeriesColor(0))}
-          yMax={yMax}
-          yTicks={yTicks}
-          plotWidth={plotWidth}
-          height={CHART_HEIGHT}
-          formatValue={format}
-          // A bucket nobody loaded is a zero the hover card names.
-          zeroIsMeasured
-          nothingCountedLabel={t("nothingCounted")}
-          partialLabel={t("partial")}
-          selection={
-            cumulative
-              ? undefined
-              : chartSelection(
-                  data,
-                  { figureId, selected, onSelect },
-                  t("selectBucket", { figure: figureName, granularity: trends.granularity }),
-                  describeBucketValue(t, format),
-                )
-          }
-          ariaLabel={ariaLabel}
-        />
-      )}
-    </FigureChartWindow>
+    <TrendLineChart
+      scrollLabel={t("scrollLabel", { figure: figureName })}
+      scrollAnchor={organizationTrendsScrollAnchor(trends, view)}
+      height={CHART_HEIGHT}
+      data={data}
+      series={series}
+      comparisonSeries={cumulative ? undefined : comparisonLine(trends, t, chartSeriesColor(0))}
+      formatValue={format}
+      // A bucket nobody loaded is a zero the hover card names.
+      nothingCountedLabel={t("nothingCounted")}
+      partialLabel={t("partial")}
+      selection={
+        cumulative
+          ? undefined
+          : organizationChartSelection(
+              data,
+              { figureId, selected, onSelect },
+              t("selectBucket", { figure: figureName, granularity: trends.granularity }),
+              describeBucketValue(t, format),
+            )
+      }
+      ariaLabel={ariaLabel}
+    />
   );
 }

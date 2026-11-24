@@ -6,8 +6,10 @@
 // exact recording began. What is here is the little the page does with that
 // answer before drawing it: the reading's address (span and comparison, in the
 // URL as the Tax Invoices list keeps its filters), the request that address
-// names, the spelling of a change and of a bucket, and the reshaping of the
-// response into what the shared charts and the shared tile take.
+// names, the spelling of a mean, and the reshaping of the response into what
+// the shared charts and the shared tile take. What Organization Trends reads
+// alike is shared: the address in trends-span.ts, the spelling of a change
+// and of a bucket and the series' reshaping in trends-chart.ts.
 //
 // Nothing here buckets, totals a span, compares two spans or decides what is
 // partial. The two places a number is added up are drawing a stack: the height
@@ -17,8 +19,26 @@
 // Relative imports carry the ".ts" extension so the module graph resolves
 // under `node --test` as well as the bundler.
 import { fetchEventsJSON } from "./events-api.ts";
-import { formatNumber, staffIntlLocale, type AppLocale } from "./format.ts";
-import { axisTopFor } from "./sales-trends.ts";
+import { formatNumber, type AppLocale } from "./format.ts";
+import {
+  comparisonSeriesId,
+  stackHeight,
+  type BucketLabel,
+  type TrendChartDatum,
+  type TrendNoChange,
+  type TrendTileReadingInput,
+} from "./trends-chart.ts";
+import {
+  parseTrendSpanParams,
+  trendSpanQuery,
+  trendSpanViewAfterComparisonChange,
+  trendSpanViewAfterRangeChange,
+  trendSpanViewAfterSpanChange,
+  type TrendDays,
+  type TrendSpanScheme,
+  type TrendSpanSearchParams,
+  type TrendSpanView,
+} from "./trends-span.ts";
 
 // ---------------------------------------------------------------------------
 // The response, field for field as GET /api/v1/operator/platform-trends
@@ -98,7 +118,7 @@ export type PlatformTrendActivityFigure = {
 
 export type PlatformTrendGranularity = "day" | "week";
 
-export type PlatformTrendDays = { first_day: string; last_day: string };
+export type PlatformTrendDays = TrendDays;
 
 export type PlatformTrends = {
   /** The platform clock every day here is read on. */
@@ -140,12 +160,7 @@ export type PlatformTrendComparison = (typeof PLATFORM_TREND_COMPARISONS)[number
  * `from` and `to` are calendar days ("YYYY-MM-DD") for a custom span and ""
  * for every other.
  */
-export type PlatformTrendsView = {
-  span: PlatformTrendSpan;
-  from: string;
-  to: string;
-  compare: PlatformTrendComparison;
-};
+export type PlatformTrendsView = TrendSpanView<PlatformTrendSpan, PlatformTrendComparison>;
 
 /** What a bare /operator shows: 30 days against the span before. Never
  * written to the address, so the Overview's address stays the bare path. */
@@ -158,72 +173,27 @@ export const DEFAULT_PLATFORM_TRENDS_VIEW: PlatformTrendsView = {
 
 /** The raw query params the Overview reads, as Next hands them over: a
  * parameter written twice arrives as an array. */
-export type PlatformTrendsSearchParams = {
-  span?: string | string[];
-  from?: string | string[];
-  to?: string | string[];
-  compare?: string | string[];
+export type PlatformTrendsSearchParams = TrendSpanSearchParams;
+
+/** Platform Trends' readings: its presets and comparisons, and no all time
+ * span, which only Organization Trends offers. */
+export const PLATFORM_TRENDS_SPAN_SCHEME: TrendSpanScheme<PlatformTrendSpan, PlatformTrendComparison> = {
+  spans: PLATFORM_TREND_SPANS,
+  comparisons: PLATFORM_TREND_COMPARISONS,
+  defaultView: DEFAULT_PLATFORM_TRENDS_VIEW,
+  allTime: null,
 };
 
-/** The first value of a query param, trimmed: a parameter written twice
- * arrives as an array. Shared with Organization Trends' address. */
-export function firstParam(raw: string | string[] | undefined): string {
-  return ((Array.isArray(raw) ? raw[0] : raw) ?? "").trim();
-}
-
-const CALENDAR_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** Whether a string is a day that exists on the calendar, spelled YYYY-MM-DD. */
-export function isCalendarDay(value: string): boolean {
-  const match = CALENDAR_DAY.exec(value);
-  if (!match) return false;
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}
-
-/**
- * parsePlatformTrendsParams reads the reading off the address. A span or a
- * comparison this app does not know falls back to the default, each on its
- * own, and so does a custom span without two real calendar days: a mistyped
- * address still shows the operator a reading. What the two days of a custom
- * range may be (their order, how far they reach) is the API's to say, and its
- * refusal is shown in the section.
- */
+/** parsePlatformTrendsParams reads the reading off the address
+ * (`parseTrendSpanParams`). */
 export function parsePlatformTrendsParams(searchParams: PlatformTrendsSearchParams): PlatformTrendsView {
-  const compareRaw = firstParam(searchParams.compare) as PlatformTrendComparison;
-  const compare = PLATFORM_TREND_COMPARISONS.includes(compareRaw)
-    ? compareRaw
-    : DEFAULT_PLATFORM_TRENDS_VIEW.compare;
-  const spanRaw = firstParam(searchParams.span) as PlatformTrendSpan;
-  const span = PLATFORM_TREND_SPANS.includes(spanRaw) ? spanRaw : DEFAULT_PLATFORM_TRENDS_VIEW.span;
-  if (span !== "custom") {
-    return { span, from: "", to: "", compare };
-  }
-  const from = firstParam(searchParams.from);
-  const to = firstParam(searchParams.to);
-  if (!isCalendarDay(from) || !isCalendarDay(to)) {
-    return { ...DEFAULT_PLATFORM_TRENDS_VIEW, compare };
-  }
-  return { span, from, to, compare };
+  return parseTrendSpanParams(PLATFORM_TRENDS_SPAN_SCHEME, searchParams);
 }
 
-/**
- * platformTrendsQuery is the canonical query string of a reading, with the
- * API's own parameter names. It is both the page's address and the request's
- * query, so the two cannot name different readings. The defaults are left
- * out. `parsePlatformTrendsParams` reads it back.
- */
+/** platformTrendsQuery is the canonical query string of a reading
+ * (`trendSpanQuery`): both the page's address and the request's query. */
 export function platformTrendsQuery(view: PlatformTrendsView): string {
-  const params = new URLSearchParams();
-  if (view.span !== DEFAULT_PLATFORM_TRENDS_VIEW.span) params.set("span", view.span);
-  if (view.span === "custom") {
-    params.set("from", view.from);
-    params.set("to", view.to);
-  }
-  if (view.compare !== DEFAULT_PLATFORM_TRENDS_VIEW.compare) params.set("compare", view.compare);
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return trendSpanQuery(PLATFORM_TRENDS_SPAN_SCHEME, view);
 }
 
 /** The staff app's own route for the read, which forwards to the Go API. */
@@ -240,25 +210,13 @@ export async function fetchPlatformTrends(view: PlatformTrendsView): Promise<Pla
   return fetchEventsJSON<PlatformTrends>(platformTrendsRequestPath(view));
 }
 
-/**
- * The view after the operator chooses a span. A preset drops the custom days.
- * Custom starts from the span on screen, as the backend stated it, so the
- * first custom reading is the one already shown and the operator moves its
- * ends from there. With no reading on screen there are no days to start
- * from, and the view stays as it is.
- */
+/** The view after the operator chooses a span (`trendSpanViewAfterSpanChange`). */
 export function platformTrendsViewAfterSpanChange(
   view: PlatformTrendsView,
   span: PlatformTrendSpan,
   shown: PlatformTrendDays | null,
 ): PlatformTrendsView {
-  if (span !== "custom") {
-    return { span, from: "", to: "", compare: view.compare };
-  }
-  if (shown === null) {
-    return view;
-  }
-  return { span, from: shown.first_day, to: shown.last_day, compare: view.compare };
+  return trendSpanViewAfterSpanChange(PLATFORM_TRENDS_SPAN_SCHEME, view, span, shown);
 }
 
 /** The view after one day of the custom range is changed. A day emptied in
@@ -267,206 +225,28 @@ export function platformTrendsViewAfterRangeChange(
   view: PlatformTrendsView,
   patch: { from?: string; to?: string },
 ): PlatformTrendsView {
-  return {
-    ...view,
-    from: patch.from ? patch.from : view.from,
-    to: patch.to ? patch.to : view.to,
-  };
+  return trendSpanViewAfterRangeChange(view, patch);
 }
 
 export function platformTrendsViewAfterComparisonChange(
   view: PlatformTrendsView,
   compare: PlatformTrendComparison,
 ): PlatformTrendsView {
-  return { ...view, compare };
+  return trendSpanViewAfterComparisonChange(view, compare);
 }
 
 // ---------------------------------------------------------------------------
 // Spelling
 // ---------------------------------------------------------------------------
 
-/**
- * A change as the tile states it: the backend's signed ratio as a signed
- * percentage, "+12.5%" and "-10%", with the reader's marks. Zero carries no
- * sign, and neither does a change too small to print. The tile hands this the
- * ratio it already rounded to one decimal of a percent, the precision kept
- * here, and reads its direction from that same number
- * (`roundedTrendChange` in the UI package), so the two agree. An absent
- * change never reaches here: it is null on the tile, which
- * says there is nothing to compare against.
- */
-export function formatTrendChange(ratio: number, locale: AppLocale): string {
-  return (
-    new Intl.NumberFormat(staffIntlLocale(locale), {
-      style: "percent",
-      maximumFractionDigits: 1,
-      signDisplay: "exceptZero",
-    })
-      .format(ratio)
-      // Some locales sign a negative with U+2212; the tile's "-" is the plain
-      // hyphen everywhere.
-      .replace("\u2212", "-")
-  );
-}
-
 /** A mean daily count, which is seldom whole: one decimal at most. */
 export function formatTrendMean(value: number, locale: AppLocale): string {
   return formatNumber(value, locale, { maximumFractionDigits: 1 });
 }
 
-const BUCKET_DAY = { month: "short", day: "numeric", timeZone: "UTC" } as const;
-
-function utcDay(day: string): Date | null {
-  return isCalendarDay(day) ? new Date(`${day}T00:00:00Z`) : null;
-}
-
-/**
- * What a bucket is called on the axis and in the hover card: its day, or for
- * a bucket longer than a day its first and last ("Jun 29 - Jul 5", joined as
- * the reader's language joins a range).
- *
- * The days are the platform's, already resolved by the API, so they are read
- * and written in UTC and never moved into the reader's zone. No year, for the
- * reason `formatTrendsDay` gives: the span is stated beside the charts.
- */
-export function formatTrendBucket(bucket: PlatformTrendDays, locale: AppLocale): string {
-  const firstDay = utcDay(bucket.first_day);
-  const lastDay = utcDay(bucket.last_day);
-  if (firstDay === null || lastDay === null) {
-    return bucket.first_day;
-  }
-  const format = new Intl.DateTimeFormat(staffIntlLocale(locale), BUCKET_DAY);
-  return bucket.first_day === bucket.last_day ? format.format(firstDay) : format.formatRange(firstDay, lastDay);
-}
-
 // ---------------------------------------------------------------------------
 // Response to chart input
 // ---------------------------------------------------------------------------
-
-/**
- * One bucket as a chart takes it. Structurally a `MultiSeriesLineDatum` of
- * the shared charts, and beside it the days the bucket covers, which is what
- * the recording-began marker is placed by.
- */
-export type TrendChartDatum = {
-  key: string;
-  label: string;
-  firstDay: string;
-  lastDay: string;
-  partial?: boolean;
-  values: Record<string, number | null>;
-  comparison?: Record<string, number | null>;
-};
-
-/** A bucket of a stacked chart: every value a number, and the stack's height,
- * or, before the figure's data began, every value and the height null. */
-export type TrendStackDatum = TrendChartDatum & {
-  values: Record<string, number | null>;
-  total: number | null;
-};
-
-/** The id of the comparison line drawn for the series `key`. */
-export function comparisonSeriesId(key: string): string {
-  return `comparison:${key}`;
-}
-
-/** The id of the one comparison line a stack is set beside: the comparison
- * span's own stack height. */
-export const STACK_COMPARISON_ID = "comparison:stack";
-
-/** How the section names a bucket on the axis and in the hover card. */
-export type BucketLabel = (bucket: PlatformTrendDays) => string;
-
-/**
- * seriesChartData turns series into line chart buckets: each series' value in
- * each bucket, its comparison bucket's value beside it under
- * `comparisonSeriesId`, and today, where the response carries it, as a last
- * bucket marked partial with no comparison. A null bucket, before the
- * figure's data began, and a null comparison bucket stay null, which the
- * chart draws as a gap and never as a zero.
- *
- * The buckets are the span's (`spanBuckets`): a null bucket names no days of
- * its own, and a bucket holding the first day of data names only the days
- * from it, while the chart draws the whole bucket.
- */
-export function seriesChartData(
-  series: readonly PlatformTrendSeries[],
-  span: readonly PlatformTrendDays[],
-  label: BucketLabel,
-): TrendChartDatum[] {
-  const reference = series[0];
-  if (reference === undefined) {
-    return [];
-  }
-  const data: TrendChartDatum[] = span.map((bucket, index) => ({
-    key: bucket.first_day,
-    label: label(bucket),
-    firstDay: bucket.first_day,
-    lastDay: bucket.last_day,
-    values: Object.fromEntries(series.map((entry) => [entry.key, entry.buckets[index]?.value ?? null])),
-    comparison: Object.fromEntries(
-      series.map((entry) => [comparisonSeriesId(entry.key), entry.comparison_buckets[index]?.value ?? null]),
-    ),
-  }));
-  const today = reference.today;
-  if (today !== null) {
-    data.push({
-      key: today.first_day,
-      label: label(today),
-      firstDay: today.first_day,
-      lastDay: today.last_day,
-      partial: today.partial,
-      values: Object.fromEntries(series.map((entry) => [entry.key, entry.today?.value ?? null])),
-    });
-  }
-  return data;
-}
-
-/**
- * stackedChartData is `seriesChartData` for a figure drawn as a stack
- * (Tickets Sold by Sales Channel): the same buckets, with the height of the
- * stack beside the values, and one comparison value, the height of the
- * comparison span's stack. That height is a gap where the comparison has no
- * data in any series, and never a zero. So is the stack's own: a bucket
- * before the figure's data began has no part and no height. The figure's
- * data begins on one day for every series, so a bucket is null in all of
- * them or in none.
- */
-export function stackedChartData(
-  series: readonly PlatformTrendSeries[],
-  span: readonly PlatformTrendDays[],
-  label: BucketLabel,
-): TrendStackDatum[] {
-  return seriesChartData(series, span, label).map((datum) => {
-    const total = stackHeight(Object.values(datum.values));
-    const values = Object.fromEntries(
-      series.map((entry) => [entry.key, total === null ? null : (datum.values[entry.key] ?? 0)]),
-    );
-    const compared = Object.values(datum.comparison ?? {}).filter((value) => value !== null);
-    return {
-      ...datum,
-      values,
-      total,
-      comparison:
-        datum.comparison === undefined
-          ? undefined
-          : {
-              [STACK_COMPARISON_ID]: compared.length === 0 ? null : compared.reduce((sum, value) => sum + value, 0),
-            },
-    };
-  });
-}
-
-/**
- * The height of a stack of parts: their sum, or null when every part is, the
- * bucket being before the figure's data began. A missing part in a counted
- * bucket is a zero.
- */
-function stackHeight(parts: readonly (number | null | undefined)[]): number | null {
-  return parts.every((part) => part === null)
-    ? null
-    : parts.reduce<number>((sum, part) => sum + (part ?? 0), 0);
-}
 
 /**
  * The buckets of the span, which every chart is drawn on. A figure states one
@@ -589,53 +369,9 @@ export function comparisonReachesSalesOnly(
   return figure.exact_since === null || comparison.first_day < figure.exact_since;
 }
 
-/**
- * The top of a chart's Y axis: the tallest thing it draws, rounded up as
- * every trends chart rounds (`axisTopFor`). The tallest thing is a value, a
- * comparison value, or the height of a stack, so neither the comparison line
- * nor a stacked bar leaves the plot.
- */
-export function trendChartYMax(data: readonly (TrendChartDatum & { total?: number | null })[]): number {
-  const tallest = data.reduce(
-    (max, datum) =>
-      Math.max(
-        max,
-        datum.total ?? 0,
-        ...Object.values(datum.values).map((value) => value ?? 0),
-        ...Object.values(datum.comparison ?? {}).map((value) => value ?? 0),
-      ),
-    0,
-  );
-  return axisTopFor(tallest);
-}
-
 // ---------------------------------------------------------------------------
 // Response to tile input
 // ---------------------------------------------------------------------------
-
-/**
- * Why a tile has no number to state, as a token the section puts into words
- * (lib/ returns tokens and is never handed copy): the figure is not recorded
- * at all, which is not a zero, or it is recorded and the span has nothing to
- * state.
- */
-export type TrendTileAbsence = "notRecorded" | "noFigure";
-
-/**
- * Why a reading states no change, as a token the section puts into words
- * (#837). The change is the backend's and is never worked out here; this only
- * says which of its reasons for leaving it out holds, read from what the
- * response already states:
- *
- * - `nothingToCompare`: the comparison span has no data at all (no comparison
- *   bucket, so no comparison total or mean), or nothing else below holds.
- * - `partlyRecorded`: the comparison span begins before the figure's
- *   data_since, so only its later buckets have data and the backend states no
- *   change from them (#826), whatever they come to.
- * - `noneCompared`: the comparison is recorded throughout and came to zero,
- *   and a change from zero has no ratio.
- */
-export type TrendNoChange = "nothingToCompare" | "partlyRecorded" | "noneCompared";
 
 /**
  * The reason a change is absent, or nothing when one is stated. `compared` is
@@ -658,23 +394,6 @@ function noChangeOf(
   }
   return { change, noChange: compared === 0 ? "noneCompared" : "nothingToCompare" };
 }
-
-/** One reading of a tile, before the section words it. */
-export type TrendTileReadingInput = {
-  id: string;
-  /** The figure as spelled, or null, and then `absence` says why. */
-  value: string | null;
-  absence?: TrendTileAbsence;
-  /** A currency code beside a money reading. Data, not copy. */
-  currency?: string;
-  /** True when the figure is a mean a day, which the section says beside it. */
-  dailyMean?: boolean;
-  /** Null states no change, and then `noChange` says why. Left out, the tile
-   * states nothing about a change at all. */
-  change?: number | null;
-  noChange?: TrendNoChange;
-  trend?: (number | null)[];
-};
 
 /** A lesser figure of a tile, named by its id: a series' key (a Sales
  * Channel), or `distinct_7d` and `distinct_30d`. The section owns the words.

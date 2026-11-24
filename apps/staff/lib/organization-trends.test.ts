@@ -19,7 +19,7 @@ import {
   type OrganizationTrendFigure,
   type OrganizationTrendSeries,
 } from "./organization-trends.ts";
-import { STACK_COMPARISON_ID } from "./platform-trends.ts";
+import { STACK_COMPARISON_ID } from "./trends-chart.ts";
 
 // ---------------------------------------------------------------------------
 // The address

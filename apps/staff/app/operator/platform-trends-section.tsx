@@ -1,24 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Button,
-  CHART_PLOT_INSET,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ChartScrollArea,
-  Input,
-  Label,
-  MultiSeriesLineChart,
   Skeleton,
   StackedBarChart,
   TrendTile,
@@ -30,56 +19,60 @@ import {
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
+import {
+  STACK_COMPARISON_COLOR,
+  TrendChartWindow,
+  TrendFigureCard,
+  TrendLineChart,
+  TrendSeriesKey,
+  TrendsSpanPicker,
+  chartSelection,
+  useSalesChannelName,
+  useTrendYAxis,
+} from "@/components/trends-reading";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { PLATFORM_TIME_ZONE, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
   ACTIVITY_SERIES_ID,
-  PLATFORM_TREND_COMPARISONS,
-  PLATFORM_TREND_SPANS,
-  STACK_COMPARISON_ID,
+  PLATFORM_TRENDS_SPAN_SCHEME,
   activityChartData,
   activityTile,
   allBeforeMarker,
   comparisonReachesSalesOnly,
-  comparisonSeriesId,
   countTile,
   fetchPlatformTrends,
-  formatTrendBucket,
-  formatTrendChange,
   formatTrendMean,
   markerBucketKey,
   moneyTile,
   platformTrendsQuery,
   platformTrendsScrollAnchor,
-  platformTrendsViewAfterComparisonChange,
-  platformTrendsViewAfterRangeChange,
-  platformTrendsViewAfterSpanChange,
   salesOnlyThroughout,
-  seriesChartData,
   spanBuckets,
-  stackedChartData,
-  trendChartYMax,
-  type BucketLabel,
-  type PlatformTrendDays,
   type PlatformTrendComparison,
+  type PlatformTrendDays,
   type PlatformTrendFigure,
   type PlatformTrendSeries,
   type PlatformTrendSpan,
   type PlatformTrends,
   type PlatformTrendsView,
-  type TrendChartDatum,
-  type TrendStackDatum,
   type TrendTileInput,
   type TrendTileSecondaryInput,
 } from "@/lib/platform-trends";
+import type { PlatformTrendFigureId, TrendBucketSelection } from "@/lib/platform-trends-breakdown";
+import { formatTakingsTick } from "@/lib/sales-trends";
 import {
+  STACK_COMPARISON_ID,
   bucketSelectionIn,
-  type PlatformTrendFigureId,
-  type TrendBucketSelection,
-} from "@/lib/platform-trends-breakdown";
-import { cumulativePlotWidth, formatTakingsTick, trendsYTicks } from "@/lib/sales-trends";
-import { useElementWidth } from "@/lib/use-element-width";
+  comparisonSeriesId,
+  formatTrendBucket,
+  formatTrendChange,
+  seriesChartData,
+  stackedChartData,
+  type BucketLabel,
+  type TrendChartDatum,
+  type TrendStackDatum,
+} from "@/lib/trends-chart";
 
 import { OVERVIEW_CARD_TITLE, OVERVIEW_CHART_COLUMNS, OVERVIEW_GRID_GAP, OVERVIEW_SECTION_TITLE } from "./overview-layout";
 import { PlatformTrendBreakdownPanel } from "./platform-trends-breakdown";
@@ -87,8 +80,8 @@ import { PlatformTrendBreakdownPanel } from "./platform-trends-breakdown";
 /** The Overview's own path: the reading's address is this plus its query. */
 const OVERVIEW_PATH = "/operator";
 
-const SELECT_CLASS =
-  "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+/** What the span picker's controls are named by: `platform-trends-span` and the rest. */
+const ID_PREFIX = "platform-trends";
 
 const SPAN_KEYS = {
   "7d": "trendsSpan7d",
@@ -102,25 +95,6 @@ const COMPARISON_KEYS = {
   previous: "trendsComparePrevious",
   year_earlier: "trendsCompareYearEarlier",
 } as const satisfies Record<PlatformTrendComparison, string>;
-
-/** The Sales Channels Tickets Sold is split by, by their keys in `sales`,
- * which coined the words: the operator's screen reads them and never coins a
- * second. A channel the API adds before this app names it is shown by its own
- * key. */
-const CHANNEL_KEYS: Record<string, "channelOnline" | "channelInPerson" | "channelImport"> = {
-  online: "channelOnline",
-  in_person: "channelInPerson",
-  import: "channelImport",
-};
-
-/** The colour of the line a stack is compared with. The stack has one colour
- * per Sales Channel and the line stands for all of them, so it takes none of
- * theirs: the text colour, which follows the theme. */
-const STACK_COMPARISON_COLOR = "var(--foreground)";
-
-/** The keyboard surface the shared charts lay over a plot whose buckets can
- * be chosen. */
-const BUCKET_LISTBOX = '[role="listbox"]';
 
 /** How tall each chart is drawn. Shorter than a chart that has a card to
  * itself: there are nine, two to a row, above the rest of the Overview. */
@@ -204,55 +178,23 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
         </p>
       </div>
 
-      <div className="grid gap-3 rounded-md border p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="platform-trends-span">{t("trendsSpanLabel")}</Label>
-          <select
-            id="platform-trends-span"
-            className={SELECT_CLASS}
-            value={view.span}
-            onChange={(event) =>
-              show(platformTrendsViewAfterSpanChange(view, event.target.value as PlatformTrendSpan, trends?.span ?? null))
-            }
-          >
-            {PLATFORM_TREND_SPANS.map((span) => (
-              // Custom starts from the span on screen, so it waits for the
-              // reading the address names to be the one on screen.
-              <option
-                key={span}
-                value={span}
-                disabled={span === "custom" && view.span !== "custom" && (trends === null || loading)}
-              >
-                {t(SPAN_KEYS[span])}
-              </option>
-            ))}
-          </select>
-        </div>
-        {view.span === "custom" ? (
-          <CustomRangeForm
-            from={view.from}
-            to={view.to}
-            onApply={(range) => show(platformTrendsViewAfterRangeChange(view, range))}
-          />
-        ) : null}
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="platform-trends-compare">{t("trendsCompareLabel")}</Label>
-          <select
-            id="platform-trends-compare"
-            className={SELECT_CLASS}
-            value={view.compare}
-            onChange={(event) =>
-              show(platformTrendsViewAfterComparisonChange(view, event.target.value as PlatformTrendComparison))
-            }
-          >
-            {PLATFORM_TREND_COMPARISONS.map((comparison) => (
-              <option key={comparison} value={comparison}>
-                {t(COMPARISON_KEYS[comparison])}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <TrendsSpanPicker
+        scheme={PLATFORM_TRENDS_SPAN_SCHEME}
+        view={view}
+        shown={trends?.span ?? null}
+        waiting={trends === null || loading}
+        onShow={show}
+        idPrefix={ID_PREFIX}
+        copy={{
+          spanLabel: t("trendsSpanLabel"),
+          compareLabel: t("trendsCompareLabel"),
+          fromLabel: t("trendsFromLabel"),
+          toLabel: t("trendsToLabel"),
+          applyRange: t("trendsApplyRange"),
+          spanName: (span) => t(SPAN_KEYS[span]),
+          comparisonName: (comparison) => t(COMPARISON_KEYS[comparison]),
+        }}
+      />
 
       {loadError ? (
         <Alert variant="destructive">
@@ -276,71 +218,6 @@ export function PlatformTrendsSection({ view }: { view: PlatformTrendsView }) {
 }
 
 /**
- * The two days of a custom range.
- *
- * Applied by its button and not as a day changes, the rule the Tax Invoices
- * search box follows: a year typed into a date input passes through whole,
- * valid days on its way (the year 2, the year 20), and each would be a new
- * address, a history entry and a request. The days in the inputs are the
- * form's own until applied, and are set again whenever the address moves
- * under it (the back button, a shared link).
- */
-function CustomRangeForm({
-  from,
-  to,
-  onApply,
-}: {
-  from: string;
-  to: string;
-  onApply: (range: { from: string; to: string }) => void;
-}) {
-  const t = useTranslations("operator");
-  const [range, setRange] = useState({ from, to });
-  useEffect(() => {
-    setRange({ from, to });
-  }, [from, to]);
-  return (
-    <form
-      className="grid gap-3 sm:col-span-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onApply(range);
-      }}
-    >
-      {/* Each day bounds the other. What else a range may be is the API's to
-          refuse, and its refusal is shown below with this form still here. */}
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="platform-trends-from">{t("trendsFromLabel")}</Label>
-        <Input
-          id="platform-trends-from"
-          type="date"
-          required
-          value={range.from}
-          max={range.to || undefined}
-          onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))}
-          className="h-9"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="platform-trends-to">{t("trendsToLabel")}</Label>
-        <Input
-          id="platform-trends-to"
-          type="date"
-          required
-          value={range.to}
-          min={range.from || undefined}
-          onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))}
-          className="h-9"
-        />
-      </div>
-      <Button type="submit" variant="outline" size="sm" className="h-9">
-        {t("trendsApplyRange")}
-      </Button>
-    </form>
-  );
-}
-
-/**
  * One reading, drawn: the tiles, then a chart per figure.
  *
  * Active Customers and Page Views are neighbours in both, since one is read
@@ -349,7 +226,7 @@ function CustomRangeForm({
  */
 function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; locale: AppLocale }) {
   const t = useTranslations("operator");
-  const tSales = useTranslations("sales");
+  const channelName = useSalesChannelName();
   const { figures } = trends;
 
   // The bucket whose breakdown is open (#822): one for the whole section, so
@@ -376,10 +253,6 @@ function PlatformTrendsReading({ trends, locale }: { trends: PlatformTrends; loc
     decline: t("trendsChangeDecline"),
     unchanged: t("trendsChangeUnchanged"),
     nothingToCompare: t("trendsNothingToCompare"),
-  };
-  const channelName = (key: string) => {
-    const messageKey = CHANNEL_KEYS[key];
-    return messageKey === undefined ? key : tSales(messageKey);
   };
   const money = (cents: number, currency: string) => formatMoney(cents, currency, locale);
 
@@ -669,124 +542,60 @@ function FigureCard({
   breakdown?: FigureBreakdown;
   children: ReactNode;
 }) {
-  const content = useRef<HTMLDivElement>(null);
-  // The listbox of the chart a bucket was last chosen on. A money card draws
-  // a chart per currency, and Close returns to the one the reader was on.
-  const chosenOn = useRef<HTMLElement | null>(null);
-  const remember = (target: EventTarget) => {
-    // Up from what was clicked or keyed to the first thing that holds a
-    // listbox, short of the card itself: the panel holds none and is passed
-    // over, so its own buttons do not move the place.
-    for (
-      let element = target as Element | null;
-      element !== null && element !== content.current;
-      element = element.parentElement
-    ) {
-      const listbox = element.matches(BUCKET_LISTBOX) ? element : element.querySelector(BUCKET_LISTBOX);
-      if (listbox !== null) {
-        chosenOn.current = listbox as HTMLElement;
-        return;
-      }
-    }
-  };
   return (
-    <Card className="min-w-0">
-      <CardHeader>
-        <CardTitle className={OVERVIEW_CARD_TITLE}>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent
-        ref={content}
-        className="space-y-3"
-        onClickCapture={(event) => remember(event.target)}
-        onKeyDownCapture={(event) => remember(event.target)}
-      >
-        {children}
-        {breakdown === undefined ? null : (
-          <PlatformTrendBreakdownPanel
-            selection={breakdown.selection}
-            figure={title}
-            granularity={breakdown.granularity}
-            locale={breakdown.locale}
-            onClose={() => {
-              // The Close button goes with the panel. Focus returns to the
-              // chart the bucket was chosen on, so a keyboard reader is not
-              // dropped at the top of the page.
-              const chart = chosenOn.current?.isConnected
-                ? chosenOn.current
-                : content.current?.querySelector<HTMLElement>(BUCKET_LISTBOX);
-              chart?.focus();
-              breakdown.onClose();
-            }}
-          />
-        )}
-      </CardContent>
-    </Card>
+    <TrendFigureCard
+      title={title}
+      titleClassName={OVERVIEW_CARD_TITLE}
+      description={description}
+      breakdown={
+        breakdown === undefined
+          ? undefined
+          : (returnFocus) => (
+              <PlatformTrendBreakdownPanel
+                selection={breakdown.selection}
+                figure={title}
+                granularity={breakdown.granularity}
+                locale={breakdown.locale}
+                onClose={() => {
+                  returnFocus();
+                  breakdown.onClose();
+                }}
+              />
+            )
+      }
+    >
+      {children}
+    </TrendFigureCard>
   );
 }
 
 /**
- * What lets a chart's buckets be chosen (#822): which of them is selected,
- * what a choice opens, and how each is read aloud. Choosing the selected
- * bucket again keeps it open; the panel is closed by its own button.
+ * What lets a chart's buckets be chosen (#822): the shared `chartSelection`,
+ * opening a bucket as Platform Trends' breakdown asks for it, today marked
+ * partial since it is always asked for as a day.
  */
-function chartSelection<Datum extends TrendChartDatum>(
+function platformChartSelection<Datum extends TrendChartDatum>(
   figureId: PlatformTrendFigureId,
   data: readonly Datum[],
   { selected, onSelect }: Pick<SharedChartProps, "selected" | "onSelect">,
   label: string,
   describe: (datum: Datum) => string,
 ): ChartBucketSelection {
-  const find = (key: string) => data.find((datum) => datum.key === key);
-  return {
-    selectedKey: bucketSelectionIn(selected, figureId, data),
-    onSelect: (key) => {
-      const datum = find(key);
-      if (datum !== undefined) {
+  return chartSelection(
+    data,
+    {
+      selectedKey: bucketSelectionIn(selected, figureId, data),
+      onChoose: (datum) =>
         onSelect({
           figure: figureId,
-          key,
+          key: datum.key,
           firstDay: datum.firstDay,
           lastDay: datum.lastDay,
           partial: datum.partial === true,
-        });
-      }
+        }),
     },
     label,
-    describeBucket: (key) => {
-      const datum = find(key);
-      return datum === undefined ? key : describe(datum);
-    },
-  };
-}
-
-/**
- * The window one chart is drawn in, and the width it is drawn at: the card's
- * own, so a span is looked at whole, as the Cumulative view of Sales Trends
- * is. A card narrower than the floor scrolls sideways instead of squeezing,
- * and opens on its latest days, once per `scrollAnchor` (#835).
- */
-function ChartWindow({
-  figure,
-  scrollAnchor,
-  children,
-}: {
-  figure: string;
-  scrollAnchor: string;
-  children: (plotWidth: number) => ReactNode;
-}) {
-  const t = useTranslations("operator");
-  const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
-  const availableWidth = useElementWidth(scrollArea);
-  const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
-  return (
-    <ChartScrollArea
-      ref={setScrollArea}
-      ariaLabel={t("trendsScrollLabel", { figure })}
-      openAtNewestEnd={{ key: scrollAnchor, contentWidth: plotWidth }}
-    >
-      {children(plotWidth)}
-    </ChartScrollArea>
+    describe,
   );
 }
 
@@ -827,9 +636,7 @@ function LineFigureChart({
   const comparisonSeries: StackedSeries[] = [
     { id: comparisonSeriesId(seriesId), name: comparisonName, color: chartSeriesColor(0) },
   ];
-  const yMax = useMemo(() => trendChartYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
-  const selection = chartSelection(
+  const selection = platformChartSelection(
     figureId,
     data,
     { selected, onSelect },
@@ -848,34 +655,28 @@ function LineFigureChart({
     },
   );
   return (
-    <ChartWindow figure={figure} scrollAnchor={scrollAnchor}>
-      {(plotWidth) => (
-        <MultiSeriesLineChart
-          data={data}
-          series={series}
-          comparisonSeries={comparisonSeries}
-          yMax={yMax}
-          yTicks={yTicks}
-          plotWidth={plotWidth}
-          height={CHART_HEIGHT}
-          formatValue={formatValue}
-          formatTickValue={formatTickValue}
-          // A day nothing happened on is a finding here, and is named as a
-          // zero beside a comparison that may not be one.
-          zeroIsMeasured
-          nothingCountedLabel={t("trendsNothingCounted")}
-          partialLabel={t("trendsPartialToday")}
-          marker={marker}
-          selection={selection}
-          notRecordedLabel={notRecordedLabel}
-          ariaLabel={
-            currency === undefined
-              ? t("trendsChartLabel", { figure, granularity })
-              : t("trendsChartLabelCurrency", { figure, currency, granularity })
-          }
-        />
-      )}
-    </ChartWindow>
+    <TrendLineChart
+      scrollLabel={t("trendsScrollLabel", { figure })}
+      scrollAnchor={scrollAnchor}
+      height={CHART_HEIGHT}
+      data={data}
+      series={series}
+      comparisonSeries={comparisonSeries}
+      formatValue={formatValue}
+      formatTickValue={formatTickValue}
+      // A day nothing happened on is a finding here, and is named as a
+      // zero beside a comparison that may not be one.
+      nothingCountedLabel={t("trendsNothingCounted")}
+      partialLabel={t("trendsPartialToday")}
+      marker={marker}
+      selection={selection}
+      notRecordedLabel={notRecordedLabel}
+      ariaLabel={
+        currency === undefined
+          ? t("trendsChartLabel", { figure, granularity })
+          : t("trendsChartLabelCurrency", { figure, currency, granularity })
+      }
+    />
   );
 }
 
@@ -1027,12 +828,11 @@ function TicketsSoldChart({
     name: channelName(entry.key),
     color: chartSeriesColor(index),
   }));
-  const yMax = useMemo(() => trendChartYMax(data), [data]);
-  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+  const { yMax, yTicks } = useTrendYAxis(data);
   if (!source.recorded) {
     return <FigureNotRecorded />;
   }
-  const selection = chartSelection(
+  const selection = platformChartSelection(
     figureId,
     data,
     { selected, onSelect },
@@ -1049,16 +849,8 @@ function TicketsSoldChart({
   );
   return (
     <>
-      {/* A plain key, not the chips of Sales Trends: nothing here is toggled. */}
-      <ul aria-label={t("trendsChannelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {series.map((entry) => (
-          <li key={entry.id} className="flex items-center gap-1.5">
-            <span aria-hidden className="size-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
-            {entry.name}
-          </li>
-        ))}
-      </ul>
-      <ChartWindow figure={figure} scrollAnchor={scrollAnchor}>
+      <TrendSeriesKey label={t("trendsChannelsLabel")} series={series} />
+      <TrendChartWindow ariaLabel={t("trendsScrollLabel", { figure })} scrollAnchor={scrollAnchor}>
         {(plotWidth) => (
           <StackedBarChart
             data={data}
@@ -1076,7 +868,7 @@ function TicketsSoldChart({
             ariaLabel={t("trendsChartLabel", { figure, granularity })}
           />
         )}
-      </ChartWindow>
+      </TrendChartWindow>
     </>
   );
 }

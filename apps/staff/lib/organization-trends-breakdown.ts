@@ -58,21 +58,6 @@ export type OrganizationTrendBucketSelection = {
   lastDay: string;
 };
 
-/**
- * The key of the bucket selected on one figure's chart, or null: the
- * selection is another figure's, or the chart does not draw the bucket.
- */
-export function organizationBucketSelectionIn(
-  selection: OrganizationTrendBucketSelection | null,
-  figure: OrganizationTrendFigureId,
-  buckets: readonly { key: string }[],
-): string | null {
-  if (selection === null || selection.figure !== figure) {
-    return null;
-  }
-  return buckets.some((bucket) => bucket.key === selection.key) ? selection.key : null;
-}
-
 /** The staff app's own route for the read, which forwards to the Go API. */
 export const ORGANIZATION_TREND_BREAKDOWN_API_PATH = "/api/settings/organization/trends/breakdown";
 

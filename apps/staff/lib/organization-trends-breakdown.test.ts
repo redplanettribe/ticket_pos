@@ -5,9 +5,9 @@ import {
   ORGANIZATION_TREND_BREAKDOWN_API_PATH,
   organizationBreakdownRequestPath,
   organizationBreakdownView,
-  organizationBucketSelectionIn,
   type OrganizationTrendBreakdown,
 } from "./organization-trends-breakdown.ts";
+import { bucketSelectionIn } from "./trends-chart.ts";
 
 function breakdown(patch: Partial<OrganizationTrendBreakdown>): OrganizationTrendBreakdown {
   return {
@@ -43,10 +43,10 @@ test("a month bucket is asked for by its days, so a cut month reads only the day
 test("a selection marks a bucket on its own figure's chart alone", () => {
   const selection = { figure: "tickets_sold" as const, key: "2026-07-02", firstDay: "2026-07-02", lastDay: "2026-07-02" };
   const buckets = [{ key: "2026-07-01" }, { key: "2026-07-02" }];
-  assert.equal(organizationBucketSelectionIn(selection, "tickets_sold", buckets), "2026-07-02");
-  assert.equal(organizationBucketSelectionIn(selection, "page_views", buckets), null);
-  assert.equal(organizationBucketSelectionIn(selection, "tickets_sold", [{ key: "2026-06-01" }]), null);
-  assert.equal(organizationBucketSelectionIn(null, "tickets_sold", buckets), null);
+  assert.equal(bucketSelectionIn(selection, "tickets_sold", buckets), "2026-07-02");
+  assert.equal(bucketSelectionIn(selection, "page_views", buckets), null);
+  assert.equal(bucketSelectionIn(selection, "tickets_sold", [{ key: "2026-06-01" }]), null);
+  assert.equal(bucketSelectionIn(null, "tickets_sold", buckets), null);
 });
 
 test("the Events keep the backend's ranking and each links to its own page", () => {

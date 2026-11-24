@@ -6,8 +6,10 @@
 // does with that answer: the reading's address (span and comparison, in the
 // URL as the Operator Dashboard keeps them), the request that address names,
 // the spelling of a month bucket, and the reshaping of the response into what
-// the shared charts and the shared tile take. The series are stated in
-// Platform Trends' shape on purpose, so its reshaping helpers are reused.
+// the shared charts and the shared tile take. The address is read and
+// written as Platform Trends' is (trends-span.ts), with an all time span
+// besides, and the series are stated in the shape both readings share, so
+// the reshaping helpers of trends-chart.ts are reused.
 //
 // The one place a number is added up here is the Cumulative view, which is a
 // running sum of the buckets the backend stated, and the height of a stack.
@@ -19,14 +21,22 @@
 import { fetchEventsJSON } from "./events-api.ts";
 import { staffIntlLocale, type AppLocale } from "./format.ts";
 import {
-  firstParam,
   formatTrendBucket,
-  isCalendarDay,
   stackedChartData,
-  type PlatformTrendDays,
   type TrendStackDatum,
   type TrendTileReadingInput,
-} from "./platform-trends.ts";
+} from "./trends-chart.ts";
+import {
+  parseTrendSpanParams,
+  trendSpanQuery,
+  trendSpanViewAfterComparisonChange,
+  trendSpanViewAfterRangeChange,
+  trendSpanViewAfterSpanChange,
+  type TrendDays,
+  type TrendSpanScheme,
+  type TrendSpanSearchParams,
+  type TrendSpanView,
+} from "./trends-span.ts";
 
 // ---------------------------------------------------------------------------
 // The response, field for field as GET /api/v1/staff/organization/trends
@@ -63,7 +73,7 @@ export type OrganizationTrendFigure = {
   series: OrganizationTrendSeries[];
 };
 
-export type OrganizationTrendDays = PlatformTrendDays & { partial: boolean };
+export type OrganizationTrendDays = TrendDays & { partial: boolean };
 
 export type OrganizationTrendGranularity = "day" | "month";
 
@@ -71,9 +81,9 @@ export type OrganizationTrends = {
   timezone: string;
   today: string;
   currency: string;
-  span: PlatformTrendDays & { preset: OrganizationTrendSpan; buckets: OrganizationTrendDays[] };
+  span: TrendDays & { preset: OrganizationTrendSpan; buckets: OrganizationTrendDays[] };
   /** Null for all time, which carries no comparison. */
-  comparison: (PlatformTrendDays & { kind: OrganizationTrendComparison }) | null;
+  comparison: (TrendDays & { kind: OrganizationTrendComparison }) | null;
   granularity: OrganizationTrendGranularity;
   figures: {
     tickets_sold: OrganizationTrendFigure;
@@ -131,12 +141,7 @@ export type OrganizationTrendComparison = (typeof ORGANIZATION_TREND_COMPARISONS
  * calendar days for a custom span and "" for every other. All time carries no
  * comparison, and its `compare` is the default, never written.
  */
-export type OrganizationTrendsView = {
-  span: OrganizationTrendSpan;
-  from: string;
-  to: string;
-  compare: OrganizationTrendComparison;
-};
+export type OrganizationTrendsView = TrendSpanView<OrganizationTrendSpan, OrganizationTrendComparison>;
 
 /** What a bare Home shows: 30 days against the span before. */
 export const DEFAULT_ORGANIZATION_TRENDS_VIEW: OrganizationTrendsView = {
@@ -147,58 +152,29 @@ export const DEFAULT_ORGANIZATION_TRENDS_VIEW: OrganizationTrendsView = {
 };
 
 /** The raw query params Home reads, as Next hands them over. */
-export type OrganizationTrendsSearchParams = {
-  span?: string | string[];
-  from?: string | string[];
-  to?: string | string[];
-  compare?: string | string[];
+export type OrganizationTrendsSearchParams = TrendSpanSearchParams;
+
+/** Organization Trends' readings: Platform Trends' presets, all time
+ * besides, which carries no comparison, and its own comparisons. */
+export const ORGANIZATION_TRENDS_SPAN_SCHEME: TrendSpanScheme<OrganizationTrendSpan, OrganizationTrendComparison> = {
+  spans: ORGANIZATION_TREND_SPANS,
+  comparisons: ORGANIZATION_TREND_COMPARISONS,
+  defaultView: DEFAULT_ORGANIZATION_TRENDS_VIEW,
+  allTime: "all",
 };
 
-/**
- * parseOrganizationTrendsParams reads the reading off the address. A span or
- * comparison this app does not know falls back to the default, each on its
- * own, and so does a custom span without two real calendar days. What a
- * custom range may be beyond that is the API's to say.
- */
+/** parseOrganizationTrendsParams reads the reading off the address
+ * (`parseTrendSpanParams`). What a custom range may be beyond two real
+ * calendar days is the API's to say. */
 export function parseOrganizationTrendsParams(searchParams: OrganizationTrendsSearchParams): OrganizationTrendsView {
-  const compareRaw = firstParam(searchParams.compare) as OrganizationTrendComparison;
-  const compare = ORGANIZATION_TREND_COMPARISONS.includes(compareRaw)
-    ? compareRaw
-    : DEFAULT_ORGANIZATION_TRENDS_VIEW.compare;
-  const spanRaw = firstParam(searchParams.span) as OrganizationTrendSpan;
-  const span = ORGANIZATION_TREND_SPANS.includes(spanRaw) ? spanRaw : DEFAULT_ORGANIZATION_TRENDS_VIEW.span;
-  if (span === "all") {
-    return { span, from: "", to: "", compare: DEFAULT_ORGANIZATION_TRENDS_VIEW.compare };
-  }
-  if (span !== "custom") {
-    return { span, from: "", to: "", compare };
-  }
-  const from = firstParam(searchParams.from);
-  const to = firstParam(searchParams.to);
-  if (!isCalendarDay(from) || !isCalendarDay(to)) {
-    return { ...DEFAULT_ORGANIZATION_TRENDS_VIEW, compare };
-  }
-  return { span, from, to, compare };
+  return parseTrendSpanParams(ORGANIZATION_TRENDS_SPAN_SCHEME, searchParams);
 }
 
-/**
- * organizationTrendsQuery is the canonical query string of a reading, with
- * the API's own parameter names: both Home's address and the request's
- * query, so the two cannot name different readings. Defaults are left out,
- * and so is the comparison of all time, which has none.
- */
+/** organizationTrendsQuery is the canonical query string of a reading
+ * (`trendSpanQuery`): both Home's address and the request's query, so the
+ * two cannot name different readings. */
 export function organizationTrendsQuery(view: OrganizationTrendsView): string {
-  const params = new URLSearchParams();
-  if (view.span !== DEFAULT_ORGANIZATION_TRENDS_VIEW.span) params.set("span", view.span);
-  if (view.span === "custom") {
-    params.set("from", view.from);
-    params.set("to", view.to);
-  }
-  if (view.span !== "all" && view.compare !== DEFAULT_ORGANIZATION_TRENDS_VIEW.compare) {
-    params.set("compare", view.compare);
-  }
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return trendSpanQuery(ORGANIZATION_TRENDS_SPAN_SCHEME, view);
 }
 
 /** The staff app's own route for the read, which forwards to the Go API. */
@@ -213,26 +189,14 @@ export async function fetchOrganizationTrends(view: OrganizationTrendsView): Pro
   return fetchEventsJSON<OrganizationTrends>(organizationTrendsRequestPath(view));
 }
 
-/**
- * The view after a span is chosen. A preset drops the custom days; all time
- * drops the comparison too. Custom starts from the span on screen, as the
- * backend stated it, and with none on screen the view stays as it is.
- */
+/** The view after a span is chosen (`trendSpanViewAfterSpanChange`): all
+ * time drops the comparison too. */
 export function organizationTrendsViewAfterSpanChange(
   view: OrganizationTrendsView,
   span: OrganizationTrendSpan,
-  shown: PlatformTrendDays | null,
+  shown: TrendDays | null,
 ): OrganizationTrendsView {
-  if (span === "all") {
-    return { span, from: "", to: "", compare: DEFAULT_ORGANIZATION_TRENDS_VIEW.compare };
-  }
-  if (span !== "custom") {
-    return { span, from: "", to: "", compare: view.compare };
-  }
-  if (shown === null) {
-    return view;
-  }
-  return { span, from: shown.first_day, to: shown.last_day, compare: view.compare };
+  return trendSpanViewAfterSpanChange(ORGANIZATION_TRENDS_SPAN_SCHEME, view, span, shown);
 }
 
 /** The view after one day of the custom range is changed; an emptied day is
@@ -241,14 +205,14 @@ export function organizationTrendsViewAfterRangeChange(
   view: OrganizationTrendsView,
   patch: { from?: string; to?: string },
 ): OrganizationTrendsView {
-  return { ...view, from: patch.from ? patch.from : view.from, to: patch.to ? patch.to : view.to };
+  return trendSpanViewAfterRangeChange(view, patch);
 }
 
 export function organizationTrendsViewAfterComparisonChange(
   view: OrganizationTrendsView,
   compare: OrganizationTrendComparison,
 ): OrganizationTrendsView {
-  return { ...view, compare };
+  return trendSpanViewAfterComparisonChange(view, compare);
 }
 
 // ---------------------------------------------------------------------------

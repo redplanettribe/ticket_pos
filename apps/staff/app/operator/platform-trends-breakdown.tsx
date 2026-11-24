@@ -10,7 +10,8 @@ import { useMessages, useTranslations } from "next-intl";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatMoney, formatNumber } from "@/lib/format";
-import { formatTrendBucket, type PlatformTrendGranularity } from "@/lib/platform-trends";
+import type { PlatformTrendGranularity } from "@/lib/platform-trends";
+import { formatTrendBucket } from "@/lib/trends-chart";
 import {
   breakdownRequestPath,
   breakdownView,
