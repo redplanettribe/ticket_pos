@@ -168,6 +168,13 @@ func TestOrganizationTrendsEventTableListsEveryEventHeldLoadedOrSold(t *testing.
 		t.Fatalf("12m table lists Late Fest, which sold today alone: %v", eventTableRows(events))
 	}
 	assertRowsAddUp(t, "12m", reading, events)
+
+	// A custom range reaching today, cut at yesterday, and all time add up
+	// the same way.
+	for _, query := range []string{"?span=custom&from=2026-06-11&to=2026-07-07", "?span=all"} {
+		reading, events = readOrganizationTrendEvents(t, env, admin, query)
+		assertRowsAddUp(t, query, reading, events)
+	}
 }
 
 // TestOrganizationTrendsEventTableWithholdsTakingsFromEventStaff: an Event

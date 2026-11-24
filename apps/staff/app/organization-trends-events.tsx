@@ -67,7 +67,13 @@ export function OrganizationEventTableCard({ trends, locale }: { trends: Organiz
               </thead>
               <tbody>
                 {table.rows.map((row) => (
-                  <EventRow key={row.id} row={row} currency={trends.currency} locale={locale} />
+                  <EventRow
+                    key={row.id}
+                    row={row}
+                    showsTakings={table.showsTakings}
+                    currency={trends.currency}
+                    locale={locale}
+                  />
                 ))}
               </tbody>
             </table>
@@ -78,7 +84,17 @@ export function OrganizationEventTableCard({ trends, locale }: { trends: Organiz
   );
 }
 
-function EventRow({ row, currency, locale }: { row: OrganizationEventTableRow; currency: string; locale: AppLocale }) {
+function EventRow({
+  row,
+  showsTakings,
+  currency,
+  locale,
+}: {
+  row: OrganizationEventTableRow;
+  showsTakings: boolean;
+  currency: string;
+  locale: AppLocale;
+}) {
   const t = useTranslations("organizationTrends");
   const start = row.startsAt === null ? null : formatDate(row.startsAt, row.timeZone, locale);
   const startText = start ?? t("eventsTableNoStart");
@@ -105,9 +121,7 @@ function EventRow({ row, currency, locale }: { row: OrganizationEventTableRow; c
         </span>
       </th>
       <td className={`${CELL} hidden whitespace-nowrap text-muted-foreground sm:table-cell`}>{startText}</td>
-      {row.takingsCents === null ? null : (
-        <td className={NUMBER_CELL}>{formatMoney(row.takingsCents, currency, locale)}</td>
-      )}
+      {showsTakings ? <td className={NUMBER_CELL}>{formatMoney(row.takingsCents ?? 0, currency, locale)}</td> : null}
       <td className={NUMBER_CELL}>{formatNumber(row.ticketsSold, locale)}</td>
       <td className={NUMBER_CELL}>{formatNumber(row.pageViews, locale)}</td>
     </tr>

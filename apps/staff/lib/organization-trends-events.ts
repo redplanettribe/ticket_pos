@@ -5,8 +5,9 @@
 // The API states every number and ranks the rows, and withholds Takings from
 // Event Staff. What is here is the little the page does with that: whether
 // the table has a Takings column (the reading carries Takings), the order it
-// is drawn in (by Takings when it has one, by Tickets Sold when it has not,
-// the API's own order), and each row's links.
+// is drawn in, and each row's links. The order is the API's ranking (by
+// Takings when the table has a Takings column, by Tickets Sold when it has
+// not), set again here so the column ranked by is always the column shown.
 //
 // Relative imports carry the ".ts" extension so the module graph resolves
 // under `node --test` as well as the bundler.
@@ -78,7 +79,7 @@ function tableRow(event: OrganizationTrendEvent, showsTakings: boolean, platform
   };
 }
 
-/** Byte order, as the API's Go comparison of names is. */
+/** Code-unit order; the API's byte order agrees on any name in the Basic Multilingual Plane. */
 function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }

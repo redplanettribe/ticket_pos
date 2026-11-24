@@ -99,9 +99,10 @@ func (s *Service) eventTable(ctx context.Context, reader Reader, span trendspan.
 		}
 		out = append(out, event)
 	}
+	seesTakings := reader.seesTakings()
 	slices.SortFunc(out, func(a, b OrganizationTrendEvent) int {
 		byTakings := 0
-		if a.TakingsCents != nil && b.TakingsCents != nil {
+		if seesTakings {
 			byTakings = cmp.Compare(*b.TakingsCents, *a.TakingsCents)
 		}
 		return cmp.Or(byTakings,

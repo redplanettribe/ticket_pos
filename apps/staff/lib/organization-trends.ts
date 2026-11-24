@@ -11,6 +11,8 @@
 //
 // The one place a number is added up here is the Cumulative view, which is a
 // running sum of the buckets the backend stated, and the height of a stack.
+// The Event table's rows are put in the API's order again on the page
+// (organization-trends-events.ts), so its ranking follows the columns shown.
 //
 // Relative imports carry the ".ts" extension so the module graph resolves
 // under `node --test` as well as the bundler.
