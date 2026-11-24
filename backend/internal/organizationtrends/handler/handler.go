@@ -6,11 +6,17 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/organizationtrends/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/trendspan"
 )
 
 // Handler exposes Home's endpoints.
@@ -48,4 +54,117 @@ func (h *Handler) GetHomeNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, now)
+}
+
+// GetOrganizationTrends returns Organization Trends for a span.
+//
+// @Summary      Get Organization Trends for a span
+// @Description  Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. A bucket nothing sold in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. currency is the Organization's. Any Member.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        span     query  string  false  "Span"  Enums(7d, 30d, 90d, 12m, all, custom)  default(30d)
+// @Param        from     query  string  false  "First day of a custom span (YYYY-MM-DD)"
+// @Param        to       query  string  false  "Last day of a custom span (YYYY-MM-DD)"
+// @Param        compare  query  string  false  "Comparison span, ignored for all"  Enums(previous, year)  default(previous)
+// @Success      200  {object}  openapi.EnvelopeOrganizationTrends
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/staff/organization/trends [get]
+func (h *Handler) GetOrganizationTrends(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	query, fields := parseSpanQuery(r.URL.Query())
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	trends, ok, err := h.svc.Trends(r.Context(), readerFromRequest(r), query)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	if !ok {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{
+			Field:   "from",
+			Code:    platform.CodeStartAfterEnd,
+			Message: "must be before today: a span ends at the close of yesterday",
+		}})
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, trends)
+}
+
+// presets is every span a caller may name, in the order the page offers them.
+var presets = []trendspan.Preset{
+	trendspan.Preset7Days, trendspan.Preset30Days, trendspan.Preset90Days,
+	trendspan.Preset12Months, trendspan.PresetAll, trendspan.PresetCustom,
+}
+
+// comparisons is every comparison a caller may name, the default first.
+var comparisons = []service.OrganizationTrendComparisonKind{service.ComparePrevious, service.CompareYear}
+
+// parseSpanQuery checks the span's shape as Platform Trends' does: a known
+// comparison (previous when absent), a known preset (30d when absent) and,
+// for a custom span, two well-formed days with the first not after the last,
+// covering at most trendspan.MaxCustomDays. Where the span falls against
+// today is the service's to resolve.
+func parseSpanQuery(values url.Values) (service.TrendSpanQuery, []platform.FieldError) {
+	compare := service.OrganizationTrendComparisonKind(strings.TrimSpace(values.Get("compare")))
+	if compare != "" && !slices.Contains(comparisons, compare) {
+		return service.TrendSpanQuery{}, []platform.FieldError{invalidEnum("compare", comparisons)}
+	}
+	preset := trendspan.Preset(strings.TrimSpace(values.Get("span")))
+	if preset == "" {
+		return service.TrendSpanQuery{Compare: compare}, nil
+	}
+	if !slices.Contains(presets, preset) {
+		return service.TrendSpanQuery{}, []platform.FieldError{invalidEnum("span", presets)}
+	}
+	if preset != trendspan.PresetCustom {
+		return service.TrendSpanQuery{Preset: preset, Compare: compare}, nil
+	}
+
+	var fields []platform.FieldError
+	from, fromOK := parseDay("from", values.Get("from"), &fields)
+	to, toOK := parseDay("to", values.Get("to"), &fields)
+	if !fromOK || !toOK {
+		return service.TrendSpanQuery{}, fields
+	}
+	if from.After(to) {
+		return service.TrendSpanQuery{}, []platform.FieldError{{Field: "from", Code: platform.CodeStartAfterEnd, Message: "must be on or before to"}}
+	}
+	if to.Sub(from) >= trendspan.MaxCustomDays*24*time.Hour {
+		return service.TrendSpanQuery{}, []platform.FieldError{{
+			Field:   "from",
+			Code:    platform.CodeTooManyItems,
+			Message: fmt.Sprintf("the range must cover at most %d days", trendspan.MaxCustomDays),
+		}}
+	}
+	return service.TrendSpanQuery{Preset: preset, From: from, To: to, Compare: compare}, nil
+}
+
+// invalidEnum refuses a value that is not one of allowed, naming them.
+func invalidEnum[T ~string](field string, allowed []T) platform.FieldError {
+	names := make([]string, 0, len(allowed))
+	for _, value := range allowed {
+		names = append(names, string(value))
+	}
+	return platform.FieldError{Field: field, Code: platform.CodeInvalidEnum, Message: "must be one of " + strings.Join(names, ", ")}
+}
+
+// parseDay reads one day of a custom range, appending its refusal to fields.
+func parseDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: "is required for a custom span"})
+		return time.Time{}, false
+	}
+	day, err := time.Parse(trendspan.DayFormat, raw)
+	if err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
+		return time.Time{}, false
+	}
+	return day, true
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -58,4 +59,83 @@ func (r *Repository) EventTicketsSold(ctx context.Context, orgID, eventID string
 		WHERE ts.organization_id = $1 AND ts.event_id = $2 AND ts.status = 'active'
 	`, orgID, eventID).Scan(&sold)
 	return sold, err
+}
+
+// OrganizationSalesDay is one (day, Sales Channel) cell of an Organization's
+// active Ticket Sales: their Tickets Sold and how many Ticket Sales they are.
+// Day is a calendar date on the clock the caller named, YYYY-MM-DD.
+type OrganizationSalesDay struct {
+	Day         string
+	Channel     string
+	TicketsSold int
+	TicketSales int
+}
+
+// OrganizationSalesByDay totals one Organization's active Ticket Sales sold in
+// [from, until) per day and Sales Channel, for Organization Trends (#861, ADR
+// 0081).
+//
+// It keeps Sales Trends' rules, as OrganizationSalesBetween does: by sold_at,
+// the instant the sale was MADE, so a backdated Sale Import lands on its own
+// day; reversed sales left out, live. The day is read on the zone the caller
+// passes, the platform's own clock. Days that sold nothing have no row.
+//
+// No index is added: the read is bounded by the Organization and by the
+// span, over ticket_sales(organization_id, ...), as Home now's is.
+func (r *Repository) OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]OrganizationSalesDay, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			to_char((ts.sold_at AT TIME ZONE $4)::date, 'YYYY-MM-DD') AS day,
+			ts.channel,
+			SUM(tsl.quantity)::bigint,
+			COUNT(DISTINCT ts.id)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		WHERE ts.organization_id = $1 AND ts.status = 'active'
+		  AND ts.sold_at >= $2 AND ts.sold_at < $3
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`, orgID, from, until, timezone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []OrganizationSalesDay
+	for rows.Next() {
+		var day OrganizationSalesDay
+		if err := rows.Scan(&day.Day, &day.Channel, &day.TicketsSold, &day.TicketSales); err != nil {
+			return nil, err
+		}
+		out = append(out, day)
+	}
+	return out, rows.Err()
+}
+
+// OrganizationOrigin is where an Organization's history begins: when it was
+// created, the instant its earliest Ticket Sale was made (nil when it has
+// none), and its currency.
+type OrganizationOrigin struct {
+	Currency    string
+	CreatedAt   time.Time
+	FirstSoldAt *time.Time
+}
+
+// OrganizationOrigin reads where one Organization's history begins, for
+// Organization Trends' all time span (#861). The earliest Ticket Sale is
+// read whatever its status: a reversed sale was still made that day, and a
+// Sale Import of last year's history reaches back to its own first sale.
+func (r *Repository) OrganizationOrigin(ctx context.Context, orgID string) (OrganizationOrigin, error) {
+	var out OrganizationOrigin
+	var first sql.NullTime
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT org.currency, org.created_at,
+			(SELECT MIN(ts.sold_at) FROM ticket_sales ts WHERE ts.organization_id = org.id)
+		FROM organizations org
+		WHERE org.id = $1
+	`, orgID).Scan(&out.Currency, &out.CreatedAt, &first)
+	if first.Valid {
+		out.FirstSoldAt = &first.Time
+	}
+	return out, err
 }

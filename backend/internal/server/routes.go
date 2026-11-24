@@ -1142,6 +1142,7 @@ func registerStaffRoutes(mux Router, app *App) {
 	// service withholds Takings from Event Staff and the Payable Balance from
 	// anyone but an Org Admin, the guards Sales Trends and Payouts carry.
 	mux.Handle("GET /api/v1/staff/organization/home/now", member(http.HandlerFunc(app.OrganizationTrendsHandler.GetHomeNow)))
+	mux.Handle("GET /api/v1/staff/organization/trends", member(http.HandlerFunc(app.OrganizationTrendsHandler.GetOrganizationTrends)))
 	// Where that money goes: the Payout Profile (ADR 0026). It sits beside the
 	// balance above and is gated identically — same handler, same Org-Admin-only
 	// authority — because it answers the other half of the same question, and a

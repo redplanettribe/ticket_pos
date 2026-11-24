@@ -14445,6 +14445,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Organization Trends for a span
+         * @description Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. A bucket nothing sold in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. currency is the Organization's. Any Member.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Span */
+                    span?: "7d" | "30d" | "90d" | "12m" | "all" | "custom";
+                    /** @description First day of a custom span (YYYY-MM-DD) */
+                    from?: string;
+                    /** @description Last day of a custom span (YYYY-MM-DD) */
+                    to?: string;
+                    /** @description Comparison span, ignored for all */
+                    compare?: "previous" | "year";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOrganizationTrends"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organizations": {
         parameters: {
             query?: never;
@@ -16288,6 +16363,11 @@ export interface components {
         };
         "openapi.EnvelopeOperatorTicketQuestions": {
             data?: components["schemas"]["service.TicketQuestion"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOrganizationTrends": {
+            data?: components["schemas"]["service.OrganizationTrends"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -19676,6 +19756,122 @@ export interface components {
              *     so rather than clamping it to zero.
              */
             withdrawable_balance_cents?: number;
+        };
+        /**
+         * @description Today is today alone, flagged partial and in no total, when the span
+         *     runs up to it; null otherwise.
+         */
+        "service.OrganizationTrendBucket": {
+            /** @example 2026-07-01 */
+            first_day?: string;
+            /** @example 2026-07-01 */
+            last_day?: string;
+            partial?: boolean;
+            value?: number;
+        };
+        /**
+         * @description Comparison is the span every figure is set beside, bucketed the same
+         *     way; null for all time, which has none.
+         */
+        "service.OrganizationTrendComparison": {
+            /** @example 2026-05-08 */
+            first_day?: string;
+            kind?: components["schemas"]["service.OrganizationTrendComparisonKind"];
+            /** @example 2026-06-06 */
+            last_day?: string;
+        };
+        /** @enum {string} */
+        "service.OrganizationTrendComparisonKind": "previous" | "year" | "previous" | "year";
+        "service.OrganizationTrendDays": {
+            /** @example 2026-07-01 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            partial?: boolean;
+        };
+        /**
+         * @description TicketSales is how many active Ticket Sales were made, by the platform
+         *     day each was made, in one series keyed all.
+         */
+        "service.OrganizationTrendFigure": {
+            /**
+             * @description Change is a signed ratio (0.5 for half as much again), null when the
+             *     comparison total is zero or there is no comparison.
+             */
+            change?: number;
+            /** @description ComparisonTotal is null for all time. */
+            comparison_total?: number;
+            series?: components["schemas"]["service.OrganizationTrendSeries"][];
+            total?: number;
+        };
+        /** @description Figures carries one entry per figure. */
+        "service.OrganizationTrendFigures": {
+            ticket_sales?: components["schemas"]["service.OrganizationTrendFigure"];
+            tickets_sold?: components["schemas"]["service.OrganizationTrendFigure"];
+        };
+        /**
+         * @description Granularity is the length of every bucket.
+         * @enum {string}
+         */
+        "service.OrganizationTrendGranularity": "day" | "month" | "day" | "month";
+        "service.OrganizationTrendSeries": {
+            /** @description Buckets is one entry per bucket of the span, zero where nothing sold. */
+            buckets?: components["schemas"]["service.OrganizationTrendBucket"][];
+            change?: number;
+            /**
+             * @description ComparisonBuckets is one entry per entry of Buckets, at the same index,
+             *     over the comparison span; empty for all time.
+             */
+            comparison_buckets?: components["schemas"]["service.OrganizationTrendBucket"][];
+            /** @description ComparisonTotal is null for all time. */
+            comparison_total?: number;
+            /**
+             * @description Key is the Sales Channel, or all.
+             * @example online
+             */
+            key?: string;
+            today?: components["schemas"]["service.OrganizationTrendBucket"];
+            /** @description Total is the series' total over the span, today excluded. */
+            total?: number;
+        };
+        /**
+         * @description Span is the span as resolved: a custom range reaching today or later
+         *     ends at yesterday here.
+         */
+        "service.OrganizationTrendSpan": {
+            /**
+             * @description Buckets is every bucket of the span, oldest first: one entry per entry
+             *     of every series' buckets, at the same index.
+             */
+            buckets?: components["schemas"]["service.OrganizationTrendDays"][];
+            /** @example 2026-06-07 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /** @enum {string} */
+            preset?: "7d" | "30d" | "90d" | "12m" | "all" | "custom";
+        };
+        "service.OrganizationTrends": {
+            comparison?: components["schemas"]["service.OrganizationTrendComparison"];
+            /**
+             * @description Currency is the Organization's.
+             * @example USD
+             */
+            currency?: string;
+            figures?: components["schemas"]["service.OrganizationTrendFigures"];
+            granularity?: components["schemas"]["service.OrganizationTrendGranularity"];
+            span?: components["schemas"]["service.OrganizationTrendSpan"];
+            /**
+             * @description Timezone names the platform clock every day here is read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Today is the platform day the reading was taken on, never inside the
+             *     span.
+             * @example 2026-07-07
+             */
+            today?: string;
         };
         "service.OutstandingPagination": {
             page?: number;

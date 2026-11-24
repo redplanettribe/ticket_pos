@@ -34,8 +34,12 @@ const (
 
 // TicketSales is what Home needs from sales: an Organization's Tickets Sold
 // and Takings over a window, one Event's Tickets Sold so far, and the
-// Organization's balances as the Payouts page reads them.
+// Organization's balances as the Payouts page reads them; and, for
+// Organization Trends, its Tickets Sold and Ticket Sales per day and Sales
+// Channel and where its history begins, which all time starts from.
 type TicketSales interface {
+	OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]salessvc.OrganizationSalesDay, error)
+	OrganizationOrigin(ctx context.Context, orgID string) (salessvc.OrganizationOrigin, error)
 	OrganizationSalesBetween(ctx context.Context, orgID string, from, until time.Time) (salessvc.OrganizationSales, error)
 	EventTicketsSold(ctx context.Context, orgID, eventID string) (int, error)
 	OrganizationBalances(ctx context.Context, orgID string) (salessvc.OrganizationBalances, error)

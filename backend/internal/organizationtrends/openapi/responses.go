@@ -15,3 +15,11 @@ type EnvelopeHomeNow struct {
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`
 }
+
+// EnvelopeOrganizationTrends documents GET /staff/organization/trends
+// success responses.
+type EnvelopeOrganizationTrends struct {
+	Data      service.OrganizationTrends `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}
