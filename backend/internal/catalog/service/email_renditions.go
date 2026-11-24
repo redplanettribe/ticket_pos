@@ -182,8 +182,9 @@ func (s *Service) WithEmailLogoRenditions(logos EmailLogoRenditions) *Service {
 }
 
 // FillEmailRenditions renders every Event original and every Organization
-// Logo whose rendition is null, across every Organization. Idempotent and safe to rerun: what is rendered is
-// skipped, so a second run after a clean one renders nothing.
+// Logo whose rendition is null, across every Organization. Idempotent and safe
+// to rerun: what is rendered is skipped, so a second run after a clean one
+// renders nothing.
 //
 // It visits each Event once per run, in id order, so an original that cannot
 // be rendered is counted as failed and passed over rather than retried in a

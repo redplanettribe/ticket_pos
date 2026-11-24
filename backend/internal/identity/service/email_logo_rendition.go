@@ -115,6 +115,8 @@ func (s *Service) FillEmailLogoRenditions(ctx context.Context, deadline time.Tim
 			break
 		}
 		for _, logo := range logos {
+			// Wall-clock, not s.now: the deadline is the catalog's wall-clock
+			// budget inside the request timeout, not a domain instant.
 			if time.Now().After(deadline) {
 				counts.Complete = false
 				break
