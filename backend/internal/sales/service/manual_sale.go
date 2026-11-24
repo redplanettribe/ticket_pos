@@ -140,7 +140,7 @@ func (s *Service) RecordManualSale(ctx context.Context, actor ActorContext, even
 		return nil, nil, mapCommitError(err)
 	}
 
-	sent := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, *recorded)) == nil
+	sent := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, s.mailEvent(ctx, event.ID), *recorded)) == nil
 
 	return &RecordedManualSale{
 		SaleID:            recorded.ID,

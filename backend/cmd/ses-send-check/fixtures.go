@@ -34,6 +34,20 @@ const (
 	fixtureStaff      = "https://staff.example.com"
 )
 
+// The images the fixtures' Event rows and Cover Image blocks show. The check
+// reads no database, so it has no Event's renditions to point at: these stand
+// in for them with the production Storefront's own icons, which load in any
+// inbox, so the operator sees the square Thumbnail cell, the Logo tile (#878,
+// and the Follow Digest's first entry, #880) and the full-bleed Cover Image
+// (#879) filled. The Storefront publishes no
+// wide image, so the 512px icon stands in for the wide rendition too; the
+// block sets its width, so it fills the card as a real one does.
+const (
+	fixtureSquareURL = "https://discover.multiticketing.com/icon-512.png"
+	fixtureWideURL   = "https://discover.multiticketing.com/icon-512.png"
+	fixtureLogoURL   = "https://discover.multiticketing.com/icon-192.png"
+)
+
 // messages returns one fixture of every message type the platform sends,
 // all addressed to to: every method of the transactional EmailSender on the
 // transactional identity's sender, and the Follow Digest on the Digest
@@ -49,6 +63,11 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 	eventStartsAt := now.AddDate(0, 0, 9).Truncate(24 * time.Hour).Add(25 * time.Hour) // 20:00 in Guayaquil
 	const event = "Noche de Jazz en el Sucre"
 	const organization = "Jazz Club Quito"
+	// What the Event rows show of the Event beside its name.
+	eventRow := platform.MailEvent{
+		OrganizationName: organization, LogoURL: fixtureLogoURL, SquareURL: fixtureSquareURL, WideURL: fixtureWideURL,
+		StartsAt: eventStartsAt, Timezone: guayaquil, VenueName: "Teatro Nacional Sucre",
+	}
 
 	attachments, err := taxDocumentAttachments(now)
 	if err != nil {
@@ -66,18 +85,20 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 			return transactional.SendSaleConfirmation(ctx, platform.SaleConfirmation{
 				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0042",
 				AmountCents: 5000, Currency: "USD",
-				ConfirmationLink:   fixtureStorefront + "/c/fixture-confirmation",
-				SaleInvoiceFollows: true, Locale: en,
+				ConfirmationLink:        fixtureStorefront + "/c/fixture-confirmation",
+				ConsentConfirmationLink: fixtureStorefront + "/consent/fixture-confirmation",
+				TaxID:                   platform.SaleTaxID{Type: platform.TaxIDTypeCedula, Number: "1712345675"},
+				SaleInvoiceFollows:      true, Event: eventRow, Locale: en,
 			})
 		}),
 		transactionalMessage("sale voided", es, func(ctx context.Context) error {
 			return transactional.SendSaleVoided(ctx, platform.SaleVoided{
-				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0043", Locale: es,
+				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0043", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("sale reversal refused", en, func(ctx context.Context) error {
 			return transactional.SendSaleReversalRefused(ctx, platform.SaleReversalRefused{
-				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0044", Locale: en,
+				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0044", Event: eventRow, Locale: en,
 			})
 		}),
 		transactionalMessage("tax document delivery", es, func(ctx context.Context) error {
@@ -101,14 +122,14 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		transactionalMessage("holder answer reminder", es, func(ctx context.Context) error {
 			return transactional.SendHolderAnswerReminder(ctx, platform.HolderAnswerReminder{
 				To:              to,
-				Tickets:         []platform.HolderAnswerReminderTicket{{EventName: event, TicketTypeName: "General"}},
+				Tickets:         []platform.HolderAnswerReminderTicket{{EventName: event, TicketTypeName: "General", Event: eventRow}},
 				CustomerAreaURL: fixtureStorefront + "/tickets", Locale: es,
 			})
 		}),
 		transactionalMessage("assignment reminder", en, func(ctx context.Context) error {
 			return transactional.SendAssignmentReminder(ctx, platform.AssignmentReminder{
 				To: to, FirstName: "Ana", EventName: event,
-				EventStartsAt: eventStartsAt, EventTimezone: guayaquil,
+				EventStartsAt: eventStartsAt, EventTimezone: guayaquil, Event: eventRow,
 				UnassignedTickets: 2, TotalTickets: 3,
 				ConfirmationLink: fixtureStorefront + "/c/fixture-confirmation",
 				SaleCreatedAt:    now.AddDate(0, 0, -3), Locale: en,
@@ -117,16 +138,16 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		transactionalMessage("ticket assignment", es, func(ctx context.Context) error {
 			return transactional.SendTicketAssignment(ctx, platform.TicketAssignment{
 				To: to, EventName: event, TicketTypeName: "General",
-				AcceptURL: fixtureStorefront + "/a/fixture-assignment", Locale: es,
+				AcceptURL: fixtureStorefront + "/a/fixture-assignment", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("no longer holding", en, func(ctx context.Context) error {
-			return transactional.SendNoLongerHolding(ctx, platform.NoLongerHolding{To: to, EventName: event, Locale: en})
+			return transactional.SendNoLongerHolding(ctx, platform.NoLongerHolding{To: to, EventName: event, Event: eventRow, Locale: en})
 		}),
 		transactionalMessage("sale re-addressing", es, func(ctx context.Context) error {
 			return transactional.SendSaleReAddressing(ctx, platform.SaleReAddressing{
 				To: to, EventName: event, Reference: "TS-2026-0045",
-				AcceptURL: fixtureStorefront + "/r/fixture-readdressing", Locale: es,
+				AcceptURL: fixtureStorefront + "/r/fixture-readdressing", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("ticket question revoked", en, func(ctx context.Context) error {
@@ -189,14 +210,19 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 					Name: event, StartsAt: eventStartsAt, Timezone: guayaquil,
 					OrganizationName: organization, Venue: "Teatro Nacional Sucre",
 					URL: fixtureStorefront + "/e/noche-de-jazz", MatchedOrganization: true,
+					SquareURL: fixtureSquareURL, LogoURL: fixtureLogoURL,
 				}},
+				// The second entry has no renditions, so the inbox check sees an
+				// Event row with its image cell dropped beside a full one.
 				Happening: []platform.FollowDigestEvent{{
 					Name: "Feria del Libro de Quito", StartsAt: now.AddDate(0, 0, 3), Timezone: guayaquil,
 					OrganizationName: "Libros EC", Venue: "Centro de Convenciones Bicentenario",
 					URL: fixtureStorefront + "/e/feria-del-libro", MatchedTagNames: []string{"Literatura"},
 					Attending: true, TicketSaleURL: fixtureStorefront + "/tickets#sale-fixture",
 				}},
+				NewOverflow:    platform.FollowDigestOverflow{Count: 4, URL: fixtureStorefront + "/?tags=jazz"},
 				UnsubscribeURL: fixtureStorefront + "/u/fixture-unsubscribe",
+				ExploreURL:     fixtureStorefront + "/",
 			})
 		}},
 	}, nil

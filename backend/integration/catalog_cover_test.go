@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,14 +18,58 @@ import (
 // only way a test can see it happen — or see a failure NOT surface — is a
 // recorder. Guarded by a mutex because the storage is shared by every request
 // the test server handles.
+//
+// It also holds what is put into it, so the email renditions (#876) can be read
+// back: an original a browser would have uploaded through a presigned URL is
+// placed with storeObject, and Get reads it, or fails as a missing object does.
 type mockObjectStorage struct {
 	mu        sync.Mutex
 	deleted   []string
 	deleteErr error
+	objects   map[string]storedObject
+}
+
+type storedObject struct {
+	contentType string
+	body        []byte
 }
 
 func (m *mockObjectStorage) Put(ctx context.Context, key, contentType string, body io.Reader) error {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	m.storeObject(key, contentType, data)
 	return nil
+}
+
+// Get returns what was stored under key, or an error like a missing object's.
+func (m *mockObjectStorage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	obj, ok := m.objects[key]
+	if !ok {
+		return nil, fmt.Errorf("get object %q: NoSuchKey", key)
+	}
+	return io.NopCloser(bytes.NewReader(obj.body)), nil
+}
+
+// storeObject places an object as an upload would.
+func (m *mockObjectStorage) storeObject(key, contentType string, data []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.objects == nil {
+		m.objects = map[string]storedObject{}
+	}
+	m.objects[key] = storedObject{contentType: contentType, body: data}
+}
+
+// object returns what is stored under key.
+func (m *mockObjectStorage) object(key string) (storedObject, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	obj, ok := m.objects[key]
+	return obj, ok
 }
 
 func (m *mockObjectStorage) PresignPut(ctx context.Context, key, contentType string, expires time.Duration) (string, error) {
@@ -64,6 +110,7 @@ func (m *mockObjectStorage) reset() {
 	defer m.mu.Unlock()
 	m.deleted = nil
 	m.deleteErr = nil
+	m.objects = nil
 }
 
 func TestCatalogCoverUploadURL(t *testing.T) {

@@ -103,7 +103,7 @@ func (r *Repository) ListAssignmentReminderCandidates(
 		SELECT s.id, s.customer_email, s.customer_first_name,
 		       s.channel, s.status, s.created_at,
 		       t.ticket_count, t.unassigned_count,
-		       e.starts_at, e.ends_at, COALESCE(e.timezone, ''), e.name,
+		       e.starts_at, e.ends_at, COALESCE(e.timezone, ''), e.name, e.id,
 		       COALESCE(s.locale, ''),
 		       r.sent_count, r.last_sent_at
 	`+assignmentReminderFrom+`
@@ -125,7 +125,7 @@ func (r *Repository) ListAssignmentReminderCandidates(
 			&c.TicketSaleID, &c.BuyerEmail, &c.BuyerFirstName,
 			&c.SaleChannel, &c.SaleStatus, &c.SaleCreatedAt,
 			&c.TicketCount, &c.UnassignedTickets,
-			&startsAt, &endsAt, &c.EventTimezone, &c.EventName,
+			&startsAt, &endsAt, &c.EventTimezone, &c.EventName, &c.EventID,
 			&c.SaleLocale,
 			&c.RemindersSent, &lastSent,
 		); err != nil {

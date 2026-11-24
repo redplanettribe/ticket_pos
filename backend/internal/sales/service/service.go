@@ -369,6 +369,9 @@ type Service struct {
 	// reversed either way, and the far side reads the assignment feature flag, so
 	// a dark deployment mails nobody however many sales are reversed (ADR 0045).
 	displacedHolders DisplacedHolderNotifier
+	// mailEvents reads what mail about an Event shows of it beside its name
+	// (#878). Optional: unset, the mail goes out with no Event row extras.
+	mailEvents MailEventSource
 	// saleInvoices owes a Sale Invoice for a paid House sale inside the
 	// sale's own transaction (#473, ADR 0060). Optional and nil on any
 	// deployment that has not wired it, which owes nothing and promises
@@ -599,6 +602,38 @@ type DisplacedHolderNotifier interface {
 func (s *Service) WithDisplacedHolders(notifier DisplacedHolderNotifier) *Service {
 	s.displacedHolders = notifier
 	return s
+}
+
+// MailEventSource reads what mail about an Event shows of it beside its name
+// (spec #870, #878): its Organization's name, the Logo and Event email
+// renditions as public URLs, and when and where it is. The catalog service
+// implements it: this module holds no object storage to build the URLs with.
+type MailEventSource interface {
+	MailEvent(ctx context.Context, eventID string) (platform.MailEvent, error)
+}
+
+// WithMailEvents gives this service the seam its mail about an Event reads
+// the Event row's extras from (#878). Tied on after construction like the
+// seams beside it, because the catalog service is built after this one.
+// Unset, every mail goes out without them, exactly as it did before.
+func (s *Service) WithMailEvents(source MailEventSource) *Service {
+	s.mailEvents = source
+	return s
+}
+
+// mailEvent is what the mail about eventID shows of the Event beside its
+// name. Imagery is never on a send's critical path: a failed read is logged
+// and the mail goes out without it. The log names the Event and nobody.
+func (s *Service) mailEvent(ctx context.Context, eventID string) platform.MailEvent {
+	if s.mailEvents == nil || eventID == "" {
+		return platform.MailEvent{}
+	}
+	event, err := s.mailEvents.MailEvent(ctx, eventID)
+	if err != nil {
+		s.logger.Warn("could not read what a mail shows of its Event; sending it without",
+			"event_id", eventID, "error", err)
+	}
+	return event
 }
 
 // WithSaleInvoicing gives this service the seam that owes a Sale Invoice for
@@ -924,8 +959,10 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 	// because a Confirmation Link names a Ticket Sale by its database id and
 	// that id does not exist until the batch commits.
 	if !batch.Replayed {
+		// One read of what the mail shows of the Event serves the whole batch.
+		eventShown := s.mailEvent(ctx, event.ID)
 		for _, rs := range batch.Recorded {
-			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs))
+			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, eventShown, rs))
 		}
 	}
 
@@ -934,9 +971,12 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 
 // importedSaleConfirmation builds the Sale Confirmation for a Ticket Sale
 // recorded on the import channel — by a Sale Import batch or as a Sale
-// Correction's replacement — so both paths mail one and the same thing.
-func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, rs repository.RecordedSale) platform.SaleConfirmation {
+// Correction's replacement, so both paths mail one and the same thing.
+// eventShown is what the mail shows of the Event (s.mailEvent), read by the
+// caller so a batch reads it once.
+func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, eventShown platform.MailEvent, rs repository.RecordedSale) platform.SaleConfirmation {
 	return platform.SaleConfirmation{
+		Event:            eventShown,
 		To:               rs.CustomerEmail,
 		CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
 		EventName:        event.Name,
@@ -1831,12 +1871,15 @@ func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, b
 	}
 
 	if notifyBuyers {
+		// One Event, one read, however many buyers are told.
+		event := s.mailEvent(ctx, eventID)
 		for _, rs := range reversed.Sales {
 			_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
 				To:           rs.CustomerEmail,
 				CustomerName: displayName(rs.CustomerFirstName, rs.CustomerLastName),
 				EventName:    eventName,
 				Reference:    rs.ConfirmationRef,
+				Event:        event,
 				// An imported sale was produced by no page and records no Sale
 				// Locale, so this resolves to whatever the recipient's own record
 				// remembers and to English for the great majority who have never

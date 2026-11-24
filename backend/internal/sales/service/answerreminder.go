@@ -336,10 +336,18 @@ func (s *Service) sendHolderAnswerReminder(
 	}
 
 	tickets := make([]platform.HolderAnswerReminderTicket, 0, len(due.Tickets))
+	// Each Event is read once per mail, however many of its Tickets it lists.
+	events := make(map[string]platform.MailEvent, len(due.Tickets))
 	for _, ticket := range due.Tickets {
+		event, read := events[ticket.EventID]
+		if !read {
+			event = s.mailEvent(ctx, ticket.EventID)
+			events[ticket.EventID] = event
+		}
 		tickets = append(tickets, platform.HolderAnswerReminderTicket{
 			EventName:      ticket.EventName,
 			TicketTypeName: ticket.TicketTypeName,
+			Event:          event,
 		})
 	}
 

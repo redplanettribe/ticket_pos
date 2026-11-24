@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,9 @@ type Config struct {
 	// SES is the Amazon SES configuration, read and validated only when an
 	// identity selects ses (ADR 0077); otherwise it is the zero value.
 	SES SESConfig
+	// SMTP is where the local stack's SMTP sender delivers (#872), read and
+	// validated only when an identity selects smtp; otherwise the zero value.
+	SMTP SMTPConfig
 	// DigestEmail is the Follow Digest's OWN sending identity, configured
 	// independently of the transactional one above. See DigestEmailConfig.
 	DigestEmail DigestEmailConfig
@@ -265,7 +269,7 @@ type DigestEmailConfig struct {
 // with no key cannot authenticate. On SES only the From is: the credentials
 // belong to the deployment, not to the identity.
 func (c DigestEmailConfig) Configured() bool {
-	if c.Provider.OrDefault() == EmailProviderSES {
+	if c.Provider.OrDefault().fromOnly() {
 		return c.From != ""
 	}
 	return c.ResendAPIKey != "" && c.From != ""
@@ -279,7 +283,7 @@ func (c DigestEmailConfig) Configured() bool {
 //
 // A Digest on SES has one setting, its From, so it is never half configured.
 func (c DigestEmailConfig) PartiallyConfigured() bool {
-	if c.Provider.OrDefault() == EmailProviderSES {
+	if c.Provider.OrDefault().fromOnly() {
 		return false
 	}
 	return (c.ResendAPIKey == "") != (c.From == "")
@@ -330,9 +334,9 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 // missingSettingReason names the identity setting that is not set, or "".
 // On SES the identity is its From alone; on Resend it is a key and a From.
 func (c DigestEmailConfig) missingSettingReason() string {
-	if c.Provider.OrDefault() == EmailProviderSES {
+	if provider := c.Provider.OrDefault(); provider.fromOnly() {
 		if c.From == "" {
-			return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", EmailProviderSES)
+			return fmt.Sprintf("DIGEST_EMAIL_PROVIDER is %q but DIGEST_EMAIL_FROM is not set", provider)
 		}
 		return ""
 	}
@@ -376,7 +380,7 @@ func loadDigestEmailConfig(transactionalAPIKey string) (DigestEmailConfig, error
 		From:                     strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
 		AllowSharedSendingDomain: envIsTrue("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"),
 	}
-	if provider == EmailProviderSES {
+	if provider.fromOnly() {
 		return cfg, nil
 	}
 	cfg.ResendAPIKey = strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY"))
@@ -398,6 +402,10 @@ const (
 	// EmailProviderSES is Amazon SES, dormant beside Resend until an identity
 	// selects it (ADR 0077).
 	EmailProviderSES EmailProvider = "ses"
+	// EmailProviderSMTP is the local stack's Mailpit, reached over plain SMTP
+	// (#872, spec #870). It is a development sender only: LoadConfig refuses
+	// it in production, and nothing outside docker-compose.yml selects it.
+	EmailProviderSMTP EmailProvider = "smtp"
 )
 
 // OrDefault reads an unset provider as Resend, the default for both sending
@@ -409,9 +417,16 @@ func (p EmailProvider) OrDefault() EmailProvider {
 	return p
 }
 
+// fromOnly reports whether an identity on this provider is its From alone:
+// SES authenticates with the deployment's AWS role and SMTP with nothing at
+// all, so neither reads a per-identity key the way Resend does.
+func (p EmailProvider) fromOnly() bool {
+	return p == EmailProviderSES || p == EmailProviderSMTP
+}
+
 // emailProviders lists every value EMAIL_PROVIDER and DIGEST_EMAIL_PROVIDER
 // accept. Both identities can be on either provider, switched independently.
-var emailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES}
+var emailProviders = []EmailProvider{EmailProviderResend, EmailProviderSES, EmailProviderSMTP}
 
 // loadEmailProvider reads one identity's provider switch, accepting only the
 // values in accepted. Unset means Resend, which is what every deployment did
@@ -510,6 +525,65 @@ func readSESDeliverySettings() (SESConfig, []string) {
 		missing = append(missing, "SES_CONFIGURATION_SET")
 	}
 	return cfg, missing
+}
+
+// SMTPConfig is the SMTP server the development sender delivers to (#872):
+// the local stack's Mailpit, which takes any mail without authentication or
+// TLS. Both identities share it, as they share SESConfig.
+type SMTPConfig struct {
+	// Host and Port are SMTP_HOST and SMTP_PORT; on the Compose stack they
+	// are mailpit and 1025.
+	Host string
+	Port int
+}
+
+// Addr is the host:port the sender dials.
+func (c SMTPConfig) Addr() string {
+	return net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
+}
+
+// loadSMTPConfig reads the SMTP settings and refuses the three ways they can
+// lose mail without saying so.
+//
+// The SMTP sender is the local stack's and nothing else's, so an identity on
+// smtp in production fails startup: a deployment there must never hand
+// buyers' receipts to whatever answers on a configured port. Outside
+// production, an identity on smtp needs both SMTP_HOST and SMTP_PORT, and
+// either one set without the other is refused whichever provider is chosen,
+// because a half-written pair is a typo, and a typo here is the developer
+// staring at an empty Mailpit while mail goes to the log. Both set with no
+// identity on smtp is not an error: it is a developer who switched a
+// provider back, and the settings are ignored, as unused SES settings are.
+func loadSMTPConfig(transactional, digest EmailProvider, appEnv string) (SMTPConfig, error) {
+	var selectedBy []string
+	if transactional == EmailProviderSMTP {
+		selectedBy = append(selectedBy, "EMAIL_PROVIDER")
+	}
+	if digest == EmailProviderSMTP {
+		selectedBy = append(selectedBy, "DIGEST_EMAIL_PROVIDER")
+	}
+	if len(selectedBy) > 0 && appEnv == "production" {
+		return SMTPConfig{}, fmt.Errorf("%s is %q, the local Mailpit sender, which is never used in production; choose %q or %q", selectedBy[0], EmailProviderSMTP, EmailProviderSES, EmailProviderResend)
+	}
+	host := strings.TrimSpace(os.Getenv("SMTP_HOST"))
+	rawPort := strings.TrimSpace(os.Getenv("SMTP_PORT"))
+	switch {
+	case host != "" && rawPort == "":
+		return SMTPConfig{}, fmt.Errorf("SMTP_HOST is set but SMTP_PORT is not; set both to send through SMTP, or neither")
+	case host == "" && rawPort != "":
+		return SMTPConfig{}, fmt.Errorf("SMTP_PORT is set but SMTP_HOST is not; set both to send through SMTP, or neither")
+	}
+	if len(selectedBy) == 0 {
+		return SMTPConfig{}, nil
+	}
+	if host == "" {
+		return SMTPConfig{}, fmt.Errorf("%s is %q but SMTP_HOST, SMTP_PORT are not set", selectedBy[0], EmailProviderSMTP)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil || port < 1 || port > 65535 {
+		return SMTPConfig{}, fmt.Errorf("SMTP_PORT must be a port number from 1 to 65535, got %q", rawPort)
+	}
+	return SMTPConfig{Host: host, Port: port}, nil
 }
 
 // describeMissing lists missing settings as "A is" or "A, B are".
@@ -637,6 +711,10 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	smtp, err := loadSMTPConfig(emailProvider, digestEmail.Provider, appEnv)
+	if err != nil {
+		return Config{}, err
+	}
 
 	google, err := loadGoogleConfig(appEnv)
 	if err != nil {
@@ -674,6 +752,7 @@ func LoadConfig() (Config, error) {
 		EmailFrom:     envOrDefault("EMAIL_FROM", defaultEmailFrom),
 		EmailProvider: emailProvider,
 		SES:           ses,
+		SMTP:          smtp,
 
 		DigestEmail: digestEmail,
 

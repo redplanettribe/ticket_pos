@@ -259,6 +259,8 @@ type AnswerReminderCandidate struct {
 	EventStartsAt time.Time
 	// EventName is the other public fact the mail prints.
 	EventName string
+	// EventID is the Event whose public facts the mail's Event row shows (#878).
+	EventID string
 	// SaleLocale is the Sale Locale AS STORED — empty for a sale no page produced
 	// — read LAST for this reader: a Holder did not buy anything and was never
 	// on the page that recorded it, so their own remembered Mail Locale comes
@@ -340,4 +342,7 @@ type DueAnswerReminder struct {
 type HolderReminderTicket struct {
 	EventName      string
 	TicketTypeName string
+	// EventID is what the sales module reads the Event row's public facts by
+	// (#878); it is never printed.
+	EventID string
 }

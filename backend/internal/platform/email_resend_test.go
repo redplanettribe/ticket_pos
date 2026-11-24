@@ -353,3 +353,47 @@ type levelRecorder struct{ warns, errors int }
 func (*levelRecorder) Info(string, ...any)                     {}
 func (l *levelRecorder) Warn(string, ...any)                   { l.warns++ }
 func (l *levelRecorder) Error(context.Context, string, ...any) { l.errors++ }
+
+// Every mail kind through Resend: the shared copy as the subject and text,
+// the HTML part beside it as html where the kind has one and no html key
+// where it does not yet (ADR 0082), and the attachments on the Tax Document
+// delivery alone.
+func TestResendSendsEveryMessageWithBothParts(t *testing.T) {
+	for _, tc := range everyMessageCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody []byte
+			sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+				gotBody, _ = io.ReadAll(r.Body)
+				w.WriteHeader(http.StatusOK)
+			})
+			if err := tc.send(context.Background(), sender); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			var payload resendRequest
+			if err := json.Unmarshal(gotBody, &payload); err != nil {
+				t.Fatalf("body was not valid JSON: %v", err)
+			}
+			if len(payload.To) != 1 || payload.To[0] != tc.to {
+				t.Fatalf("To = %v, want [%s]", payload.To, tc.to)
+			}
+			if payload.Subject != tc.subject || payload.Text != tc.text {
+				t.Fatalf("subject or text is not the shared copy: %q / %q", payload.Subject, payload.Text)
+			}
+			if tc.html == "" || payload.HTML != tc.html {
+				t.Fatalf("html (%d bytes) is not the message's HTML part (%d bytes)", len(payload.HTML), len(tc.html))
+			}
+			if len(payload.Attachments) != len(tc.attachments) {
+				t.Fatalf("request carries %d attachments, want %d", len(payload.Attachments), len(tc.attachments))
+			}
+			for i, want := range tc.attachments {
+				got := payload.Attachments[i]
+				if got.Filename != want.Filename || got.ContentType != want.ContentType {
+					t.Errorf("attachment %d = %q (%q), want %q (%q)", i, got.Filename, got.ContentType, want.Filename, want.ContentType)
+				}
+				if body, err := base64.StdEncoding.DecodeString(got.Content); err != nil || !bytes.Equal(body, want.Body) {
+					t.Errorf("attachment %d bytes = %q (%v), want %q", i, body, err, want.Body)
+				}
+			}
+		})
+	}
+}

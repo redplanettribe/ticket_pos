@@ -221,6 +221,9 @@ type AssignmentReminderCandidate struct {
 	EventEndsAt   time.Time
 	EventTimezone string
 	EventName     string
+	// EventID is what the sales module reads the Event row's public facts by
+	// (#878); it is never printed.
+	EventID string
 
 	// SaleLocale is the Sale Locale AS STORED — empty for a sale no page
 	// produced — read FIRST for this reader, who bought on the page that

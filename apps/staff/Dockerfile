@@ -82,6 +82,10 @@ ENV SENTRY_RELEASE=${SENTRY_RELEASE}
 
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/apps/staff/.next/static ./apps/staff/.next/static
+# The standalone output leaves public/ out. Without it the manifest's icons 404.
+COPY --from=builder --chown=node:node /repo/apps/staff/public ./apps/staff/public
+RUN test -s apps/staff/public/icon-192.png && test -s apps/staff/public/icon-512.png \
+    || { echo "error: the manifest icons are missing from the image" >&2; exit 1; }
 
 # No source map ships, whether or not the upload ran: a .map anywhere in the
 # image fails the build (ADR 0079, #776). The source is not published.

@@ -272,8 +272,11 @@ type CustomerHoldings interface {
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
-	fees    sales.FeeRates
-	now     func() time.Time
+	// emailLogos fills the Organization Logo renditions beside the Event ones
+	// (#877). Nil until WithEmailLogoRenditions sets it.
+	emailLogos EmailLogoRenditions
+	fees       sales.FeeRates
+	now        func() time.Time
 	// holdings answers what a signed-in Customer already holds of an Event's
 	// Ticket Types, for the public Event read only.
 	holdings CustomerHoldings
@@ -772,6 +775,10 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	s.deleteReplacedObject(ctx, event.CoverImageKey, params.CoverImageKey, "cover image", eventID)
 	s.deleteReplacedObject(ctx, event.CoverVideoKey, params.CoverVideoKey, "cover video", eventID)
 	s.deleteReplacedObject(ctx, event.ThumbnailKey, params.ThumbnailKey, "thumbnail", eventID)
+	// The email renditions follow their originals, after the commit and
+	// best-effort like the deletes above: a failure leaves a rendition null,
+	// never this save failed (spec #870).
+	s.refreshEmailRenditions(ctx, event, updated)
 
 	detail := s.toEventDetail(updated)
 	return &detail, nil

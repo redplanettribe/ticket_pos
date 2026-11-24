@@ -44,8 +44,8 @@ func TestAnUnknownEmailProviderFailsStartup(t *testing.T) {
 		values   []string
 		accepted []string
 	}{
-		{"EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`}},
-		{"DIGEST_EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`}},
+		{"EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`, `"smtp"`}},
+		{"DIGEST_EMAIL_PROVIDER", []string{"sendgrid", "resend2", "re send", "amazon"}, []string{`"resend"`, `"ses"`, `"smtp"`}},
 	}
 	for _, tc := range cases {
 		for _, value := range tc.values {

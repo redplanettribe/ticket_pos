@@ -64,7 +64,7 @@ func TestCertificateExpiryWarningIsWrittenInEnglishWhenNothingNamedALanguage(t *
 	text := w.Text()
 	for _, want := range []string{
 		"The signing certificate of the Issuer with RUC 1790012345001 expires on 27 September 2026 (Ecuador time).",
-		"Once it lapses, every Sale Invoice owed is parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
+		"Once it lapses, every Sale Invoice owed is parked unsigned (no sequential number, no submission) while the SRI's 24-hour window for transmitting each one keeps running.",
 		"Upload the renewed .p12 on the Issuer page:\nhttps://staff.example.test/operator/invoicing/issuer",
 	} {
 		if !strings.Contains(text, want) {
@@ -80,7 +80,7 @@ func TestCertificateExpiryWarningIsWrittenInSpanishForASpanishReader(t *testing.
 	for _, want := range []string{
 		"Aviso de vencimiento del certificado",
 		"El certificado de firma del Emisor con RUC 1790012345001 vence el 27 de septiembre de 2026 (hora de Ecuador).",
-		"Cuando venza, toda Factura de venta pendiente queda detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
+		"Cuando venza, toda Factura de venta pendiente queda detenida sin firmar (sin secuencial y sin envío) mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
 		"Suba el .p12 renovado en la página del Emisor:\nhttps://staff.example.test/operator/invoicing/issuer",
 	} {
 		if !strings.Contains(text, want) {

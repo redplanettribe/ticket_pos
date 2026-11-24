@@ -1,0 +1,7 @@
+{{/* The One-time Passcode: the code large and monospace, no button, and no
+Event imagery. Takes an otpCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{template "code" .Code}}
+{{template "paragraph" .Expiry}}
+{{template "cardClose"}}{{end}}

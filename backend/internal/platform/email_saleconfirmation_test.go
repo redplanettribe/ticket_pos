@@ -147,7 +147,8 @@ func TestSaleConfirmationConsentLineIsWrittenInEnglish(t *testing.T) {
 		// reading it: nothing is acted on until it is confirmed, and ignoring this
 		// is a complete answer.
 		"We act on none of them until they are confirmed from this inbox.",
-		"If that was not you, ignore this",
+		// The em dash this sentence had is two sentences since #879 (spec #870).
+		"If that was not you, ignore this. Nothing will be sent, and nothing else will be asked.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
@@ -421,6 +422,47 @@ func TestSaleConfirmationPromisesAFacturaOnlyWhenOneIsOwed(t *testing.T) {
 		// Only the one sentence was added: the rest reads exactly as before.
 		if strings.Replace(text, "\n\n"+sentences[locale], "", 1) != nothing.Text() {
 			t.Fatalf("locale %q: the factura sentence rewrote the receipt:\n%q", locale, text)
+		}
+	}
+}
+
+// TestSaleConfirmationNamesTheOrganization is the plain-text half of spec
+// #870's "the Sale Confirmation names the Organization": an "Organizer:" line
+// under the confirmation sentence, frozen against a literal, and nothing else
+// about the receipt changed. With no Organization name the line is absent,
+// which is the byte-identical receipt above.
+func TestSaleConfirmationNamesTheOrganization(t *testing.T) {
+	for _, tc := range []struct {
+		locale Locale
+		want   string
+	}{
+		{LocaleEN, "Hi Ana,\n\nYour purchase for Noche de Jazz is confirmed.\nOrganizer: Club de Jazz\nReference: ABC123\nTotal paid: 17.82 USD\nCédula: 1712345675\n\nPresent this reference at the event.\n\nView your tickets:\nhttps://example.test/tickets/confirm?token=x\n\nThis link opens this purchase only, and stays valid until shortly after the event."},
+		{LocaleES, "Hola Ana:\n\nSu compra de Noche de Jazz está confirmada.\nOrganizador: Club de Jazz\nReferencia: ABC123\nTotal pagado: 17.82 USD\nCédula: 1712345675\n\nPresente esta referencia en el evento.\n\nVea sus entradas:\nhttps://example.test/tickets/confirm?token=x\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento."},
+	} {
+		confirmation := spanishConfirmation()
+		confirmation.Locale = tc.locale
+		confirmation.Event = MailEvent{OrganizationName: "Club de Jazz", WideURL: "https://media.example.com/w.jpg"}
+		if got := confirmation.Text(); got != tc.want {
+			t.Fatalf("locale %q:\n got: %q\nwant: %q", tc.locale, got, tc.want)
+		}
+	}
+}
+
+// The consent line, whole, frozen against a literal: its em dash is split
+// into two sentences (#879, spec #870) and nothing else moved.
+func TestSaleConfirmationConsentLineIsFrozen(t *testing.T) {
+	for _, tc := range []struct {
+		locale Locale
+		want   string
+	}{
+		{LocaleEN, "\n\nConfirm your optional preferences:\nhttps://example.test/confirm-consent?token=x\n\nYou, or someone using your address, ticked one or more optional boxes at checkout. We act on none of them until they are confirmed from this inbox. If that was not you, ignore this. Nothing will be sent, and nothing else will be asked."},
+		{LocaleES, "\n\nConfirme sus preferencias opcionales:\nhttps://example.test/confirm-consent?token=x\n\nUsted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No actuamos sobre ninguna hasta que se confirme desde este buzón. Si no fue usted, ignore este mensaje: no se enviará nada ni se le volverá a preguntar."},
+	} {
+		confirmation := spanishConfirmation()
+		confirmation.Locale = tc.locale
+		confirmation.ConsentConfirmationLink = "https://example.test/confirm-consent?token=x"
+		if got := confirmation.Text(); !strings.HasSuffix(got, tc.want) || strings.ContainsRune(got, '\u2014') {
+			t.Fatalf("locale %q: the consent line changed or kept its em dash:\n%q", tc.locale, got)
 		}
 	}
 }

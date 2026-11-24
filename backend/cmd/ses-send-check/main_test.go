@@ -45,7 +45,11 @@ type sesRequest struct {
 	ConfigurationSetName string
 	Content              struct {
 		Simple *struct {
-			Subject     struct{ Data string }
+			Subject struct{ Data string }
+			Body    struct {
+				Text *struct{ Data string }
+				Html *struct{ Data string }
+			}
 			Attachments []struct {
 				FileName    string
 				ContentType string
@@ -172,6 +176,115 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 	}
 	if summary := fmt.Sprintf("%d of %d message types sent, 0 failed", messageTypes(), messageTypes()); !strings.Contains(stdout.String(), summary) {
 		t.Errorf("no summary line in output:\n%s", stdout.String())
+	}
+}
+
+// Every kind goes out with its HTML part beside the text, rendered with the
+// check's chrome (ADR 0082, #881), so the human inbox check sees the whole
+// set. The Event row kinds and the Digest show their images, and the Cover
+// Image kinds theirs.
+func TestSendCheckSendsEveryKindWithHTML(t *testing.T) {
+	fake, load := checkSetup(t)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-to", checkRecipient, "-pace", "0"}, &stdout, &stderr, load); code != 0 {
+		t.Fatalf("exit code %d\n%s", code, stderr.String())
+	}
+	withImages := map[string][]string{
+		"sale voided": {fixtureSquareURL, fixtureLogoURL}, "sale reversal refused": {fixtureSquareURL, fixtureLogoURL},
+		"holder answer reminder": {fixtureSquareURL, fixtureLogoURL}, "assignment reminder": {fixtureSquareURL, fixtureLogoURL},
+		"no longer holding":  {fixtureSquareURL, fixtureLogoURL},
+		"sale confirmation":  {fixtureWideURL, fixtureLogoURL},
+		"ticket assignment":  {fixtureWideURL, fixtureLogoURL},
+		"sale re-addressing": {fixtureWideURL, fixtureLogoURL},
+		"follow digest":      {fixtureSquareURL, fixtureLogoURL},
+	}
+	all, err := messages(checkRecipient, fixedNow, nil, nil)
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	sent := fake.sent()
+	if len(sent) != len(all) || len(all) != messageTypes() {
+		t.Fatalf("fake SES saw %d requests for %d fixtures, want one per kind (%d)", len(sent), len(all), messageTypes())
+	}
+	for i, m := range all {
+		body := sent[i].Content.Simple.Body
+		if body.Text == nil || body.Text.Data == "" {
+			t.Errorf("%s: no text part", m.name)
+		}
+		if body.Html == nil || !strings.Contains(body.Html.Data, "<!doctype html>") {
+			t.Errorf("%s: no HTML part", m.name)
+			continue
+		}
+		if !strings.Contains(body.Html.Data, "operated by FUNDACION REDPLANETTRIBE, Ecuador.") && !strings.Contains(body.Html.Data, "operado por FUNDACION REDPLANETTRIBE, Ecuador.") {
+			t.Errorf("%s: the HTML part is not rendered with the check's chrome", m.name)
+		}
+		for _, src := range withImages[m.name] {
+			if !strings.Contains(body.Html.Data, `src="`+src+`"`) {
+				t.Errorf("%s: the HTML part does not show %s", m.name, src)
+			}
+		}
+	}
+}
+
+// The fixtures send every kind, each once: every method on
+// platform.EmailSender is called by exactly one fixture, read off a capture
+// sender by the message value the method sends (the passcode's is its
+// OTPMessage), and that message renders an HTML part. With the test above,
+// which sees an HTML part on every request, the check sends every kind with
+// HTML.
+func TestSendCheckSendsEveryEmailSenderKind(t *testing.T) {
+	capture := &platform.CaptureEmailSender{}
+	all, err := messages(checkRecipient, fixedNow, capture, capture)
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	for _, m := range all {
+		if err := m.send(context.Background()); err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+	}
+
+	// The capture's slices of sent messages, by message type.
+	sentByType := map[reflect.Type]reflect.Value{}
+	fields := reflect.ValueOf(capture).Elem()
+	for i := range fields.NumField() {
+		if field := fields.Type().Field(i); field.IsExported() && field.Type.Kind() == reflect.Slice {
+			sentByType[field.Type.Elem()] = fields.Field(i)
+		}
+	}
+
+	type rendering interface {
+		HTML(platform.MailChrome) (string, error)
+	}
+	sender := reflect.TypeOf((*platform.EmailSender)(nil)).Elem()
+	for i := range sender.NumMethod() {
+		method := sender.Method(i)
+		// The message value the method sends: its argument after the
+		// context, or for the passcode the OTPMessage it builds.
+		kind := reflect.TypeOf(platform.OTPMessage{})
+		if method.Name != "SendOTP" {
+			if method.Type.NumIn() != 2 {
+				t.Fatalf("%s takes %d arguments; say here which message value it sends", method.Name, method.Type.NumIn())
+			}
+			kind = method.Type.In(1)
+		}
+		sends, ok := sentByType[kind]
+		if !ok {
+			t.Errorf("%s: platform.CaptureEmailSender keeps no []%s to count its sends by", method.Name, kind)
+			continue
+		}
+		if sends.Len() != 1 {
+			t.Errorf("%s: the fixtures sent %d, want 1", method.Name, sends.Len())
+			continue
+		}
+		message, ok := sends.Index(0).Interface().(rendering)
+		if !ok {
+			t.Errorf("%s: %s has no HTML rendering", method.Name, kind)
+			continue
+		}
+		if html, err := message.HTML(sendCheckChrome); err != nil || !strings.Contains(html, "<!doctype html>") {
+			t.Errorf("%s: the fixture renders no HTML part (err %v)", method.Name, err)
+		}
 	}
 }
 

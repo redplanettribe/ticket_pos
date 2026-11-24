@@ -20,6 +20,7 @@ And the platform runs on Cloud Run in GCP, so SES is reached across clouds and n
 SES configuration is read and validated only when SES is selected.
 In production, selecting `ses` with incomplete SES configuration fails startup rather than falling back to another provider.
 A deployment with no provider credentials at all keeps the logging sender, as today.
+A third value, `smtp`, was added later for local development only (#872, ADR 0082): it delivers both identities to the Compose stack's Mailpit over plain SMTP, and LoadConfig refuses it in production.
 "Dormant" therefore means the code is merged and the AWS resources are applied, and switching (or rolling back) is one Terraform variable.
 
 **Same sending domains, verified in both providers at once.**

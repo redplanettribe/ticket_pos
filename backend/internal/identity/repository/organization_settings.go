@@ -130,28 +130,50 @@ func (r *Repository) UpdateOrganizationCurrency(ctx context.Context, orgID, curr
 	return &o, nil
 }
 
+// LogoKeys are an Organization's Logo and its email rendition as they stood
+// before a save changed them.
+type LogoKeys struct {
+	Logo      sql.NullString
+	EmailLogo sql.NullString
+}
+
 // UpdateOrganizationLogoKey sets or clears the organization's logo object key.
-func (r *Repository) UpdateOrganizationLogoKey(ctx context.Context, orgID string, logoImageKey *string) (*Organization, error) {
+// When the Logo changes, the same statement nulls its email rendition
+// (migration 145), so a rendition on a row is always of that row's current
+// Logo. It returns the keys as they stood before, read under the row's lock,
+// so the caller knows which rendition object the save orphaned.
+func (r *Repository) UpdateOrganizationLogoKey(ctx context.Context, orgID string, logoImageKey *string) (*Organization, LogoKeys, error) {
 	var key sql.NullString
 	if logoImageKey != nil && *logoImageKey != "" {
 		key = sql.NullString{String: *logoImageKey, Valid: true}
 	}
 
 	row := r.db.Pool.QueryRowContext(ctx, `
-		UPDATE organizations
-		SET logo_image_key = $2
-		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, house_designated_by, house_designated_at, created_at
+		WITH prev AS (
+			SELECT id, logo_image_key, email_logo_key
+			FROM organizations
+			WHERE id = $1
+			FOR UPDATE
+		)
+		UPDATE organizations o
+		SET logo_image_key = $2,
+		    email_logo_key = CASE WHEN prev.logo_image_key IS NOT DISTINCT FROM $2 THEN o.email_logo_key END
+		FROM prev
+		WHERE o.id = prev.id
+		RETURNING o.id, o.name, o.slug, o.currency, o.logo_image_key, o.support_whatsapp, o.house_designated_by, o.house_designated_at, o.created_at,
+		          prev.logo_image_key, prev.email_logo_key
 	`, orgID, key)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt); err != nil {
+	var before LogoKeys
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.HouseDesignatedBy, &o.HouseDesignatedAt, &o.CreatedAt,
+		&before.Logo, &before.EmailLogo); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, LogoKeys{}, nil
 		}
-		return nil, err
+		return nil, LogoKeys{}, err
 	}
-	return &o, nil
+	return &o, before, nil
 }
 
 // UpdateOrganizationSupportWhatsApp sets or clears the organization's Support

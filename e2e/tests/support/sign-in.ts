@@ -33,7 +33,7 @@ export async function signInAsCustomer(
   await page.getByRole("button", { name: "Send passcode" }).click();
   await expect(page.getByLabel("Passcode")).toBeVisible();
 
-  const code = readPasscode(email);
+  const code = await readPasscode(email);
   test.skip(
     code === null,
     "no passcode in the API log — this journey needs the dev stack (`make dev`)",

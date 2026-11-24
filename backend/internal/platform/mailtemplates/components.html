@@ -1,0 +1,135 @@
+{{/*
+The shared components a kind composes inside the card (ADR 0082). No kind
+writes its own chrome or its own button.
+*/}}
+
+{{/* The card's one content cell, with the card's padding. */}}
+{{define "cardOpen"}}<tr><td class="px" style="padding:32px 32px 16px;">{{end}}
+{{define "cardClose"}}</td></tr>{{end}}
+
+{{/* The mail's heading, its only <h1>. */}}
+{{define "heading"}}<h1 class="t-fg h1" style="margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.4px;color:#121921;">{{.}}</h1>{{end}}
+
+{{/* One paragraph of body copy. */}}
+{{define "paragraph"}}{{template "lines" (lines .)}}{{end}}
+
+{{/* One paragraph whose lines the text part breaks with a single newline
+(a sentence, then "Reference: ..."), each line after the first on its own
+line here too. Takes a []string. */}}
+{{define "lines"}}<p class="t-fg" style="margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:24px;color:#121921;">{{range $i, $line := .}}{{if $i}}<br>
+{{end}}{{$line}}{{end}}</p>{{end}}
+
+{{/* A code the reader types or quotes (a passcode, a Reference): large and
+monospace in the soft box. */}}
+{{define "code"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-soft" style="background-color:#eef2f7;border-radius:10px;margin:0 0 16px;">
+<tr><td align="center" style="padding:18px 20px;"><p class="t-fg ref" style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:32px;line-height:40px;font-weight:700;letter-spacing:6px;color:#121921;text-align:center;">{{.}}</p></td></tr>
+</table>{{end}}
+
+{{/* The primary button, full width in the card, and below it the full link
+for a reader whose client strips or distrusts buttons. A mail has at most one.
+Takes a mailButton. */}}
+{{define "button"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="left" style="margin:8px 0 12px;">
+<tr><td align="center" bgcolor="#0d7bb3" style="border-radius:8px;background-color:#0d7bb3;">
+<a class="button" href="{{.URL}}" style="display:block;padding:14px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:20px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">{{.Label}}</a>
+</td></tr></table>
+<p class="t-muted fallback" style="clear:both;margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:left;">{{.Fallback}}<br>
+<a class="t-link" href="{{.URL}}" style="color:#0d7bb3;word-break:break-all;text-decoration:underline;">{{.URL}}</a></p>{{end}}
+
+{{/* The Organization row: its Logo on a white tile, then its name. With no
+Logo rendition the tile is dropped and the name stands alone. The Logo's alt
+is empty because the name is always printed beside it. Takes an orgRowView.
+
+The tile is painted white twice, with background-color AND with a
+background-image gradient of the same white. THIS IS LOAD-BEARING: Gmail's
+forced dark mode inverts background colours but leaves background images
+alone, so only the gradient keeps the tile white there, and a dark Logo drawn
+on transparency would otherwise vanish into a dark tile. The .tile rule in the
+layout's dark-mode block keeps it white where prefers-color-scheme is honoured.
+html/template strips comments, so this one never reaches a mail. */}}
+{{define "orgRow"}}<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- if .LogoURL}}<td class="tile" width="{{.Tile}}" height="{{.Tile}}" valign="middle" align="center" style="width:{{.Tile}}px;height:{{.Tile}}px;background-color:#ffffff;background-image:linear-gradient(#ffffff,#ffffff);border:1px solid #dadee5;border-radius:6px;"><img src="{{.LogoURL}}" width="{{.Logo}}" alt="" style="display:block;margin:0 auto;border:0;width:{{.Logo}}px;max-height:{{.Logo}}px;height:auto;"></td><td width="8" style="width:8px;font-size:0;line-height:0;">&nbsp;</td>{{end -}}
+<td valign="middle" class="t-fg" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#121921;">{{.Name}}</td></tr></table>{{end}}
+
+{{/* The compact Event rows, between hairlines, each an "eventRow". Takes a
+[]eventRowView. */}}
+{{define "eventRows"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+{{range $i, $row := .}}<tr><td class="bd" style="padding:14px 0;{{if not $i}}border-top:1px solid #dadee5;{{end}}border-bottom:1px solid #dadee5;">
+{{template "eventRow" $row}}
+</td></tr>
+{{end}}</table>{{end}}
+
+{{/* One compact Event row: the 64px square rendition on the left with a 6px
+radius, the Event's name in bold, the Follow Digest's attending mark, one
+muted line with its date and venue, an optional detail line, the Organization
+row, and the Digest's call to action with "Because you follow ..." on the same
+line. With no square rendition the image cell is dropped. With images blocked
+by the client the fixed 64px cell stays as a blank indent, which keeps the
+text aligned with its neighbours (spec #870). Takes an eventRowView. */}}
+{{define "eventRow"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- if .SquareURL}}<td width="64" valign="top" style="width:64px;padding-right:14px;"><img class="thumb-sm" src="{{.SquareURL}}" width="64" height="64" alt="" style="display:block;width:64px;height:64px;border:0;border-radius:6px;"></td>{{end -}}
+<td valign="top">
+<p class="t-fg" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:700;color:#121921;">{{.Name}}</p>
+{{- with .Attending}}
+<p style="margin:2px 0 6px;"><span class="pill t-success" style="display:inline-block;padding:2px 8px;border-radius:999px;background-color:#e3f4e6;color:#1f7a2c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;font-weight:600;">&#10003;&nbsp;{{.}}</span></p>
+{{- end}}
+{{- if .Meta}}
+<p class="t-muted" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#5c646f;">{{.Meta}}</p>
+{{- end}}
+{{- if .Detail}}
+<p class="t-fg" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#121921;">{{.Detail}}</p>
+{{- end}}
+{{- with .Organization}}
+{{template "orgRow" .}}
+{{- end}}
+{{- with .Action}}
+<p style="margin:8px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;">
+{{- if .URL}}<a class="t-link" href="{{.URL}}" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#0d7bb3;text-decoration:none;">{{.Label}}&nbsp;&rarr;</a>{{end}}
+{{- if .Because}}<span class="t-muted" style="color:#5c646f;">{{if .URL}} &nbsp;&middot;&nbsp; {{end}}{{.Because}}</span>{{end -}}
+</p>
+{{- end}}
+</td></tr></table>{{end}}
+
+{{/* The Cover Image block's text (#879): the eyebrow, the Event's name as the
+mail's only <h1>, its date and venue on muted lines (each dropped when the
+mail does not know it), and the Organization row. The Sale Confirmation's
+eyebrow is the success green with a check; the others are muted, because a
+stranger may be reading them. Takes a coverCard. */}}
+{{define "coverEvent"}}{{if .Confirmed}}<p class="t-success" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#1f7a2c;">&#10003;&nbsp;{{.Eyebrow}}</p>
+{{- else}}<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#5c646f;">{{.Eyebrow}}</p>
+{{- end}}
+<h1 class="t-fg h1" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.4px;color:#121921;">{{.EventName}}</h1>
+{{- with .When}}
+<p class="t-muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.}}</p>
+{{- end}}
+{{- with .Venue}}
+<p class="t-muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.}}</p>
+{{- end}}
+{{- with .Organization}}
+<div style="margin-top:14px;">{{template "orgRow" .}}</div>
+{{- end}}{{end}}
+
+{{/* The details box (#879): the Reference large and monospace, and under it
+the other facts side by side, each a muted label over its value, in the soft
+box. Takes a detailsView. */}}
+{{define "details"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-soft" style="background-color:#eef2f7;border-radius:10px;margin:0 0 16px;">
+<tr><td style="padding:18px 20px;">
+<p class="t-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#5c646f;">{{.Reference.Label}}</p>
+<p class="t-fg ref" style="margin:0 0 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:26px;line-height:32px;font-weight:700;letter-spacing:2px;color:#121921;">{{.Reference.Value}}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- range .Facts}}
+<td valign="top" width="{{$.FactWidth}}%" style="padding-right:8px;">
+<p class="t-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#5c646f;">{{.Label}}</p>
+<p class="t-fg" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:600;color:#121921;">{{.Value}}</p></td>
+{{- end}}
+</tr></table>
+</td></tr></table>{{end}}
+
+{{/* The consent block (#879): the Sale Confirmation's double opt-in, in its
+own section at the bottom of the card behind a hairline, so it never reads as
+part of the purchase. Its link is a plain link, not a second button: a mail
+has one primary button. Takes a consentView. */}}
+{{define "consent"}}<tr><td class="px bd" style="padding:20px 32px 12px;border-top:1px solid #dadee5;">
+<p class="t-fg" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:600;color:#121921;">{{.Heading}}</p>
+<p class="t-muted" style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.Body}}</p>
+<p style="margin:0 0 12px;"><a class="t-link" href="{{.URL}}" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#0d7bb3;text-decoration:none;">{{.Label}}&nbsp;&rarr;</a></p>
+</td></tr>{{end}}

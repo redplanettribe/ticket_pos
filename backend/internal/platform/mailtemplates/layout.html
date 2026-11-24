@@ -1,0 +1,90 @@
+{{/*
+The page chrome every HTML mail is wrapped in (ADR 0082, spec #870): the grey
+canvas, the Multiticketing mark and name, one white rounded card at most 600px
+wide, and the footer on the canvas below the card.
+
+Styles are inline. The one <style> block carries only what cannot be inline:
+the mobile breakpoint and the dark-mode overrides. Dark mode is a progressive
+enhancement for clients that honour prefers-color-scheme (Apple Mail,
+Outlook.com); Gmail ignores it and force-inverts instead, so every colour here
+must also survive inversion.
+
+html/template strips HTML comments, so the MSO conditional wrappers for desktop
+Outlook come from the msoOpen and msoClose functions rather than being written
+here.
+*/}}
+{{define "layout"}}<!doctype html>
+<html lang="{{.Lang}}" dir="ltr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{.Title}}</title>
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+body{margin:0;padding:0;-webkit-text-size-adjust:100%}
+a{text-decoration:none}
+@media (max-width:620px){
+.wrap{width:100%!important;max-width:100%!important}
+.px{padding-left:20px!important;padding-right:20px!important}
+.outer{padding-left:8px!important;padding-right:8px!important}
+.h1{font-size:24px!important;line-height:30px!important}
+.ref{font-size:24px!important;letter-spacing:1px!important}
+.thumb-sm{width:64px!important;height:64px!important}
+}
+@media (prefers-color-scheme:dark){
+.bg-canvas{background-color:#0b0f14!important}
+.bg-card{background-color:#151b23!important}
+.bg-soft{background-color:#1d2530!important}
+.t-fg{color:#e8edf3!important}
+.t-muted{color:#a8b2be!important}
+.t-link{color:#7cc0ec!important}
+.t-success{color:#6fd07c!important}
+.bd{border-color:#2c3642!important}
+.pill{background-color:#173a1e!important}
+.tile{background-color:#ffffff!important;border-color:#ffffff!important}
+}
+</style>
+</head>
+<body class="bg-canvas" style="margin:0;padding:0;background-color:#eef2f7;">
+<div class="preheader" style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">{{.Preheader}}{{preheaderPad}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-canvas" style="background-color:#eef2f7;">
+<tr><td align="center" class="outer" style="padding:32px 12px;">
+{{msoOpen}}
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+<tr><td class="px" style="padding:0 4px 16px;">{{template "wordmark" .Chrome}}</td></tr>
+<tr><td class="bg-card bd" style="background-color:#ffffff;border:1px solid #dadee5;border-radius:12px;overflow:hidden;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+{{template "card" .Card}}
+</table>
+</td></tr>
+<tr><td class="px" style="padding:24px 16px 0;">{{template "footer" .Footer}}</td></tr>
+</table>
+{{msoClose}}
+</td></tr></table>
+</body>
+</html>{{end}}
+
+{{/* The Multiticketing mark and name above the card. The mark is decorative:
+the name beside it is the text, so its alt is empty. With no mark configured
+the name stands alone. */}}
+{{define "wordmark"}}<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- if .MarkURL}}<td valign="middle"><img src="{{.MarkURL}}" width="28" height="28" alt="" style="display:block;border:0;border-radius:5px;width:28px;height:28px;"></td>{{end -}}
+<td valign="middle" class="t-fg" style="padding-left:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:20px;font-weight:700;letter-spacing:-0.2px;color:#121921;">Multiticketing</td></tr></table>{{end}}
+
+{{/* The footer on the canvas: why this reader got this mail, where to ask for
+help, and who operates the platform. Links on the canvas use the body text
+colour, underlined, never the primary blue: the blue gives only 4.15:1 on the
+canvas and fails WCAG AA at this size. The legal line is omitted when no
+Issuer is configured, rather than invented. The unsubscribe line is the Follow
+Digest's alone (ADR 0034): it is the only mail a Customer can turn off. */}}
+{{define "footer"}}<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Reason}}</p>
+{{- with .Unsubscribe}}
+<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Question}} <a class="t-fg" href="{{.URL}}" style="color:#121921;text-decoration:underline;">{{.Label}}</a>. {{.KeepsFollows}}</p>
+{{- end}}
+<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.SupportLead}} <a class="t-fg" href="mailto:{{.SupportEmail}}" style="color:#121921;text-decoration:underline;">{{.SupportEmail}}</a></p>
+{{- if .Legal}}
+<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Legal}}</p>
+{{- end}}{{end}}

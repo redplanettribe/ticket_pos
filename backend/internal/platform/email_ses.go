@@ -21,7 +21,8 @@ import (
 // wiring builds one per identity that selects SES, as it does with Resend.
 // It is the Resend sender's twin: one private send path every public method
 // funnels through, the copy taken from the message's own content
-// (email_content.go) and never written here, plain text only.
+// (email_content.go) and never written here, the HTML part beside the text
+// where the message has one (email_html.go, ADR 0082).
 //
 // It sends with the SES v2 API through a named configuration set, so the
 // delivery settings live in one place in Terraform. On Cloud Run its
@@ -41,6 +42,7 @@ type SESEmailSender struct {
 	configurationSet string
 	client           *sesv2.Client
 	logger           Logger
+	chrome           MailChrome
 }
 
 // sesHTTPTimeout bounds one SES request attempt, and sesSendTimeout the
@@ -108,6 +110,18 @@ func NewSESEmailSender(ctx context.Context, settings SESConfig, from string, log
 // the wiring tests ask, as they ask the Resend sender.
 func (s *SESEmailSender) From() string { return s.from }
 
+// WithChrome sets the sender-wide configuration every HTML part's chrome
+// reads (the footer's legal line and support contact, the mark), resolved
+// once at startup. Without it the legal line is omitted.
+func (s *SESEmailSender) WithChrome(chrome MailChrome) *SESEmailSender {
+	s.chrome = chrome
+	return s
+}
+
+// Chrome reports the chrome this sender renders HTML parts with, as From
+// reports its identity: the wiring tests ask.
+func (s *SESEmailSender) Chrome() MailChrome { return s.chrome }
+
 // send performs the one SendEmail call every public method funnels through.
 // messageType names the message in the returned error; the recipient is
 // redacted from it.
@@ -116,7 +130,7 @@ func (s *SESEmailSender) From() string { return s.from }
 // mail itself: the bytes as stored, under their filename and media type, as
 // attachments rather than inline parts. Only the Tax Document delivery passes
 // any (#475); every other message's request carries no attachment key at all.
-func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, text string, attachments ...EmailAttachment) error {
+func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, text, html string, attachments ...EmailAttachment) error {
 	ctx, cancel := context.WithTimeout(ctx, sesSendTimeout)
 	defer cancel()
 	message := &sestypes.Message{
@@ -124,6 +138,12 @@ func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, tex
 		Body: &sestypes.Body{
 			Text: &sestypes.Content{Data: aws.String(text), Charset: aws.String("UTF-8")},
 		},
+	}
+	// The HTML part goes beside the text in the same Simple message, which SES
+	// builds into multipart/alternative with the attachments alongside. A
+	// message whose HTML failed to render passes none and goes as plain text.
+	if html != "" {
+		message.Body.Html = &sestypes.Content{Data: aws.String(html), Charset: aws.String("UTF-8")}
 	}
 	for _, a := range attachments {
 		message.Attachments = append(message.Attachments, sestypes.Attachment{
@@ -161,7 +181,7 @@ func (s *SESEmailSender) fail(ctx context.Context, messageType string, err error
 // was sent.
 func (s *SESEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
 	message := OTPMessage{Code: code, Locale: locale}
-	if err := s.send(ctx, "otp", to, message.Subject(), message.Text()); err != nil {
+	if err := s.send(ctx, "otp", to, message.Subject(), message.Text(), renderedHTML(ctx, s.logger, "otp", message.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "otp", err, "locale", string(locale))
 	}
 	return nil
@@ -175,7 +195,7 @@ func (s *SESEmailSender) SendOTP(ctx context.Context, to string, code string, lo
 // SendSaleConfirmation delivers a Customer's receipt. Best-effort for its caller, which logs and
 // discards the error: a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *SESEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	if err := s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text()); err != nil {
+	if err := s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "sale confirmation", c.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale confirmation", err, "reference", c.Reference)
 	}
 	return nil
@@ -184,7 +204,7 @@ func (s *SESEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirm
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *SESEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	if err := s.send(ctx, "sale voided", v.To, v.Subject(), v.Text()); err != nil {
+	if err := s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), renderedHTML(ctx, s.logger, "sale voided", v.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale voided", err, "reference", v.Reference)
 	}
 	return nil
@@ -193,7 +213,7 @@ func (s *SESEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error
 // SendSaleReversalRefused delivers the notice that a refund the Customer was
 // told was being processed could not be made. Best-effort, as above.
 func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	if err := s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale reversal refused", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale reversal refused", err, "reference", r.Reference)
 	}
 	return nil
@@ -203,7 +223,7 @@ func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReve
 // the signed XML and its RIDE attached (#475, #496), the only message that
 // carries attachments. The Drainer reads the error and retries on its ladder.
 func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	if err := s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), d.Attachments...); err != nil {
+	if err := s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "tax document delivery", d.HTML, s.chrome), d.Attachments...); err != nil {
 		return s.fail(ctx, "tax document delivery", err, "kind", d.Kind, "reference", d.Reference)
 	}
 	return nil
@@ -213,7 +233,7 @@ func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocum
 // (#748). No attachments. The Drainer reads the error and retries on the
 // delivery's ladder.
 func (s *SESEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	if err := s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text()); err != nil {
+	if err := s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "annulment notice", n.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "annulment notice", err, "reference", n.Reference)
 	}
 	return nil
@@ -223,7 +243,7 @@ func (s *SESEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNot
 // Withdrawal took something away (#267). The error is returned because the
 // confirmation-sent stamp is written only where the provider took the message.
 func (s *SESEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
-	if err := s.send(ctx, "consent withdrawal confirmation", c.To, c.Subject(), c.Text()); err != nil {
+	if err := s.send(ctx, "consent withdrawal confirmation", c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "consent withdrawal confirmation", c.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "consent withdrawal confirmation", err)
 	}
 	return nil
@@ -232,7 +252,7 @@ func (s *SESEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, 
 // SendHolderAnswerReminder delivers the Answer Reminder (#328). The sweep writes
 // its ledger row only once this returns nil. The Event is not logged.
 func (s *SESEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	if err := s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "holder answer reminder", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "holder answer reminder", err)
 	}
 	return nil
@@ -242,7 +262,7 @@ func (s *SESEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderA
 // writes its ledger row only once this returns nil. The Event and the link are
 // not logged.
 func (s *SESEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	if err := s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "assignment reminder", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "assignment reminder", err)
 	}
 	return nil
@@ -252,7 +272,7 @@ func (s *SESEmailSender) SendAssignmentReminder(ctx context.Context, r Assignmen
 // Link (#325). Neither the link, a credential that mints an identity, nor the
 // Event is logged.
 func (s *SESEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	if err := s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text()); err != nil {
+	if err := s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), renderedHTML(ctx, s.logger, "ticket assignment", a.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "ticket assignment", err)
 	}
 	return nil
@@ -261,7 +281,7 @@ func (s *SESEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssig
 // SendNoLongerHolding delivers the notice that a Ticket a Holder accepted is
 // no longer theirs (#327). The Event is not logged.
 func (s *SESEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	if err := s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text()); err != nil {
+	if err := s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "no longer holding", n.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "no longer holding", err)
 	}
 	return nil
@@ -270,7 +290,7 @@ func (s *SESEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHold
 // SendSaleReAddressing delivers the mail carrying a Re-addressing Link
 // (#420). Neither the link nor the Event is logged.
 func (s *SESEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	if err := s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale re-addressing", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale re-addressing", err)
 	}
 	return nil
@@ -279,7 +299,7 @@ func (s *SESEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddre
 // SendTicketQuestionRevoked delivers one Org Admin's notice that an approved
 // Ticket Question was revoked (#410). The reason is not logged.
 func (s *SESEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	if err := s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "ticket question revoked", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "ticket question revoked", err, "organization", r.OrganizationName)
 	}
 	return nil
@@ -288,7 +308,7 @@ func (s *SESEmailSender) SendTicketQuestionRevoked(ctx context.Context, r Ticket
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	if err := s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request submitted", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request submitted", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -297,7 +317,7 @@ func (s *SESEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Payou
 // SendQuestionReviewSubmitted delivers one Platform Operator's notice that an
 // Event's questions are waiting for review (#406). Best-effort.
 func (s *SESEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	if err := s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text()); err != nil {
+	if err := s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review submitted", q.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "question review submitted", err, "organization", q.OrganizationName)
 	}
 	return nil
@@ -306,7 +326,7 @@ func (s *SESEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Ques
 // SendQuestionReviewAnswered delivers the submitter's notice of the Operator's
 // verdicts (#407). Best-effort.
 func (s *SESEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	if err := s.send(ctx, "question review answered", q.To, q.Subject(), q.Text()); err != nil {
+	if err := s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review answered", q.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "question review answered", err, "organization", q.OrganizationName)
 	}
 	return nil
@@ -315,7 +335,7 @@ func (s *SESEmailSender) SendQuestionReviewAnswered(ctx context.Context, q Quest
 // SendPayoutRequestPaid delivers the asker's notice that the transfer was
 // made. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	if err := s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request paid", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request paid", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -324,7 +344,7 @@ func (s *SESEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequ
 // SendPayoutRequestDeclined delivers the asker's notice that the ask was
 // refused. The reason is not logged.
 func (s *SESEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	if err := s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request declined", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request declined", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -333,7 +353,7 @@ func (s *SESEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Payout
 // SendPayoutRequestTransferSent delivers the asker's notice that the transfer
 // has been submitted to the bank. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	if err := s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer sent", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request transfer sent", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -342,7 +362,7 @@ func (s *SESEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p Pa
 // SendPayoutRequestTransferFailed delivers the asker's notice that the bank
 // sent the transfer back. The reason is not logged.
 func (s *SESEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	if err := s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer failed", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request transfer failed", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -352,7 +372,7 @@ func (s *SESEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p 
 // the signing certificate is about to lapse, or has (#502). The Drainer writes
 // its ledger row only once an address accepted the mail.
 func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	if err := s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text()); err != nil {
+	if err := s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "certificate expiry warning", err, "threshold_days", w.Threshold, "ruc", w.RUC)
 	}
 	return nil
@@ -367,7 +387,7 @@ func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Cer
 // Its failure line is Warn rather than fail's Error (#848), as the Resend
 // sender's is: the drain's give-up is the one reported event per Digest.
 func (s *SESEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text()); err != nil {
+	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "follow digest", d.HTML, s.chrome)); err != nil {
 		s.logger.Warn("ses send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}

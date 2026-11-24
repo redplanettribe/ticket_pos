@@ -488,6 +488,7 @@ func (s *Service) mailTicketAssignment(
 		EventName:      ticket.EventName,
 		TicketTypeName: ticket.TicketTypeName,
 		AcceptURL:      acceptURL,
+		Event:          s.mailEvent(ctx, ticket.EventID),
 		Locale:         s.assignmentMailLocale(ctx, holderEmail, ticket.SaleLocale.String),
 	}
 	if err := s.mailer.SendTicketAssignment(ctx, mail); err != nil {

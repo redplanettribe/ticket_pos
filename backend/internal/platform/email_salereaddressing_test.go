@@ -82,3 +82,23 @@ func TestSaleReAddressingIsWrittenInSpanish(t *testing.T) {
 		t.Fatalf("text = %q, want usted throughout", text)
 	}
 }
+
+// The Re-addressing mail's text is byte-identical to what it was before its
+// HTML part (#879) split its copy into blocks: frozen against a literal, in
+// both languages, and the Event the HTML part shows changes nothing in it.
+func TestSaleReAddressingTextIsUnchangedByItsHTMLPart(t *testing.T) {
+	for _, tc := range []struct {
+		locale Locale
+		want   string
+	}{
+		{LocaleEN, "At the organizer's request, we are re-addressing a ticket purchase to this email address.\n\nEvent: Noche de Jazz\nReference: TP-J7K2QX9M\n\nThe purchase was made under an email address that could not be reached, and the organizer has told us this is the address it was meant for.\n\nIf this purchase is yours, accept it here and the tickets and every message about them will come to this address from now on. Accepting takes this purchase on as your own:\nhttps://storefront.test/re-addressing?token=abc.def\n\nIf this purchase is not yours, or you did not expect this message, you do not have to do anything. Nothing changes unless you accept, and this link stops working when the event starts."},
+		{LocaleES, "A pedido de la organización, estamos redirigiendo una compra de entradas a esta dirección de correo.\n\nEvento: Noche de Jazz\nReferencia: TP-J7K2QX9M\n\nLa compra se hizo con una dirección de correo a la que no se podía llegar, y la organización nos ha indicado que esta es la dirección a la que estaba destinada.\n\nSi esta compra es suya, acéptela aquí y las entradas y todos los mensajes sobre ellas llegarán a esta dirección de ahora en adelante. Al aceptar, usted asume esta compra como propia:\nhttps://storefront.test/re-addressing?token=abc.def\n\nSi esta compra no es suya, o no esperaba este mensaje, no tiene que hacer nada. Nada cambia a menos que usted acepte, y este enlace deja de funcionar cuando empieza el evento."},
+	} {
+		mail := saleReAddressing()
+		mail.Locale = tc.locale
+		mail.Event = MailEvent{OrganizationName: "Club de Jazz", WideURL: "https://media.example.com/w.jpg", VenueName: "Teatro"}
+		if got := mail.Text(); got != tc.want {
+			t.Fatalf("locale %q:\n got: %q\nwant: %q", tc.locale, got, tc.want)
+		}
+	}
+}

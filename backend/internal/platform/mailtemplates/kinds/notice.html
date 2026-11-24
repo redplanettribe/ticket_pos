@@ -1,0 +1,14 @@
+{{/* The notice card: a plain notice in the platform chrome with no Event
+imagery, so it reads as the platform's own mail rather than a promotion. The
+fiscal kinds (Tax Document Delivery, Annulment Notice) and the staff and
+operator kinds (Certificate Expiry Warning, the Payout Request notices, the
+Question Review notices, Ticket Question Revoked) are written in it. The
+heading, then the text part's own paragraphs, then the mail's one link as the
+button, with the sentence leading to it, when it carries one. Takes a
+noticeCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Blocks}}{{template "lines" .}}
+{{end}}{{with .Button}}{{template "paragraph" $.LinkLead}}
+{{template "button" .}}
+{{end}}{{template "cardClose"}}{{end}}

@@ -37,7 +37,15 @@ type Event struct {
 	// ThumbnailKey is the Event's optional square Thumbnail (migration 141),
 	// independent of the Cover Image.
 	ThumbnailKey sql.NullString
-	Discoverable bool
+	// EmailWideKey and EmailSquareKey are the Event's email renditions
+	// (migration 144): the Cover Image as mail carries it, and the square from
+	// the Thumbnail or, without one, the Cover Image. Null is "not rendered
+	// yet". UpdateEvent nulls each one in the same statement that changes the
+	// original it derives from, so a rendition on a row is always of that
+	// row's current original.
+	EmailWideKey   sql.NullString
+	EmailSquareKey sql.NullString
+	Discoverable   bool
 	// FeeHandling is the Event's Fee Handling mode ('pass_on' or 'absorb'),
 	// constrained by the column's CHECK (migration 021).
 	FeeHandling string
@@ -105,7 +113,8 @@ func New(db *platform.DB) *Repository {
 const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
-	description, cover_image_key, cover_video_key, thumbnail_key, discoverable, fee_handling,
+	description, cover_image_key, cover_video_key, thumbnail_key, email_wide_key, email_square_key,
+	discoverable, fee_handling,
 	registration_mode, registration_url, registration_click_count, requires_named_tickets, created_at
 `
 
@@ -117,7 +126,8 @@ func scanEvent(row interface {
 	if err := row.Scan(
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.Discoverable, &e.FeeHandling,
+		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.EmailWideKey, &e.EmailSquareKey,
+		&e.Discoverable, &e.FeeHandling,
 		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -144,18 +154,11 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 
 	var events []Event
 	for rows.Next() {
-		var e Event
-		var status string
-		if err := rows.Scan(
-			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
-			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.Discoverable, &e.FeeHandling,
-			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
-		); err != nil {
+		e, err := scanEvent(rows)
+		if err != nil {
 			return nil, err
 		}
-		e.Status = EventStatus(status)
-		events = append(events, e)
+		events = append(events, *e)
 	}
 	return events, rows.Err()
 }
@@ -204,6 +207,14 @@ func (r *Repository) GetEventByID(ctx context.Context, orgID, eventID string) (*
 }
 
 // UpdateEvent updates mutable fields on an event.
+//
+// It also nulls an email rendition whose original the update changes: the
+// wide one when the Cover Image key changes, the square one when the image it
+// derives from (the Thumbnail, else the Cover Image) changes. In the same
+// statement, so no reader ever sees a rendition of an image the Event no
+// longer has. SET reads the row as it was, so the comparisons are old against
+// new. The caller deletes the nulled objects and renders the new ones after
+// the commit.
 func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, params UpdateEventParams) (*Event, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
 		UPDATE events
@@ -223,7 +234,15 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			fee_handling = $15,
 			registration_mode = $16,
 			registration_url = $17,
-			requires_named_tickets = $18
+			requires_named_tickets = $18,
+			email_wide_key = CASE
+				WHEN cover_image_key IS DISTINCT FROM $11 THEN NULL
+				ELSE email_wide_key
+			END,
+			email_square_key = CASE
+				WHEN COALESCE(thumbnail_key, cover_image_key) IS DISTINCT FROM COALESCE($13, $11) THEN NULL
+				ELSE email_square_key
+			END
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,

@@ -540,6 +540,7 @@ func (s *Service) sendReversalRefusedNotice(ctx context.Context, sale *repositor
 		CustomerName: displayName(sale.CustomerFirstName, sale.CustomerLastName),
 		EventName:    sale.EventName,
 		Reference:    sale.ConfirmationRef,
+		Event:        s.mailEvent(noticeCtx, sale.EventID),
 		// The one message with nothing else to read (#246, ADR 0033). Whoever is
 		// standing here is whoever performed the in_flight -> refused transition:
 		// a Reconciler run on a cron, or a stranger's page draining this request.
@@ -1032,6 +1033,7 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),
 		EventName:    sale.EventName,
 		Reference:    reversed.ConfirmationRef,
+		Event:        s.mailEvent(ctx, sale.EventID),
 		// The language of the sale being voided (#246, ADR 0033), read off the
 		// row the reversal primitive just locked — and NOT off the press that got
 		// here. The buyer may have pressed Undo on a Spanish page, but a drain

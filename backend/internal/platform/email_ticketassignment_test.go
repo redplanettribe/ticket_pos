@@ -150,3 +150,23 @@ func TestTicketAssignmentWithoutALinkIsAnInstructionNobodyCanFollow(t *testing.T
 		t.Fatal("the copy is unconditional by design; a caller must refuse to compose a linkless message rather than the renderer hiding the gap")
 	}
 }
+
+// The Assignment mail's text is byte-identical to what it was before its HTML
+// part (#879) split its copy into blocks: frozen against a literal, in both
+// languages, and the Event the HTML part shows changes nothing in it.
+func TestTicketAssignmentTextIsUnchangedByItsHTMLPart(t *testing.T) {
+	for _, tc := range []struct {
+		locale Locale
+		want   string
+	}{
+		{LocaleEN, "Someone who bought tickets for Noche de Jazz gave us your email address so that one of them could be yours.\n\nEvent: Noche de Jazz\nTicket: General Admission\n\nIf you accept, your email address is shared with the organizer of this event, and you can give your name and answer any questions they ask about your ticket.\n\nAccept your ticket here:\nhttps://storefront.test/accept?token=abc.def\n\nYou do not have to do anything. If you ignore this message, the ticket still works and the person who bought it can still use it. This link stops working when the event starts. At that point we also delete your email address."},
+		{LocaleES, "Alguien que compró entradas para Noche de Jazz nos dio su dirección de correo para que una de ellas sea suya.\n\nEvento: Noche de Jazz\nEntrada: General Admission\n\nSi la acepta, su dirección de correo se comparte con la organización de este evento, y podrá dar su nombre y responder las preguntas que hagan sobre su entrada.\n\nAcepte su entrada aquí:\nhttps://storefront.test/accept?token=abc.def\n\nNo tiene que hacer nada. Si ignora este mensaje, la entrada sigue siendo válida y quien la compró puede seguir usándola. Este enlace deja de funcionar cuando empieza el evento. En ese momento también eliminamos su dirección de correo."},
+	} {
+		mail := ticketAssignment()
+		mail.Locale = tc.locale
+		mail.Event = MailEvent{OrganizationName: "Club de Jazz", WideURL: "https://media.example.com/w.jpg", VenueName: "Teatro"}
+		if got := mail.Text(); got != tc.want {
+			t.Fatalf("locale %q:\n got: %q\nwant: %q", tc.locale, got, tc.want)
+		}
+	}
+}

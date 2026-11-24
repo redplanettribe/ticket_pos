@@ -2244,6 +2244,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeEmailRenditionFill": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.EmailRenditionFillResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeEventDetail": {
                 "properties": {
                     "data": {
@@ -5639,6 +5653,27 @@ const docTemplate = `{
                             "expired"
                         ],
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EmailRenditionFillResult": {
+                "properties": {
+                    "complete": {
+                        "description": "Complete is false when the run stopped at its time budget with Events\nor Logos left unvisited; run it again.",
+                        "type": "boolean"
+                    },
+                    "failed": {
+                        "description": "Failed counts the renditions this run could not produce. Each stays\nnull, its cause is logged, and the next run tries it again.",
+                        "type": "integer"
+                    },
+                    "remaining": {
+                        "description": "Remaining counts the Events and the Organizations still holding an\noriginal with a null rendition after this run: the failures, and\nanything the run's time budget did not reach.",
+                        "type": "integer"
+                    },
+                    "rendered": {
+                        "description": "Rendered counts the renditions produced and recorded by this run.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -13751,6 +13786,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Purge the Answers on abandoned Payments",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
+        "/api/v1/internal/email-renditions/fill": {
+            "post": {
+                "description": "Renders every Event original and every Organization Logo whose email rendition is null, across every Organization: an Event's wide rendition (the Cover Image as a JPEG 1200px wide) and square one (a 128px JPEG from the Thumbnail, or from the Cover Image cropped to its centre), and an Organization's Logo rendition (a PNG fitted within 96px square, its transparency kept). Each rendition is best-effort: one that cannot be produced is logged, stays null and is counted as failed, and the next run tries it again. A run stops starting Events and Logos after four minutes, inside the request timeout, and says so with complete=false; run it again until complete is true and remaining is zero, or remaining holds only originals that keep failing (their causes are in the log). Idempotent: a second run after a clean one renders nothing. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Run by hand, not on a schedule. The response names no Event and no Organization.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEmailRenditionFill"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Fill the missing email renditions",
                 "tags": [
                     "internal"
                 ]

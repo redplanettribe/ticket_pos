@@ -40,6 +40,7 @@ type ResendEmailSender struct {
 	from   string
 	client *http.Client
 	logger Logger
+	chrome MailChrome
 }
 
 // NewResendEmailSender builds a sender. from is the full RFC 5322 From header,
@@ -65,9 +66,22 @@ func NewResendEmailSender(apiKey, from string, logger Logger) *ResendEmailSender
 // wiring tests both ask.
 func (s *ResendEmailSender) From() string { return s.from }
 
-// resendRequest is the subset of Resend's send payload this system uses. Plain
-// text only for now: the messages are short, and text/plain sidesteps an HTML
-// templating dependency and the deliverability tuning HTML mail invites.
+// WithChrome sets the sender-wide configuration every HTML part's chrome
+// reads (the footer's legal line and support contact, the mark), resolved
+// once at startup. Without it the legal line is omitted.
+func (s *ResendEmailSender) WithChrome(chrome MailChrome) *ResendEmailSender {
+	s.chrome = chrome
+	return s
+}
+
+// Chrome reports the chrome this sender renders HTML parts with, as From
+// reports its identity: the wiring tests ask.
+func (s *ResendEmailSender) Chrome() MailChrome { return s.chrome }
+
+// resendRequest is the subset of Resend's send payload this system uses: the
+// text always, and the HTML beside it (ADR 0082, which retired the
+// plain-text-only choice made here). A message whose HTML failed to render
+// omits the html key and goes as plain text.
 //
 // Attachments arrived with the Tax Document delivery (#475): Resend takes
 // them inline on the same POST, the content base64-encoded, and omits the
@@ -78,6 +92,7 @@ type resendRequest struct {
 	To          []string           `json:"to"`
 	Subject     string             `json:"subject"`
 	Text        string             `json:"text"`
+	HTML        string             `json:"html,omitempty"`
 	Attachments []resendAttachment `json:"attachments,omitempty"`
 }
 
@@ -125,12 +140,13 @@ func IsPermanentEmailRefusal(err error) bool {
 }
 
 // send performs the one POST every public method funnels through.
-func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, attachments ...EmailAttachment) error {
+func (s *ResendEmailSender) send(ctx context.Context, to, subject, text, html string, attachments ...EmailAttachment) error {
 	message := resendRequest{
 		From:    s.from,
 		To:      []string{to},
 		Subject: subject,
 		Text:    text,
+		HTML:    html,
 	}
 	for _, a := range attachments {
 		message.Attachments = append(message.Attachments, resendAttachment{
@@ -175,7 +191,7 @@ func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string, 
 // out of reach of every test that drives the API (#244).
 func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
 	message := OTPMessage{Code: code, Locale: locale}
-	if err := s.send(ctx, to, message.Subject(), message.Text()); err != nil {
+	if err := s.send(ctx, to, message.Subject(), message.Text(), renderedHTML(ctx, s.logger, "otp", message.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send otp failed", "locale", string(locale), "error", err)
 		return err
 	}
@@ -186,7 +202,7 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string,
 // best-effort, so a returned error is logged here for visibility and then
 // discarded upstream — a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
+	if err := s.send(ctx, c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "sale confirmation", c.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale confirmation failed", "reference", c.Reference, "error", err)
 		return err
 	}
@@ -199,7 +215,7 @@ func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConf
 // this reports. The log names the reference and the kind, never the
 // recipient.
 func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	if err := s.send(ctx, d.To, d.Subject(), d.Text(), d.Attachments...); err != nil {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "tax document delivery", d.HTML, s.chrome), d.Attachments...); err != nil {
 		s.logger.Error(ctx, "resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
 		return err
 	}
@@ -210,7 +226,7 @@ func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDo
 // (#748). No attachments. The Drainer reads the error and retries on the
 // delivery's ladder; the log names the reference, never the recipient.
 func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "annulment notice", n.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send annulment notice failed", "reference", n.Reference, "error", err)
 		return err
 	}
@@ -223,7 +239,7 @@ func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n Annulment
 // accepted the mail, so a failure here is a retry on the next tick rather
 // than a lost threshold.
 func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	if err := s.send(ctx, w.To, w.Subject(), w.Text()); err != nil {
+	if err := s.send(ctx, w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send certificate expiry warning failed", "threshold_days", w.Threshold, "ruc", w.RUC, "error", err)
 		return err
 	}
@@ -233,7 +249,7 @@ func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w 
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	if err := s.send(ctx, v.To, v.Subject(), v.Text()); err != nil {
+	if err := s.send(ctx, v.To, v.Subject(), v.Text(), renderedHTML(ctx, s.logger, "sale voided", v.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale voided failed", "reference", v.Reference, "error", err)
 		return err
 	}
@@ -246,7 +262,7 @@ func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) er
 // message that ever corrects a promise, so a Customer who never hears is a
 // Customer who still believes their refund is coming.
 func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale reversal refused", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale reversal refused failed", "reference", r.Reference, "error", err)
 		return err
 	}
@@ -268,7 +284,7 @@ func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleR
 // anything. Nothing about that failure reaches the withdrawal, which has already
 // committed.
 func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
-	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
+	if err := s.send(ctx, c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "consent withdrawal confirmation", c.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send consent withdrawal confirmation failed", "error", err)
 		return err
 	}
@@ -294,7 +310,7 @@ func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Contex
 // as for the Assignment mail below: a log aggregator is a wider audience than
 // an inbox.
 func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "holder answer reminder", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send holder answer reminder failed", "error", err)
 		return err
 	}
@@ -314,7 +330,7 @@ func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r Hold
 // Transactional identity only (ADR 0030). The address and the error are logged
 // on failure; the Event and the link are not.
 func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "assignment reminder", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send assignment reminder failed", "error", err)
 		return err
 	}
@@ -340,7 +356,7 @@ func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r Assign
 // error. The link is a credential that mints an identity, and a log aggregator
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	if err := s.send(ctx, a.To, a.Subject(), a.Text()); err != nil {
+	if err := s.send(ctx, a.To, a.Subject(), a.Text(), renderedHTML(ctx, s.logger, "ticket assignment", a.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send ticket assignment failed", "error", err)
 		return err
 	}
@@ -367,7 +383,7 @@ func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAs
 // aggregator is a wider audience than an inbox. What an operator needs here is
 // that a Holder was not told.
 func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "no longer holding", n.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send no longer holding failed", "error", err)
 		return err
 	}
@@ -391,7 +407,7 @@ func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerH
 // error. The link is a credential that mints an identity, and a log aggregator
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale re-addressing", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale re-addressing failed", "error", err)
 		return err
 	}
@@ -404,7 +420,7 @@ func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAd
 // was told, and the staff editor carries the same reason. The reason itself is
 // not logged.
 func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "ticket question revoked", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send ticket question revoked failed", "organization", r.OrganizationName, "error", err)
 		return err
 	}
@@ -420,7 +436,7 @@ func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r Tic
 // The amount is not a secret, but the log line's job here is diagnosing a
 // delivery failure, and a money email's contents are not part of that.
 func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request submitted", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request submitted failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -431,7 +447,7 @@ func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Pa
 // Event's questions are waiting for review (#406, ADR 0056). Best-effort: the
 // Review is recorded whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review submitted", q.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send question review submitted failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
@@ -442,7 +458,7 @@ func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Q
 // verdicts (#407, ADR 0056). Best-effort: the verdicts are recorded and read
 // in the editor whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	if err := s.send(ctx, q.To, q.Subject(), q.Text()); err != nil {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review answered", q.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send question review answered failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
@@ -453,7 +469,7 @@ func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q Qu
 // Best-effort: the Payout is the fact, and a failure here leaves an organizer
 // who finds out from their bank instead.
 func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request paid", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request paid failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -468,7 +484,7 @@ func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutR
 // which is the outcome the reason exists to prevent. The reason itself is not
 // logged — it is a message to one Organization, not an operational fact.
 func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request declined", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request declined failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -480,7 +496,7 @@ func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Pay
 // whether or not anybody was told, and the organizer's own payouts page carries
 // the same date and the same expectation.
 func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer sent", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request transfer sent failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -496,7 +512,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p
 // The reason itself is not logged — it is a message to one Organization, not an
 // operational fact.
 func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer failed", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request transfer failed failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -526,7 +542,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // event per Digest (ADR 0079). Reporting every attempt here as well made one
 // misconfiguration six Sentry events per Digest.
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "follow digest", d.HTML, s.chrome)); err != nil {
 		s.logger.Warn("resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}

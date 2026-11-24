@@ -132,7 +132,7 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   // buyer's cookies, arriving from the mail with nothing but the link. The link
   // is written locale-free and against whatever origin the API was configured
   // with, so only its origin is swapped for this suite's, never its path.
-  const mailed = readAssignmentLink(holder);
+  const mailed = await readAssignmentLink(holder);
   expect(mailed, "an Assignment mail for the Holder in the API log").not.toBeNull();
   const link = new URL(mailed as string);
   const base = new URL(page.url());

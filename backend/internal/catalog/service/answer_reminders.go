@@ -141,6 +141,7 @@ func groupAnswerReminders(candidates []catalog.AnswerReminderCandidate) []catalo
 		ticket := catalog.HolderReminderTicket{
 			EventName:      candidate.EventName,
 			TicketTypeName: candidate.TicketTypeName,
+			EventID:        candidate.EventID,
 		}
 		if at, found := byHolder[candidate.HolderEmail]; found {
 			due[at].TicketIDs = append(due[at].TicketIDs, candidate.TicketID)

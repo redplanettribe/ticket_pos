@@ -511,6 +511,32 @@ reconciler has — the backend's drain budget expires first, Scheduler's deadlin
 `backend/internal/digest/service/service.go` beside `digestDrainBudget`, where a backend test reads
 the Terraform defaults and fails if the three stop agreeing.
 
+## The email rendition fill
+
+Mail shows an Event's imagery through its email renditions (spec #870): the Cover Image as a JPEG 1200px wide, and a 128px square JPEG from the Thumbnail, or from the Cover Image cropped to its centre.
+It shows an Organization's Logo through the Logo's email rendition: a PNG fitted within 96px square, its transparency kept.
+The API renders them itself whenever an Event Owner sets or replaces an Event's image, or an Org Admin the Organization's Logo, so only Events and Organizations saved before renditions existed are missing them.
+Until they are filled, mail about those Events and Organizations simply shows no images.
+
+**Run the fill once after the deploy that adds renditions (#876 and #877, migrations 144 and 145).**
+One run covers both the Events and the Logos.
+It is an internal route with no schedule and no Terraform behind it, authenticated by Cloud Run IAM like the scheduled ones, so your own identity token is the credential:
+
+```bash
+API_URL=$(gcloud run services describe prod-ticket-pos-api \
+  --region us-east1 --format='value(status.url)')
+
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$API_URL/api/v1/internal/email-renditions/fill"
+# {"data":{"rendered":N,"failed":N,"remaining":N,"complete":true},...}
+```
+
+It renders every original (Cover Image, Thumbnail or Logo) whose rendition is null and skips everything already rendered, so it is safe to run again at any time.
+`complete: false` means the run stopped at its four-minute budget, inside the request timeout; run it again until it says `true`.
+`remaining` counts the Events and the Organizations still missing a rendition afterwards.
+Anything left in it failed to render (a missing or unreadable original), each failure is in the logs as `email rendition: the rendition could not be produced and stays empty` with its Event or Organization and object key, and the next run tries it again.
+A failure never affects anything but that Event's or Organization's mail imagery.
+
 ## Email
 
 Two providers, two sending identities (ADR [0009](../docs/adr/0009-transactional-email-via-resend.md), [0030](../docs/adr/0030-follows-notify-as-a-weekly-digest.md), [0077](../docs/adr/0077-ses-stands-beside-resend-dormant-behind-an-explicit-provider-switch.md)).
@@ -552,7 +578,7 @@ The Organization and the account are created by hand, never in Terraform.
 
 - an email identity per sending subdomain with Easy DKIM, each defaulting to the configuration set;
 - a custom MAIL FROM per identity on `bounce.<domain>` (`ses_mail_from_label`);
-- the configuration set `prod-ticket-pos`, with no event destination and engagement tracking disabled, so open and click tracking stay off;
+- the configuration set `prod-ticket-pos`, with no event destination and engagement tracking disabled, so open and click tracking stay off (`modules/ticket-pos/tests/ses.tftest.hcl` plans the module against mocked providers and fails if engagement metrics are enabled, a custom redirect domain is set, or any SES event destination is declared; run it with `terraform test` in that directory);
 - account-level suppression for `BOUNCE` and `COMPLAINT`;
 - the role `prod-ticket-pos-api-ses`, which the API assumes with a Google-signed ID token, so no AWS key is stored anywhere;
 - a monthly AWS Budget on the member account (`aws_budget_limit_usd`, 10 USD by default) that emails `TF_VAR_aws_budget_alert_email` at 80% spent and at a forecast over 100%.

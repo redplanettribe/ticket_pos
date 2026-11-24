@@ -84,6 +84,12 @@ ENV SENTRY_RELEASE=${SENTRY_RELEASE}
 
 COPY --from=builder --chown=node:node /repo/apps/storefront/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/apps/storefront/.next/static ./apps/storefront/.next/static
+# The standalone output leaves public/ out. Without it the manifest's icons
+# 404, and so does the mark every HTML mail shows (ADR 0082), which is
+# STOREFRONT_BASE_URL + /icon-192.png.
+COPY --from=builder --chown=node:node /repo/apps/storefront/public ./apps/storefront/public
+RUN test -s apps/storefront/public/icon-192.png && test -s apps/storefront/public/icon-512.png \
+    || { echo "error: the manifest icons are missing from the image" >&2; exit 1; }
 
 # No source map ships, whether or not the upload ran: a .map anywhere in the
 # image fails the build (ADR 0079, #776). The source is not published.

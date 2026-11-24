@@ -208,6 +208,15 @@ type EnvelopeHolderAddressPurge struct {
 	RequestID string                           `json:"request_id"`
 }
 
+// EnvelopeEmailRenditionFill documents POST
+// /api/v1/internal/email-renditions/fill success responses (#876, #877):
+// counts only, naming no Event and no Organization.
+type EnvelopeEmailRenditionFill struct {
+	Data      service.EmailRenditionFillResult `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
+}
+
 // EnvelopeQuestionReview documents the Question Review responses (#406,
 // ADR 0056): the submission, the withdrawal, and the editor's current read.
 type EnvelopeQuestionReview struct {

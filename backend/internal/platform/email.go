@@ -106,6 +106,11 @@ type SaleConfirmation struct {
 	// on the Tax Authority's timetable, and a receipt that named a delay
 	// would be wrong one way or the other.
 	SaleInvoiceFollows bool
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): the wide rendition, the date, the venue and the Organization row.
+	// Its OrganizationName is also the plain-text part's "Organizer:" line, so
+	// the receipt names who the buyer paid; with none, that line is absent.
+	Event MailEvent
 	// Locale is the language this receipt is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#245, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.
@@ -121,6 +126,37 @@ type SaleConfirmation struct {
 	Locale Locale
 }
 
+// MailEvent is what a mail about an Event shows of it beside its name (spec
+// #870): the Organization behind it, its Logo, the Event's email renditions,
+// and when and where it is. The caller fills it from the Event and
+// Organization it already has, and every field is optional.
+//
+// AN EMPTY URL MEANS "NO IMAGE": the image's cell is dropped, never left as an
+// empty box. A rendition not made yet (its key null) is an empty URL, so a
+// mail sent before the rendition fill simply shows no image. With no
+// OrganizationName the Organization row is dropped, Logo and all, because the
+// Logo's alt is empty on the promise that the name is printed beside it.
+//
+// Every fact here is public, a Storefront page anybody can read, so it is safe
+// in a mail that may be forwarded.
+type MailEvent struct {
+	OrganizationName string
+	// LogoURL is the Organization's Logo email rendition (a PNG within 96px).
+	LogoURL string
+	// WideURL is the Cover Image's email rendition (a JPEG 1200px wide), which
+	// the Cover Image kinds open with; the compact Event row does not show it.
+	WideURL string
+	// SquareURL is the 128px square rendition the compact Event row shows at
+	// 64px: from the Thumbnail, or from the Cover Image cropped to its centre.
+	SquareURL string
+	// StartsAt and Timezone are when the Event starts, printed in its own zone
+	// exactly as the Follow Digest prints it; no zone, an unloadable one or a zero
+	// StartsAt prints no date. VenueName is printed as stored.
+	StartsAt  time.Time
+	Timezone  string
+	VenueName string
+}
+
 // SaleVoided is the cancellation notice emailed to a Customer when a Ticket Sale
 // is reversed (e.g. an undone Sale Import). It references the original Sale
 // Confirmation so the Customer can reconcile the record they were given. This is
@@ -130,6 +166,8 @@ type SaleVoided struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	Event MailEvent
 	// Locale is the language this notice is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#246, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.
@@ -163,6 +201,8 @@ type SaleReversalRefused struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	Event MailEvent
 	// Locale is the language this correction is written in, resolved from the
 	// sale exactly as SaleVoided.Locale is (#246, ADR 0033).
 	//
@@ -191,6 +231,9 @@ type SaleReversalRefused struct {
 type HolderAnswerReminderTicket struct {
 	EventName      string
 	TicketTypeName string
+	// Event is what the HTML part's Event row for this Ticket shows beside
+	// EventName (#878): public facts about the Event, never the purchase.
+	Event MailEvent
 }
 
 // HolderAnswerReminder is the mail telling the Holder of a Ticket that it still
@@ -315,6 +358,10 @@ type AssignmentReminder struct {
 	EventName     string
 	EventStartsAt time.Time
 	EventTimezone string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	// Its StartsAt and Timezone are not read: the row's date is EventStartsAt
+	// in EventTimezone, the same date Text() prints.
+	Event MailEvent
 	// UnassignedTickets of TotalTickets is the tally the mail prints — the
 	// Customer Area's own, so mail and page agree. UnassignedTickets is at
 	// least one on any reminder the sweep composes.
@@ -383,6 +430,10 @@ type TicketAssignment struct {
 	// there too would mean the click proves nothing and the Verified Customer
 	// minted from it is a fiction (ADR 0046). Mail is the only carrier.
 	AcceptURL string
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): public facts about the Event and its Organization, never the
+	// purchase.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033).
 	//
@@ -427,6 +478,9 @@ type SaleReAddressing struct {
 	// completing the acceptance themself (ADR 0058). The caller refuses to
 	// compose a linkless message rather than send one.
 	AcceptURL string
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): public facts, so a stranger reading it learns nothing more.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the
 	// caller: the Sale's own locale first (ADR 0058: "mail follows the Sale's
 	// own locale, as the original Sale Confirmation did"), then the recipient's
@@ -480,6 +534,9 @@ type NoLongerHolding struct {
 	// longer have" is a distinction with nothing behind it for a reader who has
 	// none.
 	EventName string
+	// Event is what the HTML part's Event row shows beside EventName (#878):
+	// the Event's own public facts, which say nothing about the cause either.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033), and resolved RECIPIENT-FIRST for the reason the Assignment
 	// mail's is: this reader is not party to the sale. Unlike that mail's reader,
@@ -845,6 +902,11 @@ type FollowDigest struct {
 	// footer degrades to the closing line alone rather than the Digest failing to
 	// send — see digest/service.unsubscribeURL.
 	UnsubscribeURL string
+	// ExploreURL is the Storefront's global explorer, every Discoverable Event
+	// across all Organizations: the HTML part's one button, "See all upcoming events", and the
+	// text's line of the same name (#880). Empty only when the platform has no
+	// Storefront origin configured, which drops the button and the line.
+	ExploreURL string
 }
 
 // FollowDigestEvent is one Event as a Follow Digest lists it.
@@ -957,6 +1019,14 @@ type FollowDigestEvent struct {
 	// Empty when the platform knows no Storefront origin, in which case the entry
 	// still says the reader is going and simply offers nowhere to press.
 	TicketSaleURL string
+	// SquareURL and LogoURL are the HTML part's images in the Event's compact
+	// row (#880): the Event's square email rendition (from its Thumbnail, or
+	// cropped from its Cover Image when it has none) and its Organization's
+	// Logo rendition. AN EMPTY URL MEANS "NO IMAGE", exactly as on MailEvent:
+	// a rendition not made yet drops the image's cell rather than leaving an
+	// empty box.
+	SquareURL string
+	LogoURL   string
 }
 
 // EmailAttachment is one file carried by a message: the bytes exactly as
@@ -1277,15 +1347,30 @@ type EmailSender interface {
 }
 
 // LoggingEmailSender logs email delivery to the configured logger (development use).
+//
+// For a kind with an HTML part (ADR 0082) it renders that part and logs that
+// it exists and its size, never the markup: a page of HTML in a log line
+// helps nobody, and the rendering failing would show here first.
 type LoggingEmailSender struct {
 	Logger Logger
+	// Chrome is the sender-wide configuration the HTML parts it measures are
+	// rendered with.
+	Chrome MailChrome
+}
+
+// htmlAttrs are the log attributes saying an HTML part exists and how big it
+// is, or that it failed to render.
+func (s *LoggingEmailSender) htmlAttrs(ctx context.Context, messageType string, render func(MailChrome) (string, error)) []any {
+	html := renderedHTML(ctx, s.Logger, messageType, render, s.Chrome)
+	return []any{"html", html != "", "html_bytes", len(html)}
 }
 
 // SendOTP logs the OTP code for local development and testing. The language is
 // logged beside it because it is the one thing about a passcode that can now be
 // wrong without the code being wrong.
-func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string, locale Locale) error {
-	s.Logger.Info("otp sent", "email", to, "code", code, "locale", string(locale))
+func (s *LoggingEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
+	message := OTPMessage{Code: code, Locale: locale}
+	s.Logger.Info("otp sent", append([]any{"email", to, "code", code, "locale", string(locale)}, s.htmlAttrs(ctx, "otp", message.HTML)...)...)
 	return nil
 }
 
@@ -1293,42 +1378,51 @@ func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string, 
 // The Confirmation Link is logged alongside the reference for the same reason
 // the OTP code is: locally there is no mailbox, and the link is the whole point
 // of the email.
-func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfirmation) error {
-	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName, "amount_cents", c.AmountCents, "confirmation_link", c.ConfirmationLink)
+func (s *LoggingEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
+	attrs := []any{"email", c.To, "reference", c.Reference, "event", c.EventName, "amount_cents", c.AmountCents, "confirmation_link", c.ConfirmationLink}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale confirmation", c.HTML)...)
+	s.Logger.Info("sale confirmation sent", attrs...)
 	return nil
 }
 
 // SendSaleVoided logs the Sale void notice for local development and testing.
-func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) error {
-	s.Logger.Info("sale voided notice sent", "email", v.To, "reference", v.Reference, "event", v.EventName)
+func (s *LoggingEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
+	attrs := []any{"email", v.To, "reference", v.Reference, "event", v.EventName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale voided", v.HTML)...)
+	s.Logger.Info("sale voided notice sent", attrs...)
 	return nil
 }
 
 // SendTaxDocumentDelivery logs the Tax Document delivery for local
 // development: the reference, the kind and each attachment's filename and
 // size, never its bytes.
-func (s *LoggingEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
+func (s *LoggingEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
 	attrs := []any{"email", d.To, "kind", d.Kind, "reference", d.Reference, "event", d.EventName}
 	for _, a := range d.Attachments {
 		attrs = append(attrs, "attachment", a.Filename, "attachment_bytes", len(a.Body))
 	}
 	attrs = append(attrs, "customer_area", d.CustomerAreaURL)
+	attrs = append(attrs, s.htmlAttrs(ctx, "tax document delivery", d.HTML)...)
 	s.Logger.Info("tax document delivery sent", attrs...)
 	return nil
 }
 
 // SendAnnulmentNotice logs the Annulment Notice for local development: the
 // reference, the number and whether the Sale was reversed.
-func (s *LoggingEmailSender) SendAnnulmentNotice(_ context.Context, n AnnulmentNotice) error {
-	s.Logger.Info("annulment notice sent", "email", n.To, "reference", n.Reference, "number", n.Number,
-		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale))
+func (s *LoggingEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
+	attrs := []any{"email", n.To, "reference", n.Reference, "number", n.Number,
+		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "annulment notice", n.HTML)...)
+	s.Logger.Info("annulment notice sent", attrs...)
 	return nil
 }
 
 // SendSaleReversalRefused logs the refused-reversal notice for local development
 // and testing.
-func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleReversalRefused) error {
-	s.Logger.Info("sale reversal refused notice sent", "email", r.To, "reference", r.Reference, "event", r.EventName)
+func (s *LoggingEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
+	attrs := []any{"email", r.To, "reference", r.Reference, "event", r.EventName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale reversal refused", r.HTML)...)
+	s.Logger.Info("sale reversal refused notice sent", attrs...)
 	return nil
 }
 
@@ -1337,8 +1431,8 @@ func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleRe
 // what a local developer needs from this line is that somebody was told, and in
 // which language — the rest of the message is the same two paragraphs every
 // time.
-func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, c ConsentWithdrawalConfirmation) error {
-	s.Logger.Info("consent withdrawal confirmation sent", "email", c.To, "locale", string(c.Locale))
+func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
+	s.Logger.Info("consent withdrawal confirmation sent", append([]any{"email", c.To, "locale", string(c.Locale)}, s.htmlAttrs(ctx, "consent withdrawal confirmation", c.HTML)...)...)
 	return nil
 }
 
@@ -1346,8 +1440,10 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 // address, how many Tickets and the language are logged and the body is not:
 // what a local developer needs to see is that a Holder was chased, about how
 // much, and in which language.
-func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
-	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
+	attrs := []any{"email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "holder answer reminder", r.HTML)...)
+	s.Logger.Info("holder answer reminder sent", attrs...)
 	return nil
 }
 
@@ -1355,9 +1451,10 @@ func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r Holde
 // the address, the tally and the language, and not the body or the link — the
 // Confirmation Link opens the Sale without a sign-in and the receipt's own
 // logging keeps it out of the log for the same reason.
-func (s *LoggingEmailSender) SendAssignmentReminder(_ context.Context, r AssignmentReminder) error {
-	s.Logger.Info("assignment reminder sent", "email", r.To,
-		"unassigned", r.UnassignedTickets, "total", r.TotalTickets, "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
+	attrs := []any{"email", r.To, "unassigned", r.UnassignedTickets, "total", r.TotalTickets, "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "assignment reminder", r.HTML)...)
+	s.Logger.Info("assignment reminder sent", attrs...)
 	return nil
 }
 
@@ -1366,82 +1463,104 @@ func (s *LoggingEmailSender) SendAssignmentReminder(_ context.Context, r Assignm
 // link is the whole point of the message — the same reason the OTP code is
 // logged. Nothing about the buyer is logged, because nothing about the buyer is
 // in the message.
-func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
-	s.Logger.Info("ticket assignment sent", "email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale))
+func (s *LoggingEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
+	attrs := []any{"email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "ticket assignment", a.HTML)...)
+	s.Logger.Info("ticket assignment sent", attrs...)
 	return nil
 }
 
 // SendNoLongerHolding logs the No Longer Holding notice for local development.
 // The address and the Event are logged and there is nothing else in the message
 // to log: it carries no link, no cause and nothing about the buyer.
-func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
-	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
+func (s *LoggingEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
+	attrs := []any{"email", n.To, "event", n.EventName, "locale", string(n.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "no longer holding", n.HTML)...)
+	s.Logger.Info("no longer holding notice sent", attrs...)
 	return nil
 }
 
 // SendSaleReAddressing logs the Re-addressing mail for local development. The
 // address and the link are logged, as the Assignment mail's are, because locally
 // there is no mailbox and the link is the whole point of the message.
-func (s *LoggingEmailSender) SendSaleReAddressing(_ context.Context, r SaleReAddressing) error {
-	s.Logger.Info("sale re-addressing sent", "email", r.To, "event", r.EventName, "reference", r.Reference, "accept_url", r.AcceptURL, "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
+	attrs := []any{"email", r.To, "event", r.EventName, "reference", r.Reference, "accept_url", r.AcceptURL, "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale re-addressing", r.HTML)...)
+	s.Logger.Info("sale re-addressing sent", attrs...)
 	return nil
 }
 
 // SendTicketQuestionRevoked logs the Revocation notice. The reason is not
 // logged: it is the Operator's message to one Organization.
-func (s *LoggingEmailSender) SendTicketQuestionRevoked(_ context.Context, r TicketQuestionRevoked) error {
-	s.Logger.Info("ticket question revoked notice sent", "email", r.To, "organization", r.OrganizationName)
+func (s *LoggingEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
+	attrs := []any{"email", r.To, "organization", r.OrganizationName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "ticket question revoked", r.HTML)...)
+	s.Logger.Info("ticket question revoked notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestSubmitted logs the operator's notice that an Organization
 // asked to be paid. The amount and the asker are logged; nothing about the bank
 // is, here or anywhere else (ADR 0026).
-func (s *LoggingEmailSender) SendPayoutRequestSubmitted(_ context.Context, p PayoutRequestSubmitted) error {
-	s.Logger.Info("payout request submitted notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_by", p.RequestedBy)
+func (s *LoggingEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_by", p.RequestedBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request submitted", p.HTML)...)
+	s.Logger.Info("payout request submitted notice sent", attrs...)
 	return nil
 }
 
 // SendQuestionReviewSubmitted logs the Operator's notice that an Event's
 // questions are waiting for review. The count is logged; no question is.
-func (s *LoggingEmailSender) SendQuestionReviewSubmitted(_ context.Context, q QuestionReviewSubmitted) error {
-	s.Logger.Info("question review submitted notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "question_count", q.QuestionCount, "submitted_by", q.SubmittedBy)
+func (s *LoggingEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
+	attrs := []any{"email", q.To, "organization", q.OrganizationName, "event", q.EventName, "question_count", q.QuestionCount, "submitted_by", q.SubmittedBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "question review submitted", q.HTML)...)
+	s.Logger.Info("question review submitted notice sent", attrs...)
 	return nil
 }
 
 // SendQuestionReviewAnswered logs the submitter's notice of the verdicts. The
 // count is logged; no question is.
-func (s *LoggingEmailSender) SendQuestionReviewAnswered(_ context.Context, q QuestionReviewAnswered) error {
-	s.Logger.Info("question review answered notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "item_count", len(q.Items), "answered_by", q.AnsweredBy)
+func (s *LoggingEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
+	attrs := []any{"email", q.To, "organization", q.OrganizationName, "event", q.EventName, "item_count", len(q.Items), "answered_by", q.AnsweredBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "question review answered", q.HTML)...)
+	s.Logger.Info("question review answered notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestPaid logs the asker's notice that the transfer was made.
-func (s *LoggingEmailSender) SendPayoutRequestPaid(_ context.Context, p PayoutRequestPaid) error {
-	s.Logger.Info("payout request paid notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents)
+func (s *LoggingEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request paid", p.HTML)...)
+	s.Logger.Info("payout request paid notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestDeclined logs the asker's notice that the ask was refused.
 // The reason is not logged: it is the operator's message to one Organization,
 // and a log is the wrong audience for it.
-func (s *LoggingEmailSender) SendPayoutRequestDeclined(_ context.Context, p PayoutRequestDeclined) error {
-	s.Logger.Info("payout request declined notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request declined", p.HTML)...)
+	s.Logger.Info("payout request declined notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestTransferSent logs the asker's notice that the transfer has
 // been submitted to the bank.
-func (s *LoggingEmailSender) SendPayoutRequestTransferSent(_ context.Context, p PayoutRequestTransferSent) error {
-	s.Logger.Info("payout request transfer sent notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request transfer sent", p.HTML)...)
+	s.Logger.Info("payout request transfer sent notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestTransferFailed logs the asker's notice that the bank sent the
 // transfer back. The reason is not logged, for the reason the decline's is not:
 // it is the operator's message to one Organization.
-func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, p PayoutRequestTransferFailed) error {
-	s.Logger.Info("payout request transfer failed notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request transfer failed", p.HTML)...)
+	s.Logger.Info("payout request transfer failed notice sent", attrs...)
 	return nil
 }
 
@@ -1449,8 +1568,10 @@ func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 // certificate is about to lapse, or has. The threshold, the RUC and the
 // date are logged: locally there is no mailbox, and the ladder's rung is
 // the whole of what a developer watching a closed-flag tick wants to see.
-func (s *LoggingEmailSender) SendCertificateExpiryWarning(_ context.Context, w CertificateExpiryWarning) error {
-	s.Logger.Info("certificate expiry warning sent", "email", w.To, "threshold_days", w.Threshold, "ruc", w.RUC, "not_after", w.NotAfter, "locale", string(w.Locale))
+func (s *LoggingEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
+	attrs := []any{"email", w.To, "threshold_days", w.Threshold, "ruc", w.RUC, "not_after", w.NotAfter, "locale", string(w.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "certificate expiry warning", w.HTML)...)
+	s.Logger.Info("certificate expiry warning sent", attrs...)
 	return nil
 }
 
@@ -1458,8 +1579,10 @@ func (s *LoggingEmailSender) SendCertificateExpiryWarning(_ context.Context, w C
 // Event count and the Locale are logged rather than the Events themselves: what
 // a local developer needs from this line is that a Digest went out, to whom, in
 // which language, and that it was not empty.
-func (s *LoggingEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
-	s.Logger.Info("follow digest sent", "email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening))
+func (s *LoggingEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
+	attrs := []any{"email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "follow digest", d.HTML)...)
+	s.Logger.Info("follow digest sent", attrs...)
 	return nil
 }
 

@@ -50,6 +50,7 @@ func RegisterRoutes(mux Router, app *App) {
 	registerPublicRoutes(mux, app)
 	registerCustomerRoutes(mux, app)
 	registerInternalRoutes(mux, app)
+	registerInternalByHandRoutes(mux, app)
 }
 
 // registerInternalRoutes wires the namespace nothing outside the deployment
@@ -186,6 +187,20 @@ func registerInternalRoutes(mux Router, app *App) {
 	// still need freezing from the database. A caller able to name the day
 	// could freeze today half-lived, and a frozen day is never rewritten.
 	mux.HandleFunc("POST /api/v1/internal/platform-trends/close", app.PlatformTrendsHandler.CloseDays)
+}
+
+// registerInternalByHandRoutes wires the internal routes no scheduler calls:
+// work an operator runs by hand, on the internal namespace's every other term
+// (Cloud Run IAM is the gate, no application middleware, nothing the caller
+// can aim). They do not check in: a check-in reports on a schedule, and these
+// have none, so they stay out of scheduledJobs, whose names are a contract
+// with the Terraform cron monitors.
+func registerInternalByHandRoutes(mux Router, app *App) {
+	// The rendition fill (#876, #877, spec #870): renders every Event original
+	// and every Organization Logo whose email rendition is null. Run once after
+	// the deploy that introduced renditions, to fill the existing catalogue,
+	// and again whenever its answer says it is not done. Idempotent.
+	mux.HandleFunc("POST /api/v1/internal/email-renditions/fill", app.CatalogHandler.FillEmailRenditions)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.

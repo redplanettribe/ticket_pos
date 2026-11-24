@@ -13,7 +13,7 @@ Multi-tenant event ticketing platform with a Go API, public Storefront, and Staf
 
 ## Local development
 
-Start the full stack (Postgres, Go API, Storefront, Staff):
+Start the full stack (Postgres, MinIO, Mailpit, Go API, Storefront, Staff):
 
 ```bash
 make dev
@@ -32,6 +32,19 @@ Host ports are namespaced away from Docker's defaults so `make dev` doesn't coll
 | Backend (Go API) | 64080 | 8080 |
 | Storefront | 64300 | 3000 |
 | Staff | 64301 | 3001 |
+| Mailpit web UI | 64825 | 8025 |
+| Mailpit SMTP | 64025 | 1025 |
+
+### Reading local mail in Mailpit
+
+Every mail the local stack sends lands in [Mailpit](https://mailpit.axllent.org), at [http://localhost:64825](http://localhost:64825).
+Nothing leaves the machine.
+Mailpit shows each message the way a reader gets it: the From, the headers, every part and every attachment, so a passcode, a Follow Digest or a Tax Document Delivery with its factura XML and RIDE can be opened and checked there.
+
+The backend's dev-only SMTP sender delivers both sending identities to it: transactional mail from `EMAIL_FROM` and the Follow Digest from `DIGEST_EMAIL_FROM`, so the two stay told apart in the inbox.
+`docker-compose.yml` selects it with `EMAIL_PROVIDER=smtp` and `DIGEST_EMAIL_PROVIDER=smtp`, pointed at `SMTP_HOST=mailpit` and `SMTP_PORT=1025`.
+To send real mail from the dev stack instead, set the providers to `resend` or `ses` in `.env` (see `.env.example`).
+The API refuses `smtp` in production, and setting only one of `SMTP_HOST` and `SMTP_PORT` stops it at startup.
 
 Other common commands:
 

@@ -166,6 +166,7 @@ func (s *Service) sendAssignmentReminder(ctx context.Context, c catalog.Assignme
 		EventName:         c.EventName,
 		EventStartsAt:     c.EventStartsAt,
 		EventTimezone:     c.EventTimezone,
+		Event:             s.mailEvent(ctx, c.EventID),
 		UnassignedTickets: c.UnassignedTickets,
 		TotalTickets:      c.TicketCount,
 		ConfirmationLink:  link,

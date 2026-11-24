@@ -2814,6 +2814,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/email-renditions/fill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fill the missing email renditions
+         * @description Renders every Event original and every Organization Logo whose email rendition is null, across every Organization: an Event's wide rendition (the Cover Image as a JPEG 1200px wide) and square one (a 128px JPEG from the Thumbnail, or from the Cover Image cropped to its centre), and an Organization's Logo rendition (a PNG fitted within 96px square, its transparency kept). Each rendition is best-effort: one that cannot be produced is logged, stays null and is counted as failed, and the next run tries it again. A run stops starting Events and Logos after four minutes, inside the request timeout, and says so with complete=false; run it again until complete is true and remaining is zero, or remaining holds only originals that keep failing (their causes are in the log). Idempotent: a second run after a clean one renders nothing. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Run by hand, not on a schedule. The response names no Event and no Organization.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEmailRenditionFill"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/follow-digests/drain": {
         parameters: {
             query?: never;
@@ -16314,6 +16362,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeEmailRenditionFill": {
+            data?: components["schemas"]["service.EmailRenditionFillResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeEventDetail": {
             data?: components["schemas"]["service.EventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -18316,6 +18369,26 @@ export interface components {
             not_after?: string;
             /** @enum {string} */
             state?: "none" | "valid" | "expiring" | "expired";
+        };
+        "service.EmailRenditionFillResult": {
+            /**
+             * @description Complete is false when the run stopped at its time budget with Events
+             *     or Logos left unvisited; run it again.
+             */
+            complete?: boolean;
+            /**
+             * @description Failed counts the renditions this run could not produce. Each stays
+             *     null, its cause is logged, and the next run tries it again.
+             */
+            failed?: number;
+            /**
+             * @description Remaining counts the Events and the Organizations still holding an
+             *     original with a null rendition after this run: the failures, and
+             *     anything the run's time budget did not reach.
+             */
+            remaining?: number;
+            /** @description Rendered counts the renditions produced and recorded by this run. */
+            rendered?: number;
         };
         "service.EnqueueResult": {
             /**
