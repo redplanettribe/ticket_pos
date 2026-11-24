@@ -154,19 +154,11 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 
 	var events []Event
 	for rows.Next() {
-		var e Event
-		var status string
-		if err := rows.Scan(
-			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
-			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.EmailWideKey, &e.EmailSquareKey,
-			&e.Discoverable, &e.FeeHandling,
-			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
-		); err != nil {
+		e, err := scanEvent(rows)
+		if err != nil {
 			return nil, err
 		}
-		e.Status = EventStatus(status)
-		events = append(events, e)
+		events = append(events, *e)
 	}
 	return events, rows.Err()
 }

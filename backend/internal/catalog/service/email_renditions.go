@@ -23,10 +23,13 @@ import (
 // imagery is never on the critical path. The rendition fill picks up whatever
 // is still null.
 
-// emailRenditionTimeout bounds the renders after one save. They run detached
-// from the request, which has already got its answer from the database, so a
-// client hanging up does not abandon a half-made rendition; the bound is what
-// stops a slow bucket holding the request open.
+// emailRenditionTimeout bounds the renders after one save. They run inside the
+// save's request, after its commit and before its answer, so the Organizer
+// waits for them (a read, a decode and an encode per rendition, well under a
+// second for a Cover Image the staff form produces). They are detached from
+// the request's cancellation, so a client hanging up does not abandon a
+// half-made rendition, and this bound is what stops a slow bucket holding the
+// request open.
 const emailRenditionTimeout = time.Minute
 
 // emailRenditionFillBudget is how long one fill run keeps starting Events,
@@ -48,6 +51,11 @@ type emailRenditionSlot struct {
 	render  func(io.Reader) ([]byte, error)
 	key     func(organizationID, eventID string) string
 	record  func(r *repository.Repository, ctx context.Context, eventID, source, key string) (bool, error)
+}
+
+// label names the slot in a media cleanup log line.
+func (slot emailRenditionSlot) label() string {
+	return "email " + slot.name + " rendition"
 }
 
 var emailRenditionSlots = []emailRenditionSlot{
@@ -93,24 +101,25 @@ func (s *Service) refreshEmailRenditions(ctx context.Context, before, after *rep
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), emailRenditionTimeout)
 	defer cancel()
 	for _, slot := range emailRenditionSlots {
-		s.deleteReplacedObject(ctx, slot.current(before), slot.current(after), "email "+slot.name+" rendition", after.ID)
+		s.deleteReplacedObject(ctx, slot.current(before), slot.current(after), slot.label(), after.ID)
 		if source := slot.source(after); source != "" && source != slot.source(before) {
-			_ = s.renderEmailRendition(ctx, after, slot)
+			_, _ = s.renderEmailRendition(ctx, after, slot)
 		}
 	}
 }
 
 // renderEmailRendition reads the slot's original, renders it, stores it under
-// a new key and records the key on the Event. Any failure is logged and
-// returned, and leaves the rendition null.
-func (s *Service) renderEmailRendition(ctx context.Context, e *repository.Event, slot emailRenditionSlot) error {
+// a new key and records the key on the Event. It reports whether the row took
+// the key: false with no error means the Event moved on while it rendered.
+// Any failure is logged and returned, and leaves the rendition null.
+func (s *Service) renderEmailRendition(ctx context.Context, e *repository.Event, slot emailRenditionSlot) (bool, error) {
 	source := slot.source(e)
-	fail := func(step string, err error) error {
+	fail := func(step string, err error) (bool, error) {
 		if s.logger != nil {
 			s.logger.Error(ctx, "email rendition: the rendition could not be produced and stays empty",
 				"slot", slot.name, "step", step, "event_id", e.ID, "source_key", source, "error", err)
 		}
-		return fmt.Errorf("%s rendition %s: %w", slot.name, step, err)
+		return false, fmt.Errorf("%s rendition %s: %w", slot.name, step, err)
 	}
 
 	body, err := s.storage.Get(ctx, source)
@@ -132,12 +141,12 @@ func (s *Service) renderEmailRendition(ctx context.Context, e *repository.Event,
 		// The Event has moved on (a later save changed the original, or a
 		// concurrent render recorded first), or the write failed: the object
 		// just stored is referenced by nothing.
-		s.deleteReplacedObject(ctx, sql.NullString{String: key, Valid: true}, sql.NullString{}, "email "+slot.name+" rendition", e.ID)
+		s.deleteReplacedObject(ctx, sql.NullString{String: key, Valid: true}, sql.NullString{}, slot.label(), e.ID)
 		if err != nil {
 			return fail("record", err)
 		}
 	}
-	return nil
+	return recorded, nil
 }
 
 // EmailRenditionFillResult reports one run of the rendition fill.
@@ -190,11 +199,14 @@ func (s *Service) FillEmailRenditions(ctx context.Context) (*EmailRenditionFillR
 				if slot.source(e) == "" || slot.current(e).Valid {
 					continue
 				}
-				if err := s.renderEmailRendition(ctx, e, slot); err != nil {
+				recorded, err := s.renderEmailRendition(ctx, e, slot)
+				if err != nil {
 					result.Failed++
 					continue
 				}
-				result.Rendered++
+				if recorded {
+					result.Rendered++
+				}
 			}
 		}
 		if !result.Complete {

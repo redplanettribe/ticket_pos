@@ -511,3 +511,30 @@ func TestTheRenditionFillRendersOnlyWhatIsNullAndASecondRunRendersNothing(t *tes
 		t.Fatalf("fourth fill = %+v, want nothing to do", fourth)
 	}
 }
+
+func TestTheRenditionFillRendersOnlyTheMissingSlotOfAnEvent(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Half Rendered", "half-rendered")
+	patchEventMedia(t, env, sessionID, eventID, "Half Rendered", "half-rendered", map[string]any{
+		"cover_image_key": uploadCover(t, env, sessionID, eventID, threeBands(900, 300)),
+	})
+	rendered := readRenditionKeys(t, eventID)
+	// The square failed when the Cover Image was saved; the wide did not.
+	if _, err := sharedDB.ExecContext(context.Background(),
+		`UPDATE events SET email_square_key = NULL WHERE id = $1`, eventID); err != nil {
+		t.Fatalf("null the square: %v", err)
+	}
+
+	if got := runRenditionFill(t, env); got != (renditionFill{Rendered: 1, Remaining: 0, Complete: true}) {
+		t.Fatalf("fill = %+v, want the one missing square", got)
+	}
+	after := readRenditionKeys(t, eventID)
+	if after.wide != rendered.wide {
+		t.Fatalf("the fill re-rendered the wide rendition: %q, was %q", after.wide, rendered.wide)
+	}
+	if after.square == "" || after.square == rendered.square {
+		t.Fatalf("square rendition = %q after the fill", after.square)
+	}
+	assertSquareIs(t, after.square, bandGreen)
+}
