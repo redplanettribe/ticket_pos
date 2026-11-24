@@ -5,9 +5,11 @@ import { getTranslations } from "next-intl/server";
 
 import { callBackend } from "@/lib/api";
 import type { HomeNow } from "@/lib/home-now";
+import { type OrganizationTrendsSearchParams, parseOrganizationTrendsParams } from "@/lib/organization-trends";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 import { HomeNowStrip } from "./home-now-strip";
+import { OrganizationTrendsSection } from "./organization-trends-section";
 import { loadSession, StaffPageShell } from "./staff-page-shell";
 
 /**
@@ -31,11 +33,20 @@ async function loadHomeNow(): Promise<HomeNow | null> {
   }
 }
 
+type PageProps = {
+  searchParams: Promise<OrganizationTrendsSearchParams>;
+};
+
 /**
  * Home (#858, ADR 0081): the page a Member lands on after choosing an
  * Organization, always the whole Organization whichever Member reads it.
+ *
+ * Organization Trends' reading (its span and comparison) is read off the
+ * address here and handed to the client (#861), as the Operator Dashboard
+ * does, so a reload or a link sent to a colleague shows the same reading. An
+ * Organization with no Event at all gets the empty state alone.
  */
-export default async function StaffHomePage() {
+export default async function StaffHomePage({ searchParams }: PageProps) {
   const t = await getTranslations("home");
   const session = await loadSession();
   const home = session?.active_member ? await loadHomeNow() : null;
@@ -48,7 +59,12 @@ export default async function StaffHomePage() {
       <div className="mx-auto max-w-5xl space-y-6">
         <PageHeader title={t("title")} />
         {home ? (
-          <HomeNowStrip home={home} role={session?.active_member?.role ?? null} now={now} />
+          <>
+            <HomeNowStrip home={home} role={session?.active_member?.role ?? null} now={now} />
+            {home.has_events ? (
+              <OrganizationTrendsSection view={parseOrganizationTrendsParams(await searchParams)} />
+            ) : null}
+          </>
         ) : (
           <Alert variant="destructive">
             <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
