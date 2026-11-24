@@ -827,9 +827,14 @@ func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Lo
 	// either identity is the decision to send real mail through it, whatever
 	// Resend credentials are or are not present, and LoadConfig has refused the
 	// deployment already if its SES settings are incomplete.
-	transactionalOnSES := cfg.EmailProvider.OrDefault() == platform.EmailProviderSES
-	digestOnSES := cfg.DigestEmail.Provider.OrDefault() == platform.EmailProviderSES
-	if cfg.ResendAPIKey == "" && !transactionalOnSES && !digestOnSES {
+	//
+	// SMTP is the local stack's Mailpit (#872) and, like SES, is the decision
+	// to deliver mail somewhere a person can read it, so it too bypasses the
+	// keyless shortcut. LoadConfig refuses it in production.
+	transactionalProvider := cfg.EmailProvider.OrDefault()
+	digestProvider := cfg.DigestEmail.Provider.OrDefault()
+	transactionalOnSES := transactionalProvider == platform.EmailProviderSES
+	if cfg.ResendAPIKey == "" && transactionalProvider == platform.EmailProviderResend && digestProvider == platform.EmailProviderResend {
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
 		logger.Info("digest email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.DigestEmail.From)
 		return &platform.LoggingEmailSender{Logger: logger}, nil
@@ -844,8 +849,11 @@ func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Lo
 		}
 		logger.Info("email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
 		transactional = sender
+	case transactionalProvider == platform.EmailProviderSMTP:
+		logger.Info("email sender: smtp", "provider", platform.EmailProviderSMTP, "from", cfg.EmailFrom, "addr", cfg.SMTP.Addr())
+		transactional = platform.NewSMTPEmailSender(cfg.SMTP, cfg.EmailFrom, logger)
 	case cfg.ResendAPIKey == "":
-		// Only the Digest is on SES: transactional mail on a keyless Resend
+		// Only the Digest is on SES or SMTP: transactional mail on a keyless Resend
 		// keeps logging, as it would with no Digest at all.
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
 		transactional = &platform.LoggingEmailSender{Logger: logger}
@@ -891,6 +899,10 @@ func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platf
 		}
 		logger.Info("digest email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
 		return sender, nil
+	}
+	if provider == platform.EmailProviderSMTP {
+		logger.Info("digest email sender: smtp", "provider", platform.EmailProviderSMTP, "from", cfg.DigestEmail.From, "addr", cfg.SMTP.Addr())
+		return platform.NewSMTPEmailSender(cfg.SMTP, cfg.DigestEmail.From, logger), nil
 	}
 	logger.Info("digest email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.DigestEmail.From)
 	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger), nil

@@ -415,8 +415,10 @@ func senderFrom(t *testing.T, sender any) (platform.EmailProvider, string) {
 		return platform.EmailProviderResend, s.From()
 	case *platform.SESEmailSender:
 		return platform.EmailProviderSES, s.From()
+	case *platform.SMTPEmailSender:
+		return platform.EmailProviderSMTP, s.From()
 	}
-	t.Fatalf("sender is %T, want a Resend or SES sender", sender)
+	t.Fatalf("sender is %T, want a Resend, SES or SMTP sender", sender)
 	return "", ""
 }
 
@@ -559,4 +561,45 @@ func TestADigestOnSESKeepsTheDigestRules(t *testing.T) {
 			t.Fatalf("digest sender = %T, want SES from %q", split.Digest, sharedFrom)
 		}
 	})
+}
+
+// The local stack's configuration (#872): both identities on smtp, with no
+// Resend key at all, wire one SMTP sender per identity on its own From,
+// pointed at Mailpit, and never fall back to the logging sender.
+func TestBothIdentitiesOnSMTPWireOneSenderEachOnItsOwnFrom(t *testing.T) {
+	logger := &recordingLogger{}
+	cfg := platform.Config{
+		EmailFrom:     transactionalFrom,
+		EmailProvider: platform.EmailProviderSMTP,
+		DigestEmail:   platform.DigestEmailConfig{Provider: platform.EmailProviderSMTP, From: digestFrom},
+		SMTP:          platform.SMTPConfig{Host: "mailpit", Port: 1025},
+	}
+
+	split, ok := mustEmailSender(t, cfg, logger).(*platform.SplitEmailSender)
+	if !ok {
+		t.Fatal("sender is not a split sender; smtp must not fall back to logging")
+	}
+	if logger.errors != 0 {
+		t.Fatalf("the local configuration logged %d errors at startup", logger.errors)
+	}
+	if any(split.EmailSender) == any(split.Digest) {
+		t.Fatal("both identities share one sender object")
+	}
+	for _, identity := range []struct {
+		prefix string
+		sender any
+		from   string
+	}{
+		{"email sender: smtp", split.EmailSender, transactionalFrom},
+		{"digest email sender: smtp", split.Digest, digestFrom},
+	} {
+		provider, from := senderFrom(t, identity.sender)
+		if provider != platform.EmailProviderSMTP || from != identity.from {
+			t.Fatalf("%q wired %s from %q, want smtp from %q", identity.prefix, provider, from, identity.from)
+		}
+		line := logger.line(t, identity.prefix)
+		if fmt.Sprint(line.args["from"]) != identity.from || fmt.Sprint(line.args["addr"]) != "mailpit:1025" {
+			t.Fatalf("%q logged from %v addr %v, want %q at mailpit:1025", line.msg, line.args["from"], line.args["addr"], identity.from)
+		}
+	}
 }
