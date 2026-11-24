@@ -57,7 +57,7 @@ services:
   # Nothing leaves the machine. SMTP is published too, for a backend run on
   # the host with SMTP_HOST=localhost SMTP_PORT=64025.
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.33.1
     ports:
       - "64825:8025"
       - "64025:1025"
