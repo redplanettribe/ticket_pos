@@ -225,18 +225,18 @@ func decodeTextPart(t *testing.T, encoding string, params map[string]string, bod
 
 // smtpMessageCases is every mail kind: the transactional table the SES
 // sender is held to, plus the passcode and the Follow Digest.
-func smtpMessageCases() []transactionalMessageCase {
+func smtpMessageCases() []messageCase {
 	otp := OTPMessage{Code: "482913", Locale: LocaleES}
 	digest := FollowDigest{
 		To: "ana@example.com", CustomerName: "Ana", Locale: LocaleEN,
 		New: []FollowDigestEvent{{Name: "Noche de Jazz", StartsAt: time.Date(2026, 12, 5, 20, 0, 0, 0, time.UTC), Timezone: "America/Guayaquil", URL: "https://shop.example.com/e/jazz"}},
 	}
 	return append(transactionalMessageCases(),
-		transactionalMessageCase{"otp", "ana@example.com", otp.Subject(), otp.Text(), nil,
+		messageCase{"otp", "ana@example.com", otp.Subject(), otp.Text(), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendOTP(ctx, "ana@example.com", otp.Code, otp.Locale)
 			}},
-		transactionalMessageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), nil,
+		messageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendFollowDigest(ctx, digest) }},
 	)
 }

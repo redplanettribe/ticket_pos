@@ -568,7 +568,7 @@ type EmailSender interface {
 
 | Environment | Provider |
 |-------------|----------|
-| Development | Dummy provider: logs OTP to stdout/stderr |
+| Development | The Compose stack sends every mail to Mailpit through a dev-only SMTP sender (web UI on `localhost:64825`); with no provider configured, the logging sender prints it to the log |
 | Production | TBD (e.g. Resend, SES, Postmark) |
 
 ### Integration Partners
@@ -1099,6 +1099,8 @@ Landed with #453.
 | Service | Role |
 |---------|------|
 | **postgres** | Database (`postgres:18-alpine`; PGDATA lives under `/var/lib/postgresql/18/docker`, so the volume mounts `/var/lib/postgresql`) |
+| **minio** / **minio-init** | S3-compatible storage, bucket bootstrap |
+| **mailpit** | Catches every mail the backend sends; web UI on `localhost:64825` (#872) |
 | **backend** | Go API with [Air](https://github.com/air-verse/air) live reload (`Dockerfile.dev`; source mounted) |
 | **storefront** | Storefront Next.js dev server |
 | **staff** | Staff Next.js dev server |

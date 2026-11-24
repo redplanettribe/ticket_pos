@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -194,7 +195,7 @@ func singleLine(value string) string {
 	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(value)
 }
 
-func writeQuotedPrintable(w interface{ Write([]byte) (int, error) }, text string) error {
+func writeQuotedPrintable(w io.Writer, text string) error {
 	qp := quotedprintable.NewWriter(w)
 	if _, err := qp.Write([]byte(text)); err != nil {
 		return err
@@ -204,7 +205,7 @@ func writeQuotedPrintable(w interface{ Write([]byte) (int, error) }, text string
 
 // writeBase64Lines writes body as base64 in 76-character lines, the length
 // RFC 2045 sets for an encoded body.
-func writeBase64Lines(w interface{ Write([]byte) (int, error) }, body []byte) error {
+func writeBase64Lines(w io.Writer, body []byte) error {
 	encoded := base64.StdEncoding.EncodeToString(body)
 	for len(encoded) > 76 {
 		if _, err := fmt.Fprintf(w, "%s\r\n", encoded[:76]); err != nil {

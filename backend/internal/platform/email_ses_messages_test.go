@@ -14,11 +14,11 @@ import (
 // endpoint. Each message's subject and text must be the shared copy from
 // email_content.go, so both providers say exactly the same words.
 
-// transactionalMessageCase is one transactional message: its name as the
+// messageCase is one mail kind: its name as the
 // sender's errors and logs give it, the recipient, the shared copy it must
 // carry, any attachments, and the call that sends it. The SES and the SMTP
 // sender tests (email_smtp_test.go) both run every case.
-type transactionalMessageCase struct {
+type messageCase struct {
 	name        string
 	to          string
 	subject     string
@@ -33,7 +33,7 @@ type transactionalMessageCase struct {
 // an SES or SMTP implementation fails to compile at the assertions in
 // email_ses_test.go and email_smtp.go; one added with an implementation
 // belongs in this list.
-func transactionalMessageCases() []transactionalMessageCase {
+func transactionalMessageCases() []messageCase {
 	startsAt := time.Date(2026, 12, 5, 20, 0, 0, 0, time.UTC)
 
 	saleConfirmation := SaleConfirmation{
@@ -84,7 +84,7 @@ func transactionalMessageCases() []transactionalMessageCase {
 	transferFailed := PayoutRequestTransferFailed{To: "admin@example.com", Locale: LocaleES, OrganizationName: "Jazz Club", AmountCents: 120000, Currency: "USD", Reason: "Cuenta cerrada"}
 	expiry := CertificateExpiryWarning{To: "ops@example.com", Locale: LocaleEN, Threshold: 7, NotAfter: startsAt, RUC: "1790012345001", IssuerURL: "https://staff.example.com/issuer"}
 
-	return []transactionalMessageCase{
+	return []messageCase{
 		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleConfirmation(ctx, saleConfirmation)
