@@ -34,6 +34,15 @@ const (
 	fixtureStaff      = "https://staff.example.com"
 )
 
+// The images the fixtures' Event rows show. The check reads no database, so
+// it has no Event's renditions to point at: these stand in for them with the
+// production Storefront's own icons, which load in any inbox, so the operator
+// sees the square Thumbnail cell and the Logo tile filled (#878).
+const (
+	fixtureSquareURL = "https://discover.multiticketing.com/icon-512.png"
+	fixtureLogoURL   = "https://discover.multiticketing.com/icon-192.png"
+)
+
 // messages returns one fixture of every message type the platform sends,
 // all addressed to to: every method of the transactional EmailSender on the
 // transactional identity's sender, and the Follow Digest on the Digest
@@ -49,6 +58,11 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 	eventStartsAt := now.AddDate(0, 0, 9).Truncate(24 * time.Hour).Add(25 * time.Hour) // 20:00 in Guayaquil
 	const event = "Noche de Jazz en el Sucre"
 	const organization = "Jazz Club Quito"
+	// What the Event rows show of the Event beside its name.
+	eventRow := platform.MailEvent{
+		OrganizationName: organization, LogoURL: fixtureLogoURL, SquareURL: fixtureSquareURL,
+		StartsAt: eventStartsAt, Timezone: guayaquil, VenueName: "Teatro Nacional Sucre",
+	}
 
 	attachments, err := taxDocumentAttachments(now)
 	if err != nil {
@@ -72,12 +86,12 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		}),
 		transactionalMessage("sale voided", es, func(ctx context.Context) error {
 			return transactional.SendSaleVoided(ctx, platform.SaleVoided{
-				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0043", Locale: es,
+				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0043", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("sale reversal refused", en, func(ctx context.Context) error {
 			return transactional.SendSaleReversalRefused(ctx, platform.SaleReversalRefused{
-				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0044", Locale: en,
+				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0044", Event: eventRow, Locale: en,
 			})
 		}),
 		transactionalMessage("tax document delivery", es, func(ctx context.Context) error {
@@ -101,14 +115,14 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		transactionalMessage("holder answer reminder", es, func(ctx context.Context) error {
 			return transactional.SendHolderAnswerReminder(ctx, platform.HolderAnswerReminder{
 				To:              to,
-				Tickets:         []platform.HolderAnswerReminderTicket{{EventName: event, TicketTypeName: "General"}},
+				Tickets:         []platform.HolderAnswerReminderTicket{{EventName: event, TicketTypeName: "General", Event: eventRow}},
 				CustomerAreaURL: fixtureStorefront + "/tickets", Locale: es,
 			})
 		}),
 		transactionalMessage("assignment reminder", en, func(ctx context.Context) error {
 			return transactional.SendAssignmentReminder(ctx, platform.AssignmentReminder{
 				To: to, FirstName: "Ana", EventName: event,
-				EventStartsAt: eventStartsAt, EventTimezone: guayaquil,
+				EventStartsAt: eventStartsAt, EventTimezone: guayaquil, Event: eventRow,
 				UnassignedTickets: 2, TotalTickets: 3,
 				ConfirmationLink: fixtureStorefront + "/c/fixture-confirmation",
 				SaleCreatedAt:    now.AddDate(0, 0, -3), Locale: en,
@@ -121,7 +135,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 			})
 		}),
 		transactionalMessage("no longer holding", en, func(ctx context.Context) error {
-			return transactional.SendNoLongerHolding(ctx, platform.NoLongerHolding{To: to, EventName: event, Locale: en})
+			return transactional.SendNoLongerHolding(ctx, platform.NoLongerHolding{To: to, EventName: event, Event: eventRow, Locale: en})
 		}),
 		transactionalMessage("sale re-addressing", es, func(ctx context.Context) error {
 			return transactional.SendSaleReAddressing(ctx, platform.SaleReAddressing{

@@ -764,9 +764,14 @@ var (
 	// "Your ticket" and never "the ticket you accepted": the buyer reads this
 	// about a Self-held Ticket they never accepted anything for, and the
 	// sentence has to be true for both readers.
+	//
+	// The ticket block that follows it is holderAnswerReminderTicketPluralCopy,
+	// the same "Event: ...\nTicket: ..." the plural shape lists, so Text() is
+	// the one block it always was; the HTML part shows the block as the Event
+	// row instead.
 	holderAnswerReminderOpeningCopy = translated(
-		"Your ticket still needs an answer to a question from the organizer.\n\nEvent: %s\nTicket: %s",
-		"Su entrada aún necesita respuesta a una pregunta de la organización.\n\nEvento: %s\nEntrada: %s",
+		"Your ticket still needs an answer to a question from the organizer.",
+		"Su entrada aún necesita respuesta a una pregunta de la organización.",
 	)
 	// The instruction and the address, which are the whole point of the message.
 	// It says to sign in with THIS address, because the Customer Area shows a
@@ -774,9 +779,16 @@ var (
 	// else — a reader who signs in as somebody else finds an empty panel and no
 	// explanation. And it says when the door closes, because the answer window
 	// shuts at the Event's start and a reader who waits past it finds the same.
-	holderAnswerReminderActionCopy = translated(
-		"Answer from your tickets page:\n%s\n\nSign in there with this email address. Answers can be given until the event starts.",
-		"Responda desde su página de entradas:\n%s\n\nInicie sesión allí con esta dirección de correo. Puede responder hasta que empiece el evento.",
+	//
+	// The lead and the sign-in sentence are declared apart, with the address
+	// between them in Text(), so the HTML part can put its button there.
+	holderAnswerReminderActionLeadCopy = translated(
+		"Answer from your tickets page:",
+		"Responda desde su página de entradas:",
+	)
+	holderAnswerReminderSignInCopy = translated(
+		"Sign in there with this email address. Answers can be given until the event starts.",
+		"Inicie sesión allí con esta dirección de correo. Puede responder hasta que empiece el evento.",
 	)
 	// The closing, and the sentence that makes the rationing visible to the
 	// person it protects. "At most one more" is true of the first reminder and
@@ -823,6 +835,31 @@ var (
 	)
 )
 
+// The Answer Reminder's HTML part (#878): each listed Ticket as a compact
+// Event row with its Ticket Type on a line of its own, and the Customer Area
+// as the one button.
+var (
+	holderAnswerReminderPreheaderCopy = translated(
+		"Answer from your tickets page before the event starts.",
+		"Responda desde su página de entradas antes de que empiece el evento.",
+	)
+	holderAnswerReminderButtonCopy = translated(
+		"Answer the questions",
+		"Responder las preguntas",
+	)
+	// The Ticket Type under the Event row's name, the text's "Ticket: ..." line.
+	holderAnswerReminderTicketLineCopy = translated(
+		"Ticket: %s",
+		"Entrada: %s",
+	)
+	// True of the buyer's own Self-held Ticket and of an accepted one alike,
+	// and of a mail listing several.
+	holderAnswerReminderFooterReasonCopy = translated(
+		"You're getting this because a ticket you hold still needs an answer.",
+		"Recibe este correo porque una entrada que usted tiene aún necesita una respuesta.",
+	)
+)
+
 // Subject is the Answer Reminder's subject line: the reader's ticket or
 // tickets, the Event where one can honestly headline it, and what is owed.
 //
@@ -860,8 +897,9 @@ func (r HolderAnswerReminder) Subject() string {
 func (r HolderAnswerReminder) Text() string {
 	if len(r.Tickets) == 1 {
 		ticket := r.Tickets[0]
-		text := fmt.Sprintf(holderAnswerReminderOpeningCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
-		text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), r.CustomerAreaURL)
+		text := holderAnswerReminderOpeningCopy.in(r.Locale)
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
+		text += "\n\n" + r.action()
 		text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
 		return text
 	}
@@ -871,9 +909,16 @@ func (r HolderAnswerReminder) Text() string {
 		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale),
 			ticket.EventName, ticket.TicketTypeName)
 	}
-	text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), r.CustomerAreaURL)
+	text += "\n\n" + r.action()
 	text += "\n\n" + holderAnswerReminderClosingPluralCopy.in(r.Locale)
 	return text
+}
+
+// action is the instruction and the address, then the sign-in sentence:
+// "Answer from your tickets page:\n{url}\n\nSign in there...".
+func (r HolderAnswerReminder) action() string {
+	return holderAnswerReminderActionLeadCopy.in(r.Locale) + "\n" + r.CustomerAreaURL +
+		"\n\n" + holderAnswerReminderSignInCopy.in(r.Locale)
 }
 
 // The Assignment Reminder (#362, parent #361, ADR 0051): the message telling the
@@ -960,9 +1005,10 @@ var (
 	)
 	// The instruction and the address, which are the whole point of the
 	// message. No sign-in is needed: the Confirmation Link opens the Sale.
-	assignmentReminderActionCopy = translated(
-		"Assign them from your tickets page:\n%s",
-		"Asígnelas desde su página de entradas:\n%s",
+	// Text() puts the address on the line after it; the HTML part, its button.
+	assignmentReminderActionLeadCopy = translated(
+		"Assign them from your tickets page:",
+		"Asígnelas desde su página de entradas:",
 	)
 	// ADR 0047's disclosure, whole in both languages so a translator cannot
 	// keep one half and drop the other.
@@ -974,6 +1020,26 @@ var (
 		"Assigning is optional and your tickets are valid either way. We will send at most one more reminder about this.",
 		"Asignar es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más al respecto.",
 	)
+)
+
+// The Assignment Reminder's HTML part (#878): the Event row in place of the
+// text's "Event:" and "Starts:" lines, and the Sale's page as the one button.
+var (
+	assignmentReminderPreheaderCopy = translated(
+		"Give each ticket to the person who will use it.",
+		"Asigne cada entrada a la persona que la usará.",
+	)
+	assignmentReminderButtonCopy = translated(
+		"Assign your tickets",
+		"Asignar sus entradas",
+	)
+)
+
+// buyerFooterReasonCopy is the footer reason of every mail about the reader's
+// own purchase of tickets for an Event.
+var buyerFooterReasonCopy = translated(
+	"You're getting this because you bought tickets for %s.",
+	"Recibe este correo porque compró entradas para %s.",
 )
 
 // TicketAssignmentWentLiveAt is the moment Ticket Assignment first existed in
@@ -1018,7 +1084,7 @@ func (r AssignmentReminder) Text() string {
 	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
 		text += "\n\n" + assignmentReminderGoLiveCopy.in(r.Locale)
 	}
-	text += "\n\n" + fmt.Sprintf(assignmentReminderActionCopy.in(r.Locale), r.ConfirmationLink)
+	text += "\n\n" + assignmentReminderActionLeadCopy.in(r.Locale) + "\n" + r.ConfirmationLink
 	text += "\n\n" + assignmentReminderDisclosureCopy.in(r.Locale)
 	text += "\n\n" + assignmentReminderClosingCopy.in(r.Locale)
 	return text
@@ -1262,6 +1328,18 @@ var (
 	)
 )
 
+// No Longer Holding's HTML part (#878): no button, as the text has no link.
+var (
+	noLongerHoldingPreheaderCopy = translated(
+		"There is nothing you need to do. Your account stays as it is.",
+		"No tiene que hacer nada. Su cuenta sigue igual.",
+	)
+	noLongerHoldingFooterReasonCopy = translated(
+		"You're getting this because you accepted a ticket for %s.",
+		"Recibe este correo porque aceptó una entrada para %s.",
+	)
+)
+
 // Subject is the No Longer Holding mail's subject line: the fact, and what it is
 // about.
 //
@@ -1320,6 +1398,13 @@ var (
 	)
 )
 
+// The void notice's preheader (#878): the reference the reader reconciles by,
+// and the fact.
+var saleVoidedPreheaderCopy = translated(
+	"Reference %s. Those tickets are no longer valid.",
+	"Referencia %s. Esas entradas ya no son válidas.",
+)
+
 // Subject is the void notice's subject line, in the language the sale was made
 // in.
 func (v SaleVoided) Subject() string {
@@ -1369,9 +1454,16 @@ var (
 	// the page; this says the same thing in the same words to the one who closed
 	// the tab, which is the only reader this message has.
 	saleReversalRefusedTextCopy = translated(
-		"Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
+		"Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid. Nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
 		"Hola %s:\n\nNo pudimos deshacer su compra de %s (referencia %s).\n\nSus entradas siguen siendo válidas: no cambió nada en su compra y puede seguir usándolas.\n\nSi necesita ayuda con esta compra, contacte al organizador e indique la referencia anterior.",
 	)
+)
+
+// The refused-reversal notice's preheader (#878): the sentence that decides
+// whether the reader turns up at the gate, where a preview shows it first.
+var saleReversalRefusedPreheaderCopy = translated(
+	"Reference %s. Your tickets are still valid.",
+	"Referencia %s. Sus entradas siguen siendo válidas.",
 )
 
 // Subject is the refused-reversal notice's subject line. It says what happened

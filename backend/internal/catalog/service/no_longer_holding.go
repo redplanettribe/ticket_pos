@@ -217,6 +217,7 @@ func (s *Service) tellHolderDisplacedByReassignment(
 		TicketID:    ticket.ID,
 		HolderEmail: displacedEmail,
 		EventName:   ticket.EventName,
+		EventID:     ticket.EventID,
 		SaleLocale:  ticket.SaleLocale,
 	})
 }
@@ -264,6 +265,7 @@ func (s *Service) tellHolderTheyStoppedHolding(ctx context.Context, holder repos
 	notice := platform.NoLongerHolding{
 		To:        holder.HolderEmail,
 		EventName: holder.EventName,
+		Event:     s.mailEvent(ctx, holder.EventID),
 		Locale:    s.assignmentMailLocale(ctx, holder.HolderEmail, holder.SaleLocale.String),
 	}
 	if err := s.noLongerHoldingMailer.SendNoLongerHolding(ctx, notice); err != nil {

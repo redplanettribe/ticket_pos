@@ -25,6 +25,11 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	reviewSubmitted := goldenQuestionReviewSubmitted(LocaleES)
 	reviewAnswered := goldenQuestionReviewAnswered(LocaleEN)
 	revoked := goldenTicketQuestionRevoked(LocaleES)
+	answerReminder := goldenHolderAnswerReminder(LocaleES, goldenMailEvent())
+	assignmentReminder := goldenAssignmentReminder(LocaleEN, goldenMailEvent())
+	voided := goldenSaleVoided(LocaleES, goldenMailEvent())
+	refused := goldenSaleReversalRefused(LocaleEN, goldenMailEventNoImages())
+	gone := goldenNoLongerHolding(LocaleES, goldenMailEvent())
 	cases := []struct {
 		name   string
 		msg    string
@@ -69,6 +74,21 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"ticket question revoked", "ticket question revoked notice sent", revoked.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendTicketQuestionRevoked(ctx, revoked)
+		}},
+		{"holder answer reminder", "holder answer reminder sent", answerReminder.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendHolderAnswerReminder(ctx, answerReminder)
+		}},
+		{"assignment reminder", "assignment reminder sent", assignmentReminder.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendAssignmentReminder(ctx, assignmentReminder)
+		}},
+		{"sale voided", "sale voided notice sent", voided.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendSaleVoided(ctx, voided)
+		}},
+		{"sale reversal refused", "sale reversal refused notice sent", refused.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendSaleReversalRefused(ctx, refused)
+		}},
+		{"no longer holding", "no longer holding notice sent", gone.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendNoLongerHolding(ctx, gone)
 		}},
 	}
 	for _, tc := range cases {

@@ -119,16 +119,28 @@ const (
 	// Warning, the five Payout Request notices, both Question Review notices
 	// and Ticket Question Revoked) are all written in it.
 	mailKindNotice mailKind = "notice"
+	// mailKindEventRow is the card that shows which Event a mail concerns in a
+	// compact Event row: the Answer Reminder, the Assignment Reminder, Sale
+	// Voided, Sale Reversal Refused and No Longer Holding.
+	mailKindEventRow mailKind = "eventrow"
 )
 
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
-// and the card value it is executed with. The zero value is what the boot-time
+// and the card value it is executed with. That value (the zero value, unless a
+// card's optional branches are filled so each is run) is what the boot-time
 // dry run executes, which is what turns a template referring to a field its
 // card does not have into a failed boot rather than a failed send.
 var mailKinds = map[mailKind]any{
 	mailKindOTP:               otpCard{},
 	mailKindConsentWithdrawal: consentWithdrawalCard{},
 	mailKindNotice:            noticeCard{},
+	// Every optional branch filled, so the dry run executes each one.
+	mailKindEventRow: eventRowCard{
+		Intro:  [][]string{{""}},
+		Rows:   []eventRowView{{SquareURL: "#", Meta: "-", Detail: "-", Organization: &orgRowView{LogoURL: "#"}}},
+		Button: &mailButton{},
+		After:  [][]string{{""}},
+	},
 }
 
 //go:embed mailtemplates
@@ -426,4 +438,181 @@ func (r TicketQuestionRevoked) HTML(chrome MailChrome) (string, error) {
 	return staffNotice(r.Locale, chrome, r.Subject(), r.Text(),
 		fmt.Sprintf(questionRevokedPreheaderCopy.in(r.Locale), r.QuestionLabel),
 		fmt.Sprintf(questionRevokedFooterReasonCopy.in(r.Locale), r.OrganizationName))
+}
+
+// orgRowView is the Organization row: its name, and its Logo rendition on a
+// white tile Tile pixels square.
+type orgRowView struct {
+	Name    string
+	LogoURL string
+	Tile    int
+}
+
+// Logo is the Logo's width inside its tile.
+func (o orgRowView) Logo() int { return o.Tile - 8 }
+
+// compactOrgTile is the Logo tile's size in the compact Event row.
+const compactOrgTile = 24
+
+// newOrgRow is the Organization row of an Event, or nil when the mail does not
+// know the Organization's name: the Logo's alt is empty on the promise that
+// the name is printed beside it, so a Logo never stands alone.
+func newOrgRow(event MailEvent, tile int) *orgRowView {
+	if strings.TrimSpace(event.OrganizationName) == "" {
+		return nil
+	}
+	return &orgRowView{Name: event.OrganizationName, LogoURL: event.LogoURL, Tile: tile}
+}
+
+// eventRowView is one compact Event row: the square rendition (none when
+// empty), the Event's name, the date and venue line, an optional detail line
+// and the Organization row.
+type eventRowView struct {
+	Name         string
+	SquareURL    string
+	Meta         string
+	Detail       string
+	Organization *orgRowView
+}
+
+func newEventRow(locale Locale, name, detail string, event MailEvent) eventRowView {
+	var meta []string
+	if when := formatEventDate(event.StartsAt, event.Timezone, locale); when != "" {
+		meta = append(meta, when)
+	}
+	if venue := strings.TrimSpace(event.VenueName); venue != "" {
+		meta = append(meta, venue)
+	}
+	return eventRowView{
+		Name:         name,
+		SquareURL:    event.SquareURL,
+		Meta:         strings.Join(meta, " \u00b7 "),
+		Detail:       detail,
+		Organization: newOrgRow(event, compactOrgTile),
+	}
+}
+
+// eventRowCard is the compact Event row card: a heading, the paragraphs before
+// the rows, the rows, the paragraphs after them, then the mail's one link as
+// the button with the sentence that leads to it (nil when the mail has no
+// link), and the paragraphs after the button. Each paragraph is split into
+// the lines the text breaks it into.
+type eventRowCard struct {
+	Heading  string
+	Intro    [][]string
+	Rows     []eventRowView
+	Blocks   [][]string
+	LinkLead string
+	Button   *mailButton
+	After    [][]string
+}
+
+// splitLines splits each of a text's paragraphs into its lines.
+func splitLines(blocks []string) [][]string {
+	lines := make([][]string, 0, len(blocks))
+	for _, block := range blocks {
+		lines = append(lines, strings.Split(block, "\n"))
+	}
+	return lines
+}
+
+// The compact Event row kinds (#878). Each shows which Event it concerns in
+// the Event row, and otherwise carries the text part's own paragraphs, so the
+// two parts cannot drift; the text's "Event: ..." lines are what the row
+// shows instead.
+
+// HTML is the Answer Reminder's HTML part: one Event row per listed Ticket,
+// with its Ticket Type under the Event's name, and the Customer Area as the
+// one button.
+func (r HolderAnswerReminder) HTML(chrome MailChrome) (string, error) {
+	opening, closing := holderAnswerReminderOpeningCopy, holderAnswerReminderClosingCopy
+	if len(r.Tickets) != 1 {
+		opening, closing = holderAnswerReminderOpeningPluralCopy, holderAnswerReminderClosingPluralCopy
+	}
+	rows := make([]eventRowView, 0, len(r.Tickets))
+	for _, ticket := range r.Tickets {
+		rows = append(rows, newEventRow(r.Locale, ticket.EventName,
+			fmt.Sprintf(holderAnswerReminderTicketLineCopy.in(r.Locale), ticket.TicketTypeName), ticket.Event))
+	}
+	button := newMailButton(r.Locale, holderAnswerReminderButtonCopy.in(r.Locale), r.CustomerAreaURL)
+	return renderMail(mailKindEventRow, r.Locale, chrome, r.Subject(),
+		holderAnswerReminderPreheaderCopy.in(r.Locale),
+		holderAnswerReminderFooterReasonCopy.in(r.Locale),
+		eventRowCard{
+			Heading:  r.Subject(),
+			Intro:    splitLines([]string{opening.in(r.Locale)}),
+			Rows:     rows,
+			LinkLead: holderAnswerReminderActionLeadCopy.in(r.Locale),
+			Button:   &button,
+			After:    splitLines([]string{holderAnswerReminderSignInCopy.in(r.Locale), closing.in(r.Locale)}),
+		},
+	)
+}
+
+// HTML is the Assignment Reminder's HTML part: the Event row, with the date
+// Text() prints, in place of its "Event:" and "Starts:" lines, and the Sale's
+// page as the one button with the disclosure after it, as the text has it.
+func (r AssignmentReminder) HTML(chrome MailChrome) (string, error) {
+	event := r.Event
+	event.StartsAt, event.Timezone = r.EventStartsAt, r.EventTimezone
+	tally := assignmentReminderTallyCopy
+	if r.UnassignedTickets == 1 {
+		tally = assignmentReminderTallyOneCopy
+	}
+	blocks := []string{
+		fmt.Sprintf(assignmentReminderGreetingCopy.in(r.Locale), r.FirstName),
+		fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets),
+	}
+	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
+		blocks = append(blocks, assignmentReminderGoLiveCopy.in(r.Locale))
+	}
+	button := newMailButton(r.Locale, assignmentReminderButtonCopy.in(r.Locale), r.ConfirmationLink)
+	return renderMail(mailKindEventRow, r.Locale, chrome, r.Subject(),
+		assignmentReminderPreheaderCopy.in(r.Locale),
+		fmt.Sprintf(buyerFooterReasonCopy.in(r.Locale), r.EventName),
+		eventRowCard{
+			Heading:  r.Subject(),
+			Rows:     []eventRowView{newEventRow(r.Locale, r.EventName, "", event)},
+			Blocks:   splitLines(blocks),
+			LinkLead: assignmentReminderActionLeadCopy.in(r.Locale),
+			Button:   &button,
+			After:    splitLines([]string{assignmentReminderDisclosureCopy.in(r.Locale), assignmentReminderClosingCopy.in(r.Locale)}),
+		},
+	)
+}
+
+// eventRowNotice renders a compact Event row kind with no link: the subject
+// as heading, the Event row, and the text part's paragraphs.
+func eventRowNotice(locale Locale, chrome MailChrome, subject, text, preheader, reason, eventName string, event MailEvent) (string, error) {
+	return renderMail(mailKindEventRow, locale, chrome, subject, preheader, reason,
+		eventRowCard{
+			Heading: subject,
+			Rows:    []eventRowView{newEventRow(locale, eventName, "", event)},
+			Blocks:  splitLines(paragraphs(text)),
+		})
+}
+
+// HTML is the void notice's HTML part. It has no button: the text has no link.
+func (v SaleVoided) HTML(chrome MailChrome) (string, error) {
+	return eventRowNotice(v.Locale, chrome, v.Subject(), v.Text(),
+		fmt.Sprintf(saleVoidedPreheaderCopy.in(v.Locale), v.Reference),
+		fmt.Sprintf(buyerFooterReasonCopy.in(v.Locale), v.EventName),
+		v.EventName, v.Event)
+}
+
+// HTML is the refused-reversal notice's HTML part, with no button.
+func (r SaleReversalRefused) HTML(chrome MailChrome) (string, error) {
+	return eventRowNotice(r.Locale, chrome, r.Subject(), r.Text(),
+		fmt.Sprintf(saleReversalRefusedPreheaderCopy.in(r.Locale), r.Reference),
+		fmt.Sprintf(buyerFooterReasonCopy.in(r.Locale), r.EventName),
+		r.EventName, r.Event)
+}
+
+// HTML is No Longer Holding's HTML part. It has no button, deliberately: there
+// is nothing left for the reader to do (see NoLongerHolding).
+func (n NoLongerHolding) HTML(chrome MailChrome) (string, error) {
+	return eventRowNotice(n.Locale, chrome, n.Subject(), n.Text(),
+		noLongerHoldingPreheaderCopy.in(n.Locale),
+		fmt.Sprintf(noLongerHoldingFooterReasonCopy.in(n.Locale), n.EventName),
+		n.EventName, n.Event)
 }

@@ -204,7 +204,7 @@ func (s *SESEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirm
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *SESEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	if err := s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), ""); err != nil {
+	if err := s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), renderedHTML(ctx, s.logger, "sale voided", v.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale voided", err, "reference", v.Reference)
 	}
 	return nil
@@ -213,7 +213,7 @@ func (s *SESEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error
 // SendSaleReversalRefused delivers the notice that a refund the Customer was
 // told was being processed could not be made. Best-effort, as above.
 func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	if err := s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale reversal refused", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale reversal refused", err, "reference", r.Reference)
 	}
 	return nil
@@ -252,7 +252,7 @@ func (s *SESEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, 
 // SendHolderAnswerReminder delivers the Answer Reminder (#328). The sweep writes
 // its ledger row only once this returns nil. The Event is not logged.
 func (s *SESEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	if err := s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "holder answer reminder", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "holder answer reminder", err)
 	}
 	return nil
@@ -262,7 +262,7 @@ func (s *SESEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderA
 // writes its ledger row only once this returns nil. The Event and the link are
 // not logged.
 func (s *SESEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	if err := s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "assignment reminder", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "assignment reminder", err)
 	}
 	return nil
@@ -281,7 +281,7 @@ func (s *SESEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssig
 // SendNoLongerHolding delivers the notice that a Ticket a Holder accepted is
 // no longer theirs (#327). The Event is not logged.
 func (s *SESEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	if err := s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), ""); err != nil {
+	if err := s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "no longer holding", n.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "no longer holding", err)
 	}
 	return nil

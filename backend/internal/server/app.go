@@ -514,6 +514,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// sales and mails nobody (ADR 0045).
 	salesService = salesService.WithDisplacedHolders(catalogService)
 
+	// What mail about an Event shows of it beside its name (#878): the
+	// Organization, the Logo and Event email renditions as public URLs, the
+	// date and the venue. Catalog builds the URLs; sales holds no storage.
+	salesService = salesService.WithMailEvents(catalogService)
+
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the
 	// one into the other is catalog's rule — including canonicalizing the key the

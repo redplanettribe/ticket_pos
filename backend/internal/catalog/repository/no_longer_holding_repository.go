@@ -42,6 +42,9 @@ type DisplacedHolder struct {
 	// EventName is the whole of what the mail says about the ticket, and it is
 	// already public: the Event has a Storefront page anybody can read.
 	EventName string
+	// EventID is the Event the mail's Event row shows (#878): its public facts,
+	// never the purchase's.
+	EventID string
 	// SaleLocale is the language the BUYER bought in, invalid on an imported or
 	// door sale that recorded none. It is the WEAKER candidate for this mail's
 	// language and never the stronger — the reader is not party to the sale — and
@@ -122,7 +125,7 @@ func (r *Repository) ListDisplacedHoldersForSales(ctx context.Context, ticketSal
 	// recognised as the person who bought — and so a change to the identity rule
 	// cannot leave this comparison behind.
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT tk.id, tk.holder_email, e.name, s.locale,
+		SELECT tk.id, tk.holder_email, e.name, e.id, s.locale,
 		       `+platform.NormalizeEmailSQL("tk.holder_email")+` = `+platform.NormalizeEmailSQL("s.customer_email")+`
 		`+answerableTicketFrom+`
 		WHERE l.ticket_sale_id = ANY($1)
@@ -138,7 +141,7 @@ func (r *Repository) ListDisplacedHoldersForSales(ctx context.Context, ticketSal
 	out := make([]DisplacedHolder, 0, len(ticketSaleIDs))
 	for rows.Next() {
 		var h DisplacedHolder
-		if err := rows.Scan(&h.TicketID, &h.HolderEmail, &h.EventName, &h.SaleLocale, &h.IsTheBuyer); err != nil {
+		if err := rows.Scan(&h.TicketID, &h.HolderEmail, &h.EventName, &h.EventID, &h.SaleLocale, &h.IsTheBuyer); err != nil {
 			return nil, err
 		}
 		out = append(out, h)

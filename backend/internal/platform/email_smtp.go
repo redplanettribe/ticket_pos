@@ -300,12 +300,12 @@ func (s *SMTPEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfir
 
 // SendSaleVoided delivers a cancellation notice.
 func (s *SMTPEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	return s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), "")
+	return s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), renderedHTML(ctx, s.logger, "sale voided", v.HTML, s.chrome))
 }
 
 // SendSaleReversalRefused delivers the notice that a refund could not be made.
 func (s *SMTPEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	return s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), "")
+	return s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale reversal refused", r.HTML, s.chrome))
 }
 
 // SendTaxDocumentDelivery delivers the Tax Document with its signed XML and
@@ -328,12 +328,12 @@ func (s *SMTPEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context,
 
 // SendHolderAnswerReminder delivers the Answer Reminder.
 func (s *SMTPEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	return s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), "")
+	return s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "holder answer reminder", r.HTML, s.chrome))
 }
 
 // SendAssignmentReminder delivers the Assignment Reminder.
 func (s *SMTPEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	return s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), "")
+	return s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "assignment reminder", r.HTML, s.chrome))
 }
 
 // SendTicketAssignment delivers the Assignment mail carrying an Assignment
@@ -345,7 +345,7 @@ func (s *SMTPEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssi
 // SendNoLongerHolding delivers the notice that a Ticket is no longer the
 // Holder's.
 func (s *SMTPEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	return s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), "")
+	return s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "no longer holding", n.HTML, s.chrome))
 }
 
 // SendSaleReAddressing delivers the mail carrying a Re-addressing Link.

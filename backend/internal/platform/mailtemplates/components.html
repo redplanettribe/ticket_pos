@@ -34,3 +34,43 @@ Takes a mailButton. */}}
 </td></tr></table>
 <p class="t-muted fallback" style="clear:both;margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:left;">{{.Fallback}}<br>
 <a class="t-link" href="{{.URL}}" style="color:#0d7bb3;word-break:break-all;text-decoration:underline;">{{.URL}}</a></p>{{end}}
+
+{{/* The Organization row: its Logo on a white tile, then its name. With no
+Logo rendition the tile is dropped and the name stands alone. The Logo's alt
+is empty because the name is always printed beside it. Takes an orgRowView.
+
+The tile is painted white twice, with background-color AND with a
+background-image gradient of the same white. THIS IS LOAD-BEARING: Gmail's
+forced dark mode inverts background colours but leaves background images
+alone, so only the gradient keeps the tile white there, and a dark Logo drawn
+on transparency would otherwise vanish into a dark tile. The .tile rule in the
+layout's dark-mode block keeps it white where prefers-color-scheme is honoured.
+html/template strips comments, so this one never reaches a mail. */}}
+{{define "orgRow"}}<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- if .LogoURL}}<td class="tile" width="{{.Tile}}" height="{{.Tile}}" valign="middle" align="center" style="width:{{.Tile}}px;height:{{.Tile}}px;background-color:#ffffff;background-image:linear-gradient(#ffffff,#ffffff);border:1px solid #dadee5;border-radius:6px;"><img src="{{.LogoURL}}" width="{{.Logo}}" alt="" style="display:block;margin:0 auto;border:0;width:{{.Logo}}px;max-height:{{.Logo}}px;height:auto;"></td><td width="8" style="width:8px;font-size:0;line-height:0;">&nbsp;</td>{{end -}}
+<td valign="middle" class="t-fg" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#121921;">{{.Name}}</td></tr></table>{{end}}
+
+{{/* The compact Event rows, between hairlines: each the 64px square rendition
+on the left with a 6px radius, the Event's name in bold, one muted line with
+its date and venue, an optional detail line, and the Organization row. With no
+square rendition the image cell is dropped. With images blocked by the client
+the fixed 64px cell stays as a blank indent, which keeps the text aligned with
+its neighbours (spec #870). Takes a []eventRowView. */}}
+{{define "eventRows"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+{{range $i, $row := .}}<tr><td class="bd" style="padding:14px 0;{{if not $i}}border-top:1px solid #dadee5;{{end}}border-bottom:1px solid #dadee5;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- if $row.SquareURL}}<td width="64" valign="top" style="width:64px;padding-right:14px;"><img class="thumb-sm" src="{{$row.SquareURL}}" width="64" height="64" alt="" style="display:block;width:64px;height:64px;border:0;border-radius:6px;"></td>{{end -}}
+<td valign="top">
+<p class="t-fg" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:700;color:#121921;">{{$row.Name}}</p>
+{{- if $row.Meta}}
+<p class="t-muted" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#5c646f;">{{$row.Meta}}</p>
+{{- end}}
+{{- if $row.Detail}}
+<p class="t-fg" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#121921;">{{$row.Detail}}</p>
+{{- end}}
+{{- with $row.Organization}}
+{{template "orgRow" .}}
+{{- end}}
+</td></tr></table>
+</td></tr>
+{{end}}</table>{{end}}

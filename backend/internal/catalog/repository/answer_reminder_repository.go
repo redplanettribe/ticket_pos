@@ -147,7 +147,7 @@ const answerReminderFrom = outstandingAnswerFrom + `
 // chances to add a column to two of them.
 const answerReminderSelect = `
 	SELECT tk.id, tk.holder_email, tk.assigned_at, tk.accepted_at, tt.name,
-	       s.id, s.status, e.starts_at, e.name, COALESCE(s.locale, ''),
+	       s.id, s.status, e.starts_at, e.name, e.id, COALESCE(s.locale, ''),
 	       r.sent_count, r.last_sent_at
 `
 
@@ -163,7 +163,7 @@ const answerReminderSelect = `
 // the caller reads.
 const answerReminderGroupBy = `
 	GROUP BY tk.id, tk.holder_email, tk.assigned_at, tk.accepted_at, tk.ordinal,
-	         tt.name, s.id, s.status, e.starts_at, e.name, s.locale,
+	         tt.name, s.id, s.status, e.starts_at, e.name, e.id, s.locale,
 	         s.sold_at, r.sent_count, r.last_sent_at
 `
 
@@ -233,7 +233,7 @@ func (r *Repository) ListAnswerReminderCandidates(
 		var assignedAt, acceptedAt, lastSent sql.NullTime
 		if err := rows.Scan(
 			&c.TicketID, &holderEmail, &assignedAt, &acceptedAt, &c.TicketTypeName,
-			&c.TicketSaleID, &c.SaleStatus, &c.EventStartsAt, &c.EventName,
+			&c.TicketSaleID, &c.SaleStatus, &c.EventStartsAt, &c.EventName, &c.EventID,
 			&c.SaleLocale, &c.RemindersSent, &lastSent,
 		); err != nil {
 			return nil, err

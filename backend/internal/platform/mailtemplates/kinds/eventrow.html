@@ -1,0 +1,17 @@
+{{/* The compact Event row card (#878): mail about an Event that is not good
+news, or that asks for something, shows which Event it concerns in a compact
+row rather than a celebratory Cover Image. The Answer Reminder, the Assignment
+Reminder, Sale Voided, Sale Reversal Refused and No Longer Holding are written
+in it. The heading, the paragraphs before the rows (if any), the rows, the
+text part's paragraphs, then the mail's one link as the button with the
+sentence leading to it when it carries one, and the paragraphs after it.
+Takes an eventRowCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Intro}}{{template "lines" .}}
+{{end}}{{template "eventRows" .Rows}}
+{{range .Blocks}}{{template "lines" .}}
+{{end}}{{with .Button}}{{template "paragraph" $.LinkLead}}
+{{template "button" .}}
+{{end}}{{range .After}}{{template "lines" .}}
+{{end}}{{template "cardClose"}}{{end}}

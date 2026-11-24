@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 )
 
 // The email renditions (migration 144, spec #870): recorded after the save
@@ -82,4 +84,39 @@ func (r *Repository) CountEventsMissingEmailRenditions(ctx context.Context) (int
 	var n int
 	err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE `+missingEmailRendition).Scan(&n)
 	return n, err
+}
+
+// MailEventRow is what a mail shows of an Event beside its name: its
+// Organization's name and the rendition keys (null when not rendered yet),
+// and when and where it is.
+type MailEventRow struct {
+	OrganizationName string
+	EmailLogoKey     sql.NullString
+	EmailWideKey     sql.NullString
+	EmailSquareKey   sql.NullString
+	StartsAt         sql.NullTime
+	Timezone         sql.NullString
+	VenueName        sql.NullString
+}
+
+// GetMailEvent reads one Event's MailEventRow, across every Organization,
+// since mail about an Event is composed by jobs and drains with no
+// Organization in scope. Nil when there is no such Event.
+func (r *Repository) GetMailEvent(ctx context.Context, eventID string) (*MailEventRow, error) {
+	var row MailEventRow
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT o.name, o.email_logo_key, e.email_wide_key, e.email_square_key,
+		       e.starts_at, e.timezone, e.venue_name
+		FROM events e
+		JOIN organizations o ON o.id = e.organization_id
+		WHERE e.id = $1
+	`, eventID).Scan(&row.OrganizationName, &row.EmailLogoKey, &row.EmailWideKey, &row.EmailSquareKey,
+		&row.StartsAt, &row.Timezone, &row.VenueName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }

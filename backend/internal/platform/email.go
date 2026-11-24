@@ -121,6 +121,37 @@ type SaleConfirmation struct {
 	Locale Locale
 }
 
+// MailEvent is what a mail about an Event shows of it beside its name (spec
+// #870): the Organization behind it, its Logo, the Event's email renditions,
+// and when and where it is. The caller fills it from the Event and
+// Organization it already has, and every field is optional.
+//
+// AN EMPTY URL MEANS "NO IMAGE": the image's cell is dropped, never left as an
+// empty box. A rendition not made yet (its key null) is an empty URL, so a
+// mail sent before the rendition fill simply shows no image. With no
+// OrganizationName the Organization row is dropped, Logo and all, because the
+// Logo's alt is empty on the promise that the name is printed beside it.
+//
+// Every fact here is public, a Storefront page anybody can read, so it is safe
+// in a mail that may be forwarded.
+type MailEvent struct {
+	OrganizationName string
+	// LogoURL is the Organization's Logo email rendition (a PNG within 96px).
+	LogoURL string
+	// WideURL is the Cover Image's email rendition (a JPEG 1200px wide), for the
+	// kinds that open with the Cover Image; the compact Event row does not show it.
+	WideURL string
+	// SquareURL is the 128px square rendition the compact Event row shows at
+	// 64px: from the Thumbnail, or from the Cover Image cropped to its centre.
+	SquareURL string
+	// StartsAt and Timezone are when the Event starts, printed in its own zone
+	// exactly as the Follow Digest prints it; an unloadable zone or a zero
+	// StartsAt prints no date. VenueName is printed as stored.
+	StartsAt  time.Time
+	Timezone  string
+	VenueName string
+}
+
 // SaleVoided is the cancellation notice emailed to a Customer when a Ticket Sale
 // is reversed (e.g. an undone Sale Import). It references the original Sale
 // Confirmation so the Customer can reconcile the record they were given. This is
@@ -130,6 +161,8 @@ type SaleVoided struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	Event MailEvent
 	// Locale is the language this notice is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#246, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.
@@ -163,6 +196,8 @@ type SaleReversalRefused struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	Event MailEvent
 	// Locale is the language this correction is written in, resolved from the
 	// sale exactly as SaleVoided.Locale is (#246, ADR 0033).
 	//
@@ -191,6 +226,9 @@ type SaleReversalRefused struct {
 type HolderAnswerReminderTicket struct {
 	EventName      string
 	TicketTypeName string
+	// Event is what the HTML part's Event row for this Ticket shows beside
+	// EventName (#878): public facts about the Event, never the purchase.
+	Event MailEvent
 }
 
 // HolderAnswerReminder is the mail telling the Holder of a Ticket that it still
@@ -315,6 +353,10 @@ type AssignmentReminder struct {
 	EventName     string
 	EventStartsAt time.Time
 	EventTimezone string
+	// Event is what the HTML part's Event row shows beside EventName (#878).
+	// Its StartsAt and Timezone are not read: the row's date is EventStartsAt
+	// in EventTimezone, the same date Text() prints.
+	Event MailEvent
 	// UnassignedTickets of TotalTickets is the tally the mail prints — the
 	// Customer Area's own, so mail and page agree. UnassignedTickets is at
 	// least one on any reminder the sweep composes.
@@ -480,6 +522,9 @@ type NoLongerHolding struct {
 	// longer have" is a distinction with nothing behind it for a reader who has
 	// none.
 	EventName string
+	// Event is what the HTML part's Event row shows beside EventName (#878):
+	// the Event's own public facts, which say nothing about the cause either.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033), and resolved RECIPIENT-FIRST for the reason the Assignment
 	// mail's is: this reader is not party to the sale. Unlike that mail's reader,
@@ -1314,8 +1359,10 @@ func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfi
 }
 
 // SendSaleVoided logs the Sale void notice for local development and testing.
-func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) error {
-	s.Logger.Info("sale voided notice sent", "email", v.To, "reference", v.Reference, "event", v.EventName)
+func (s *LoggingEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
+	attrs := []any{"email", v.To, "reference", v.Reference, "event", v.EventName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale voided", v.HTML)...)
+	s.Logger.Info("sale voided notice sent", attrs...)
 	return nil
 }
 
@@ -1345,8 +1392,10 @@ func (s *LoggingEmailSender) SendAnnulmentNotice(ctx context.Context, n Annulmen
 
 // SendSaleReversalRefused logs the refused-reversal notice for local development
 // and testing.
-func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleReversalRefused) error {
-	s.Logger.Info("sale reversal refused notice sent", "email", r.To, "reference", r.Reference, "event", r.EventName)
+func (s *LoggingEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
+	attrs := []any{"email", r.To, "reference", r.Reference, "event", r.EventName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale reversal refused", r.HTML)...)
+	s.Logger.Info("sale reversal refused notice sent", attrs...)
 	return nil
 }
 
@@ -1364,8 +1413,10 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(ctx context.Conte
 // address, how many Tickets and the language are logged and the body is not:
 // what a local developer needs to see is that a Holder was chased, about how
 // much, and in which language.
-func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
-	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
+	attrs := []any{"email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "holder answer reminder", r.HTML)...)
+	s.Logger.Info("holder answer reminder sent", attrs...)
 	return nil
 }
 
@@ -1373,9 +1424,10 @@ func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r Holde
 // the address, the tally and the language, and not the body or the link — the
 // Confirmation Link opens the Sale without a sign-in and the receipt's own
 // logging keeps it out of the log for the same reason.
-func (s *LoggingEmailSender) SendAssignmentReminder(_ context.Context, r AssignmentReminder) error {
-	s.Logger.Info("assignment reminder sent", "email", r.To,
-		"unassigned", r.UnassignedTickets, "total", r.TotalTickets, "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
+	attrs := []any{"email", r.To, "unassigned", r.UnassignedTickets, "total", r.TotalTickets, "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "assignment reminder", r.HTML)...)
+	s.Logger.Info("assignment reminder sent", attrs...)
 	return nil
 }
 
@@ -1392,8 +1444,10 @@ func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAss
 // SendNoLongerHolding logs the No Longer Holding notice for local development.
 // The address and the Event are logged and there is nothing else in the message
 // to log: it carries no link, no cause and nothing about the buyer.
-func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
-	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
+func (s *LoggingEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
+	attrs := []any{"email", n.To, "event", n.EventName, "locale", string(n.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "no longer holding", n.HTML)...)
+	s.Logger.Info("no longer holding notice sent", attrs...)
 	return nil
 }
 

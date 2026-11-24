@@ -249,7 +249,7 @@ func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w 
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	if err := s.send(ctx, v.To, v.Subject(), v.Text(), ""); err != nil {
+	if err := s.send(ctx, v.To, v.Subject(), v.Text(), renderedHTML(ctx, s.logger, "sale voided", v.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale voided failed", "reference", v.Reference, "error", err)
 		return err
 	}
@@ -262,7 +262,7 @@ func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) er
 // message that ever corrects a promise, so a Customer who never hears is a
 // Customer who still believes their refund is coming.
 func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale reversal refused", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale reversal refused failed", "reference", r.Reference, "error", err)
 		return err
 	}
@@ -310,7 +310,7 @@ func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Contex
 // as for the Assignment mail below: a log aggregator is a wider audience than
 // an inbox.
 func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "holder answer reminder", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send holder answer reminder failed", "error", err)
 		return err
 	}
@@ -330,7 +330,7 @@ func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r Hold
 // Transactional identity only (ADR 0030). The address and the error are logged
 // on failure; the Event and the link are not.
 func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "assignment reminder", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send assignment reminder failed", "error", err)
 		return err
 	}
@@ -383,7 +383,7 @@ func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAs
 // aggregator is a wider audience than an inbox. What an operator needs here is
 // that a Holder was not told.
 func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	if err := s.send(ctx, n.To, n.Subject(), n.Text(), ""); err != nil {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "no longer holding", n.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send no longer holding failed", "error", err)
 		return err
 	}

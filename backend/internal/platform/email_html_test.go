@@ -97,8 +97,107 @@ func mailFixtures() []mailFixture {
 		}
 
 		fixtures = append(fixtures, staffMailFixtures(locale)...)
+		fixtures = append(fixtures, eventRowMailFixtures(locale)...)
 	}
 	return fixtures
+}
+
+// goldenMailEvent is an invented Event and Organization with every rendition;
+// goldenMailEventNoImages is the same with none rendered yet.
+func goldenMailEvent() MailEvent {
+	return MailEvent{
+		OrganizationName: "Club de Jazz",
+		LogoURL:          goldenMediaOrigin + "/email-logo/org-1/logo.png",
+		WideURL:          goldenMediaOrigin + "/email-wide/org-1/event-1/wide.jpg",
+		SquareURL:        goldenMediaOrigin + "/email-square/org-1/event-1/square.jpg",
+		StartsAt:         time.Date(2026, 12, 13, 1, 0, 0, 0, time.UTC),
+		Timezone:         "America/Guayaquil",
+		VenueName:        "Teatro Sucre",
+	}
+}
+
+func goldenMailEventNoImages() MailEvent {
+	event := goldenMailEvent()
+	event.LogoURL, event.WideURL, event.SquareURL = "", "", ""
+	return event
+}
+
+// eventRowMailFixtures is the compact Event row kinds in one locale (#878),
+// each with every rendition and again with none ("-noimages").
+func eventRowMailFixtures(locale Locale) []mailFixture {
+	suffix := "-" + string(locale)
+	var fixtures []mailFixture
+	add := func(name string, html func(MailChrome) (string, error), text string) {
+		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	}
+	for _, images := range []struct {
+		suffix string
+		event  MailEvent
+	}{
+		{"", goldenMailEvent()},
+		{"-noimages", goldenMailEventNoImages()},
+	} {
+		answer := goldenHolderAnswerReminder(locale, images.event)
+		add("answerreminder"+images.suffix, answer.HTML, answer.Text())
+
+		assign := goldenAssignmentReminder(locale, images.event)
+		add("assignmentreminder"+images.suffix, assign.HTML, assign.Text())
+
+		voided := goldenSaleVoided(locale, images.event)
+		add("salevoided"+images.suffix, voided.HTML, voided.Text())
+
+		refused := goldenSaleReversalRefused(locale, images.event)
+		add("salereversalrefused"+images.suffix, refused.HTML, refused.Text())
+
+		gone := goldenNoLongerHolding(locale, images.event)
+		add("nolongerholding"+images.suffix, gone.HTML, gone.Text())
+	}
+
+	// A Holder of Tickets for two Events: one row each, and the plural copy.
+	plural := goldenHolderAnswerReminder(locale, goldenMailEvent())
+	other := goldenMailEventNoImages()
+	other.OrganizationName, other.VenueName = "Teatro Abierto", "Casa de la Cultura"
+	plural.Tickets = append(plural.Tickets, HolderAnswerReminderTicket{EventName: "Feria del Libro", TicketTypeName: "VIP", Event: other})
+	add("answerreminder-plural", plural.HTML, plural.Text())
+
+	// A Sale older than the go-live, which says assigning is new.
+	golive := goldenAssignmentReminder(locale, goldenMailEvent())
+	golive.SaleCreatedAt = TicketAssignmentWentLiveAt.Add(-time.Hour)
+	golive.UnassignedTickets = 1
+	add("assignmentreminder-golive", golive.HTML, golive.Text())
+	return fixtures
+}
+
+func goldenHolderAnswerReminder(locale Locale, event MailEvent) HolderAnswerReminder {
+	return HolderAnswerReminder{
+		To:              "ana@example.com",
+		Tickets:         []HolderAnswerReminderTicket{{EventName: "Noche de Jazz", TicketTypeName: "General", Event: event}},
+		CustomerAreaURL: goldenAssetOrigin + "/" + string(locale) + "/tickets",
+		Locale:          locale,
+	}
+}
+
+func goldenAssignmentReminder(locale Locale, event MailEvent) AssignmentReminder {
+	return AssignmentReminder{
+		To: "ana@example.com", FirstName: "Ana", EventName: "Noche de Jazz",
+		EventStartsAt: event.StartsAt, EventTimezone: event.Timezone, Event: event,
+		UnassignedTickets: 2, TotalTickets: 3,
+		ConfirmationLink: goldenAssetOrigin + "/" + string(locale) + "/c/sale-1?token=abc",
+		SaleCreatedAt:    TicketAssignmentWentLiveAt.Add(24 * time.Hour),
+		Locale:           locale,
+	}
+}
+
+func goldenSaleVoided(locale Locale, event MailEvent) SaleVoided {
+	return SaleVoided{To: "ana@example.com", CustomerName: "Ana Lopez", EventName: "Noche de Jazz", Reference: "ABC123", Event: event, Locale: locale}
+}
+
+func goldenSaleReversalRefused(locale Locale, event MailEvent) SaleReversalRefused {
+	return SaleReversalRefused{To: "ana@example.com", CustomerName: "Ana Lopez", EventName: "Noche de Jazz", Reference: "ABC123", Event: event, Locale: locale}
+}
+
+func goldenNoLongerHolding(locale Locale, event MailEvent) NoLongerHolding {
+	return NoLongerHolding{To: "ana@example.com", EventName: "Noche de Jazz", Event: event, Locale: locale}
 }
 
 // staffMailFixtures is the staff and operator kinds in one locale (#875):

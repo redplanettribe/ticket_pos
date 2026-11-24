@@ -36,6 +36,9 @@ type AssignmentLinkTicket struct {
 	TicketTypeID   string
 	TicketTypeName string
 	EventName      string
+	// EventID is the Event's own id, for what mail about this Ticket shows of
+	// the Event (#878).
+	EventID string
 	// SaleStatus is 'active' or 'reversed', read LIVE rather than baked into the
 	// token: a Sale reversed after the mail went out must stop the link opening,
 	// which no fact frozen at mint time could do.
@@ -81,7 +84,7 @@ type AssignmentLinkTicket struct {
 // live in SQL.
 func (r *Repository) GetAssignmentLinkTicket(ctx context.Context, ticketID string) (*AssignmentLinkTicket, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT tk.id, l.ticket_type_id, tt.name, e.name, s.status, e.starts_at,
+		SELECT tk.id, l.ticket_type_id, tt.name, e.name, e.id, s.status, e.starts_at,
 		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_customer_id,
 		       s.locale
 		`+answerableTicketFrom+`
@@ -90,7 +93,7 @@ func (r *Repository) GetAssignmentLinkTicket(ctx context.Context, ticketID strin
 
 	var t AssignmentLinkTicket
 	if err := row.Scan(
-		&t.ID, &t.TicketTypeID, &t.TicketTypeName, &t.EventName, &t.SaleStatus, &t.EventStartsAt,
+		&t.ID, &t.TicketTypeID, &t.TicketTypeName, &t.EventName, &t.EventID, &t.SaleStatus, &t.EventStartsAt,
 		&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt, &t.HolderCustomerID,
 		&t.SaleLocale,
 	); err != nil {

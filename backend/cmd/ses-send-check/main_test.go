@@ -179,10 +179,11 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 	}
 }
 
-// The passcode, the Consent Withdrawal Confirmation, the two fiscal kinds and
-// the nine staff and operator kinds go out with their HTML part beside the
-// text, rendered with the check's chrome (ADR 0082); kinds not yet converted
-// carry text alone.
+// The passcode, the Consent Withdrawal Confirmation, the two fiscal kinds,
+// the nine staff and operator kinds and the five compact Event row kinds go
+// out with their HTML part beside the text, rendered with the check's chrome
+// (ADR 0082); kinds not yet converted carry text alone. The Event row kinds
+// show their images.
 func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 	fake, load := checkSetup(t)
 	var stdout, stderr bytes.Buffer
@@ -194,6 +195,12 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		"certificate expiry warning": true, "payout request submitted": true, "payout request paid": true,
 		"payout request declined": true, "payout request transfer sent": true, "payout request transfer failed": true,
 		"question review submitted": true, "question review answered": true, "ticket question revoked": true,
+		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
+		"assignment reminder": true, "no longer holding": true,
+	}
+	withImages := map[string]bool{
+		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
+		"assignment reminder": true, "no longer holding": true,
 	}
 	all, err := messages(checkRecipient, fixedNow, nil, nil)
 	if err != nil {
@@ -219,6 +226,13 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		}
 		if !strings.Contains(body.Html.Data, "operated by FUNDACION REDPLANETTRIBE, Ecuador.") && !strings.Contains(body.Html.Data, "operado por FUNDACION REDPLANETTRIBE, Ecuador.") {
 			t.Errorf("%s: the HTML part is not rendered with the check's chrome", m.name)
+		}
+		if withImages[m.name] {
+			for _, src := range []string{fixtureSquareURL, fixtureLogoURL} {
+				if !strings.Contains(body.Html.Data, `src="`+src+`"`) {
+					t.Errorf("%s: the HTML part does not show %s", m.name, src)
+				}
+			}
 		}
 	}
 	if seen != len(withHTML) {

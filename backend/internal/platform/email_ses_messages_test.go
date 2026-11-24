@@ -54,8 +54,14 @@ func transactionalMessageCases() []messageCase {
 		Reference: "TS-1001", AmountCents: 2500, Currency: "USD",
 		ConfirmationLink: "https://shop.example.com/c/abc", Locale: LocaleES,
 	}
-	saleVoided := SaleVoided{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1002", Locale: LocaleEN}
-	reversalRefused := SaleReversalRefused{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1003", Locale: LocaleES}
+	// The Event row kinds carry their imagery, so the HTML part the providers
+	// send shows it.
+	event := MailEvent{
+		OrganizationName: "Jazz Club", LogoURL: "https://media.example.com/email-logo/o/l.png",
+		SquareURL: "https://media.example.com/email-square/o/e/s.jpg", StartsAt: startsAt, Timezone: "America/Guayaquil", VenueName: "Teatro",
+	}
+	saleVoided := SaleVoided{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1002", Event: event, Locale: LocaleEN}
+	reversalRefused := SaleReversalRefused{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1003", Event: event, Locale: LocaleES}
 	taxDocument := TaxDocumentDelivery{
 		To: "ana@example.com", Kind: "invoice", CustomerName: "Ana", EventName: "Noche de Jazz",
 		Reference: "TS-1004", CustomerAreaURL: "https://shop.example.com/me",
@@ -72,17 +78,17 @@ func transactionalMessageCases() []messageCase {
 	withdrawal := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: LocaleEN, MarketingConsent: true}
 	answerReminder := HolderAnswerReminder{
 		To:              "ana@example.com",
-		Tickets:         []HolderAnswerReminderTicket{{EventName: "Noche de Jazz", TicketTypeName: "General"}},
+		Tickets:         []HolderAnswerReminderTicket{{EventName: "Noche de Jazz", TicketTypeName: "General", Event: event}},
 		CustomerAreaURL: "https://shop.example.com/me", Locale: LocaleES,
 	}
 	assignmentReminder := AssignmentReminder{
 		To: "ana@example.com", FirstName: "Ana", EventName: "Noche de Jazz",
-		EventStartsAt: startsAt, EventTimezone: "America/Guayaquil",
+		EventStartsAt: startsAt, EventTimezone: "America/Guayaquil", Event: event,
 		UnassignedTickets: 2, TotalTickets: 3, ConfirmationLink: "https://shop.example.com/c/abc",
 		SaleCreatedAt: startsAt.AddDate(0, -1, 0), Locale: LocaleEN,
 	}
 	assignment := TicketAssignment{To: "ana@example.com", EventName: "Noche de Jazz", TicketTypeName: "General", AcceptURL: "https://shop.example.com/a/xyz", Locale: LocaleES}
-	noLongerHolding := NoLongerHolding{To: "ana@example.com", EventName: "Noche de Jazz", Locale: LocaleEN}
+	noLongerHolding := NoLongerHolding{To: "ana@example.com", EventName: "Noche de Jazz", Event: event, Locale: LocaleEN}
 	reAddressing := SaleReAddressing{To: "ana@example.com", EventName: "Noche de Jazz", Reference: "TS-1005", AcceptURL: "https://shop.example.com/r/xyz", Locale: LocaleES}
 	questionRevoked := TicketQuestionRevoked{To: "admin@example.com", Locale: LocaleEN, OrganizationName: "Jazz Club", EventName: "Noche de Jazz", QuestionLabel: "Talla", Reason: "No longer needed"}
 	payoutSubmitted := PayoutRequestSubmitted{To: "ops@example.com", Locale: LocaleES, OrganizationName: "Jazz Club", AmountCents: 120000, Currency: "USD", RequestedBy: "Luis"}
@@ -102,9 +108,9 @@ func transactionalMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleConfirmation(ctx, saleConfirmation)
 			}},
-		{"sale voided", saleVoided.To, saleVoided.Subject(), saleVoided.Text(), "", nil,
+		{"sale voided", saleVoided.To, saleVoided.Subject(), saleVoided.Text(), testHTML(saleVoided.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleVoided(ctx, saleVoided) }},
-		{"sale reversal refused", reversalRefused.To, reversalRefused.Subject(), reversalRefused.Text(), "", nil,
+		{"sale reversal refused", reversalRefused.To, reversalRefused.Subject(), reversalRefused.Text(), testHTML(reversalRefused.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleReversalRefused(ctx, reversalRefused)
 			}},
@@ -116,17 +122,17 @@ func transactionalMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendConsentWithdrawalConfirmation(ctx, withdrawal)
 			}},
-		{"holder answer reminder", answerReminder.To, answerReminder.Subject(), answerReminder.Text(), "", nil,
+		{"holder answer reminder", answerReminder.To, answerReminder.Subject(), answerReminder.Text(), testHTML(answerReminder.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendHolderAnswerReminder(ctx, answerReminder)
 			}},
-		{"assignment reminder", assignmentReminder.To, assignmentReminder.Subject(), assignmentReminder.Text(), "", nil,
+		{"assignment reminder", assignmentReminder.To, assignmentReminder.Subject(), assignmentReminder.Text(), testHTML(assignmentReminder.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendAssignmentReminder(ctx, assignmentReminder)
 			}},
 		{"ticket assignment", assignment.To, assignment.Subject(), assignment.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendTicketAssignment(ctx, assignment) }},
-		{"no longer holding", noLongerHolding.To, noLongerHolding.Subject(), noLongerHolding.Text(), "", nil,
+		{"no longer holding", noLongerHolding.To, noLongerHolding.Subject(), noLongerHolding.Text(), testHTML(noLongerHolding.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendNoLongerHolding(ctx, noLongerHolding) }},
 		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleReAddressing(ctx, reAddressing) }},

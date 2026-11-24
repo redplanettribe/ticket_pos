@@ -140,7 +140,7 @@ func TestReversalNoticesAreWrittenInEnglishWhenNothingNamedALanguage(t *testing.
 	for _, want := range []string{
 		"Hi Ana,",
 		"We could not undo your purchase for Noche de Jazz (reference ABC123).",
-		"Your tickets are still valid — nothing has changed about your purchase, and you can still use them.",
+		"Your tickets are still valid. Nothing has changed about your purchase, and you can still use them.",
 		"If you need help with this purchase, contact the organizer and quote the reference above.",
 	} {
 		if !strings.Contains(refusedText, want) {
