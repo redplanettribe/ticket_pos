@@ -2008,11 +2008,12 @@ func (d TaxDocumentDelivery) Subject() string {
 // Text is the delivery's plain-text body: what is attached, which purchase
 // it belongs to, and where to find it again.
 func (d TaxDocumentDelivery) Text() string {
-	text := strings.Join(d.blocks(), "\n\n")
-	if d.CustomerAreaURL != "" {
-		text += "\n\n" + taxDocumentLinkLeadCopy.in(d.Locale) + "\n" + d.CustomerAreaURL
-	}
-	return text
+	return strings.Join(d.blocks(), "\n\n") + d.link().text(d.Locale)
+}
+
+// link is the delivery's way back to the Sale in the Customer Area.
+func (d TaxDocumentDelivery) link() customerAreaLink {
+	return customerAreaLink{lead: taxDocumentLinkLeadCopy, label: taxDocumentButtonCopy, url: d.CustomerAreaURL}
 }
 
 // blocks is the delivery's body before its link, one string per paragraph,
@@ -2095,11 +2096,29 @@ func (n AnnulmentNotice) Subject() string {
 // Text is the notice's body: which factura, that it is void, what follows by
 // the Sale as it stands, and the way back to the Sale.
 func (n AnnulmentNotice) Text() string {
-	text := strings.Join(n.blocks(), "\n\n")
-	if n.CustomerAreaURL != "" {
-		text += "\n\n" + annulmentNoticeLinkLeadCopy.in(n.Locale) + "\n" + n.CustomerAreaURL
+	return strings.Join(n.blocks(), "\n\n") + n.link().text(n.Locale)
+}
+
+// link is the notice's way back to the Sale in the Customer Area.
+func (n AnnulmentNotice) link() customerAreaLink {
+	return customerAreaLink{lead: annulmentNoticeLinkLeadCopy, label: annulmentNoticeButtonCopy, url: n.CustomerAreaURL}
+}
+
+// customerAreaLink is a fiscal mail's way back to the Sale, behind a sign-in:
+// the sentence leading to it, the button's label, and the URL, "" when no
+// storefront is configured. The text part prints the lead and then the URL on
+// the next line; the HTML part prints the lead and then the button.
+type customerAreaLink struct {
+	lead, label mailCopy
+	url         string
+}
+
+// text is the link's closing paragraph of a text part, or "" with no URL.
+func (l customerAreaLink) text(locale Locale) string {
+	if l.url == "" {
+		return ""
 	}
-	return text
+	return "\n\n" + l.lead.in(locale) + "\n" + l.url
 }
 
 // blocks is the notice's body before its link, one string per paragraph,

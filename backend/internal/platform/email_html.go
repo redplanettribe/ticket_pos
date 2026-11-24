@@ -156,6 +156,9 @@ var mailTemplateFuncs = template.FuncMap{
 	"msoOpen": func() template.HTML {
 		return `<!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->`
 	},
+	// lines makes one string the []string the "lines" component takes, so a
+	// paragraph is a paragraph of one line and both share one style.
+	"lines": func(line string) []string { return []string{line} },
 	"msoClose": func() template.HTML {
 		return `<!--[if mso]></td></tr></table><![endif]-->`
 	},
@@ -308,14 +311,14 @@ type fiscalCard struct {
 	Button   *mailButton
 }
 
-func newFiscalCard(locale Locale, heading string, blocks []string, lead, label, url string) fiscalCard {
+func newFiscalCard(locale Locale, heading string, blocks []string, link customerAreaLink) fiscalCard {
 	card := fiscalCard{Heading: heading}
 	for _, block := range blocks {
 		card.Blocks = append(card.Blocks, strings.Split(block, "\n"))
 	}
-	if url != "" {
-		button := newMailButton(locale, label, url)
-		card.LinkLead, card.Button = lead, &button
+	if link.url != "" {
+		button := newMailButton(locale, link.label.in(locale), link.url)
+		card.LinkLead, card.Button = link.lead.in(locale), &button
 	}
 	return card
 }
@@ -326,8 +329,7 @@ func (d TaxDocumentDelivery) HTML(chrome MailChrome) (string, error) {
 	return renderMail(mailKindFiscal, d.Locale, chrome, d.Subject(),
 		fmt.Sprintf(taxDocumentPreheaderCopy.in(d.Locale), d.Reference),
 		fmt.Sprintf(taxDocumentFooterReasonCopy.in(d.Locale), d.EventName),
-		newFiscalCard(d.Locale, d.Subject(), d.blocks(),
-			taxDocumentLinkLeadCopy.in(d.Locale), taxDocumentButtonCopy.in(d.Locale), d.CustomerAreaURL),
+		newFiscalCard(d.Locale, d.Subject(), d.blocks(), d.link()),
 	)
 }
 
@@ -336,7 +338,6 @@ func (n AnnulmentNotice) HTML(chrome MailChrome) (string, error) {
 	return renderMail(mailKindFiscal, n.Locale, chrome, n.Subject(),
 		fmt.Sprintf(annulmentNoticePreheaderCopy.in(n.Locale), n.Number),
 		fmt.Sprintf(annulmentNoticeFooterReasonCopy.in(n.Locale), n.EventName),
-		newFiscalCard(n.Locale, n.Subject(), n.blocks(),
-			annulmentNoticeLinkLeadCopy.in(n.Locale), annulmentNoticeButtonCopy.in(n.Locale), n.CustomerAreaURL),
+		newFiscalCard(n.Locale, n.Subject(), n.blocks(), n.link()),
 	)
 }

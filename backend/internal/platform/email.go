@@ -1336,9 +1336,10 @@ func (s *LoggingEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxD
 // SendAnnulmentNotice logs the Annulment Notice for local development: the
 // reference, the number and whether the Sale was reversed.
 func (s *LoggingEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	s.Logger.Info("annulment notice sent", append([]any{"email", n.To, "reference", n.Reference, "number", n.Number,
-		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale)},
-		s.htmlAttrs(ctx, "annulment notice", n.HTML)...)...)
+	attrs := []any{"email", n.To, "reference", n.Reference, "number", n.Number,
+		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "annulment notice", n.HTML)...)
+	s.Logger.Info("annulment notice sent", attrs...)
 	return nil
 }
 
