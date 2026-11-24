@@ -736,51 +736,75 @@ func (c SaleConfirmation) HTML(chrome MailChrome) (string, error) {
 			URL:     c.ConsentConfirmationLink,
 		}
 	}
+	preheader := saleConfirmationPreheaderNoLinkCopy
+	if card.Button != nil {
+		preheader = saleConfirmationPreheaderCopy
+	}
 	return renderMail(mailKindCover, c.Locale, chrome, c.Subject(),
-		fmt.Sprintf(saleConfirmationPreheaderCopy.in(c.Locale), c.Reference),
+		fmt.Sprintf(preheader.in(c.Locale), c.Reference),
 		fmt.Sprintf(buyerFooterReasonCopy.in(c.Locale), c.EventName),
 		card,
 	)
 }
 
-// HTML is the Assignment mail's HTML part: the Cover Image block in place of
-// the text's "Event:" line, where the address came from, the Ticket, what
-// accepting discloses, the Assignment Link as the one button, and that
-// ignoring it costs nothing.
-func (a TicketAssignment) HTML(chrome MailChrome) (string, error) {
-	card := newCoverCard(a.Locale, ticketAssignmentEyebrowCopy.in(a.Locale), a.EventName, a.Event)
-	card.Before = splitLines([]string{
-		fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName),
-		a.ticketLine(),
-		ticketAssignmentDisclosureCopy.in(a.Locale),
-	})
-	button := newMailButton(a.Locale, ticketAssignmentButtonCopy.in(a.Locale), a.AcceptURL)
-	card.LinkLead, card.Button = ticketAssignmentActionLeadCopy.in(a.Locale), &button
-	card.After = splitLines([]string{ticketAssignmentClosingCopy.in(a.Locale)})
-	return renderMail(mailKindCover, a.Locale, chrome, a.Subject(),
-		ticketAssignmentPreheaderCopy.in(a.Locale),
-		fmt.Sprintf(ticketAssignmentFooterReasonCopy.in(a.Locale), a.EventName),
-		card,
-	)
+// acceptMail is what an Accept mail's HTML part is made of: a mail sent to an
+// address somebody else named, asking its reader to accept, which the
+// Assignment and Re-addressing mails both are. The paragraphs before the
+// link, the sentence leading to it, the link and its button label, the
+// closing, the preheader and the footer reason, all in the mail's language.
+type acceptMail struct {
+	eyebrow, eventName string
+	event              MailEvent
+	before             []string
+	lead, label, url   string
+	closing            string
+	preheader, reason  string
 }
 
-// HTML is the Re-addressing mail's HTML part: the Cover Image block in place
-// of the text's "Event:" line, who is writing and why, the reference, what
-// accepting does, the Re-addressing Link as the one button, and that ignoring
-// it costs nothing.
-func (r SaleReAddressing) HTML(chrome MailChrome) (string, error) {
-	card := newCoverCard(r.Locale, saleReAddressingEyebrowCopy.in(r.Locale), r.EventName, r.Event)
-	card.Before = splitLines([]string{
-		saleReAddressingOpeningCopy.in(r.Locale),
-		r.referenceLine(),
-		saleReAddressingWhyCopy.in(r.Locale),
+// renderAcceptMail renders an Accept mail in the Cover Image card: the block
+// in place of the text's "Event:" line, the paragraphs before the link, the
+// link as the one button after its lead, and the closing.
+func renderAcceptMail(locale Locale, chrome MailChrome, subject string, m acceptMail) (string, error) {
+	card := newCoverCard(locale, m.eyebrow, m.eventName, m.event)
+	card.Before = splitLines(m.before)
+	button := newMailButton(locale, m.label, m.url)
+	card.LinkLead, card.Button = m.lead, &button
+	card.After = splitLines([]string{m.closing})
+	return renderMail(mailKindCover, locale, chrome, subject, m.preheader, m.reason, card)
+}
+
+// HTML is the Assignment mail's HTML part: where the address came from, the
+// Ticket, what accepting discloses, the Assignment Link as the one button,
+// and that ignoring it costs nothing.
+func (a TicketAssignment) HTML(chrome MailChrome) (string, error) {
+	return renderAcceptMail(a.Locale, chrome, a.Subject(), acceptMail{
+		eyebrow: ticketAssignmentEyebrowCopy.in(a.Locale), eventName: a.EventName, event: a.Event,
+		before: []string{
+			fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName),
+			a.ticketLine(),
+			ticketAssignmentDisclosureCopy.in(a.Locale),
+		},
+		lead: ticketAssignmentActionLeadCopy.in(a.Locale), label: ticketAssignmentButtonCopy.in(a.Locale), url: a.AcceptURL,
+		closing:   ticketAssignmentClosingCopy.in(a.Locale),
+		preheader: ticketAssignmentPreheaderCopy.in(a.Locale),
+		reason:    fmt.Sprintf(ticketAssignmentFooterReasonCopy.in(a.Locale), a.EventName),
 	})
-	button := newMailButton(r.Locale, saleReAddressingButtonCopy.in(r.Locale), r.AcceptURL)
-	card.LinkLead, card.Button = saleReAddressingActionLeadCopy.in(r.Locale), &button
-	card.After = splitLines([]string{saleReAddressingClosingCopy.in(r.Locale)})
-	return renderMail(mailKindCover, r.Locale, chrome, r.Subject(),
-		fmt.Sprintf(saleReAddressingPreheaderCopy.in(r.Locale), r.Reference),
-		fmt.Sprintf(saleReAddressingFooterReasonCopy.in(r.Locale), r.EventName),
-		card,
-	)
+}
+
+// HTML is the Re-addressing mail's HTML part: who is writing and why, the
+// reference, what accepting does, the Re-addressing Link as the one button,
+// and that ignoring it costs nothing.
+func (r SaleReAddressing) HTML(chrome MailChrome) (string, error) {
+	return renderAcceptMail(r.Locale, chrome, r.Subject(), acceptMail{
+		eyebrow: saleReAddressingEyebrowCopy.in(r.Locale), eventName: r.EventName, event: r.Event,
+		before: []string{
+			saleReAddressingOpeningCopy.in(r.Locale),
+			r.referenceLine(),
+			saleReAddressingWhyCopy.in(r.Locale),
+		},
+		lead: saleReAddressingActionLeadCopy.in(r.Locale), label: saleReAddressingButtonCopy.in(r.Locale), url: r.AcceptURL,
+		closing:   saleReAddressingClosingCopy.in(r.Locale),
+		preheader: fmt.Sprintf(saleReAddressingPreheaderCopy.in(r.Locale), r.Reference),
+		reason:    fmt.Sprintf(saleReAddressingFooterReasonCopy.in(r.Locale), r.EventName),
+	})
 }

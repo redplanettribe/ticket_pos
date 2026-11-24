@@ -583,9 +583,9 @@ var (
 	// The Organization the buyer paid (spec #870), on the line under the
 	// sentence. "Organizer" and "Organizador" are the public words for an
 	// Organization (CONTEXT.md).
-	saleConfirmationOrganizerLabelCopy = translated("Organizer", "Organizador")
-	saleConfirmationReferenceLabelCopy = translated("Reference", "Referencia")
-	saleConfirmationTotalLabelCopy     = translated("Total paid", "Total pagado")
+	saleConfirmationOrganizationLabelCopy = translated("Organizer", "Organizador")
+	saleConfirmationReferenceLabelCopy    = translated("Reference", "Referencia")
+	saleConfirmationTotalLabelCopy        = translated("Total paid", "Total pagado")
 
 	saleConfirmationPresentCopy = translated(
 		"Present this reference at the event.",
@@ -696,6 +696,12 @@ var (
 		"Reference %s. Present it at the event, or open your tickets from this email.",
 		"Referencia %s. Preséntela en el evento, o abra sus entradas desde este correo.",
 	)
+	// The preheader of a receipt with no Confirmation Link, which has no
+	// button and so promises none.
+	saleConfirmationPreheaderNoLinkCopy = translated(
+		"Reference %s. Present it at the event.",
+		"Referencia %s. Preséntela en el evento.",
+	)
 )
 
 // Subject is the Sale Confirmation's subject line, in the language the sale was
@@ -707,14 +713,14 @@ func (c SaleConfirmation) Subject() string {
 // Text is the Sale Confirmation's plain-text body: what the Customer keeps as
 // their receipt.
 //
-// Its conditional parts (the Organizer, the Tax ID, the factura, the link,
+// Its conditional parts (the Organization, the Tax ID, the factura, the link,
 // the Outstanding Answers and the consent lines) are absent rather than blank
-// when they do not apply — an empty label on a receipt reads as a fault in the
+// when they do not apply: an empty label on a receipt reads as a fault in the
 // platform, and there is nothing a Customer could do about it either way.
 func (c SaleConfirmation) Text() string {
 	text := strings.Join(c.opening(), "\n\n")
-	if org := c.organizer(); org != "" {
-		text += "\n" + saleConfirmationOrganizerLabelCopy.in(c.Locale) + ": " + org
+	if org := c.organization(); org != "" {
+		text += "\n" + saleConfirmationOrganizationLabelCopy.in(c.Locale) + ": " + org
 	}
 	details := c.details()
 	for _, fact := range append([]receiptFact{details.Reference}, details.Facts...) {
@@ -770,9 +776,9 @@ func (c SaleConfirmation) opening() []string {
 	}
 }
 
-// organizer is the Organization the buyer paid, or "" when the mail does not
-// know it, which drops its line.
-func (c SaleConfirmation) organizer() string {
+// organization is the Organization the buyer paid, or "" when the mail does
+// not know it, which drops its "Organizer:" line.
+func (c SaleConfirmation) organization() string {
 	return strings.TrimSpace(c.Event.OrganizationName)
 }
 
@@ -1237,7 +1243,6 @@ var (
 		"Someone who bought tickets for %s gave us your email address so that one of them could be yours.",
 		"Alguien que compró entradas para %s nos dio su dirección de correo para que una de ellas sea suya.",
 	)
-	ticketAssignmentEventLineCopy  = translated("Event: %s", "Evento: %s")
 	ticketAssignmentTicketLineCopy = translated("Ticket: %s", "Entrada: %s")
 	// The disclosure and the link, in that order and never the other way round.
 	// A reader must be able to decide before they press, and a link above the
@@ -1286,7 +1291,7 @@ func (a TicketAssignment) Subject() string {
 // mailTicketAssignment).
 func (a TicketAssignment) Text() string {
 	text := fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName)
-	text += "\n\n" + fmt.Sprintf(ticketAssignmentEventLineCopy.in(a.Locale), a.EventName)
+	text += "\n\n" + fmt.Sprintf(coverEventLineCopy.in(a.Locale), a.EventName)
 	text += "\n" + a.ticketLine()
 	text += "\n\n" + ticketAssignmentDisclosureCopy.in(a.Locale)
 	text += "\n\n" + ticketAssignmentActionLeadCopy.in(a.Locale) + "\n" + a.AcceptURL
@@ -1299,6 +1304,11 @@ func (a TicketAssignment) ticketLine() string {
 	return fmt.Sprintf(ticketAssignmentTicketLineCopy.in(a.Locale), a.TicketTypeName)
 }
 
+// coverEventLineCopy is the "Event: ..." line the Assignment and
+// Re-addressing texts print, which their HTML parts show as the Cover Image
+// block's <h1> instead.
+var coverEventLineCopy = translated("Event: %s", "Evento: %s")
+
 // The Assignment mail's HTML part (#879): the Cover Image block, and the
 // Assignment Link as the one button. The reason line says where the address
 // came from, as the body does, and names nobody.
@@ -1309,7 +1319,7 @@ var (
 	)
 	ticketAssignmentButtonCopy = translated(
 		"Accept your ticket",
-		"Aceptar su entrada",
+		"Acepte su entrada",
 	)
 	ticketAssignmentPreheaderCopy = translated(
 		"Accepting is optional. If you ignore this message, the ticket still works.",
@@ -1362,9 +1372,7 @@ var (
 		"At the organizer's request, we are re-addressing a ticket purchase to this email address.",
 		"A pedido de la organización, estamos redirigiendo una compra de entradas a esta dirección de correo.",
 	)
-	saleReAddressingEventLineCopy     = translated("Event: %s", "Evento: %s")
-	saleReAddressingReferenceLineCopy = translated("Reference: %s", "Referencia: %s")
-	saleReAddressingWhyCopy           = translated(
+	saleReAddressingWhyCopy = translated(
 		"The purchase was made under an email address that could not be reached, and the organizer has told us this is the address it was meant for.",
 		"La compra se hizo con una dirección de correo a la que no se podía llegar, y la organización nos ha indicado que esta es la dirección a la que estaba destinada.",
 	)
@@ -1397,7 +1405,7 @@ func (r SaleReAddressing) Subject() string {
 // shorter message, so the caller refuses to compose one at all.
 func (r SaleReAddressing) Text() string {
 	text := saleReAddressingOpeningCopy.in(r.Locale)
-	text += "\n\n" + fmt.Sprintf(saleReAddressingEventLineCopy.in(r.Locale), r.EventName)
+	text += "\n\n" + fmt.Sprintf(coverEventLineCopy.in(r.Locale), r.EventName)
 	text += "\n" + r.referenceLine()
 	text += "\n\n" + saleReAddressingWhyCopy.in(r.Locale)
 	text += "\n\n" + saleReAddressingActionLeadCopy.in(r.Locale) + "\n" + r.AcceptURL
@@ -1407,7 +1415,7 @@ func (r SaleReAddressing) Text() string {
 
 // referenceLine is "Reference: {reference}", which both parts print.
 func (r SaleReAddressing) referenceLine() string {
-	return fmt.Sprintf(saleReAddressingReferenceLineCopy.in(r.Locale), r.Reference)
+	return saleConfirmationReferenceLabelCopy.in(r.Locale) + ": " + r.Reference
 }
 
 // The Re-addressing mail's HTML part (#879): the Cover Image block, and the
@@ -1420,7 +1428,7 @@ var (
 	)
 	saleReAddressingButtonCopy = translated(
 		"Accept this purchase",
-		"Aceptar esta compra",
+		"Acepte esta compra",
 	)
 	saleReAddressingPreheaderCopy = translated(
 		"Reference %s. Accept it only if this purchase is yours.",

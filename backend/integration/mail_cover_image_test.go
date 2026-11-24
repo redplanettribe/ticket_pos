@@ -99,3 +99,45 @@ func TestTheSaleReAddressingCarriesItsCoverImage(t *testing.T) {
 		assertMailEvent(t, reAddressingMailFor(t, env, "ana.lopez@example.com").Event, eventID, rendered)
 	})
 }
+
+// A sale a Member records by hand, and the replacement a Sale Correction
+// records, are mailed through the import channel's one receipt, each reading
+// the Event for itself.
+func TestManualAndCorrectedSaleConfirmationsCarryTheirCoverImage(t *testing.T) {
+	renditionCases(t, func(t *testing.T, env *testEnv, record func(string) *mailRenditions) {
+		sessionID := orgAdminSession(t, env)
+		eventID, gaID := publishEventStarting(t, env, sessionID, "Manual Cover Fest", "manual-cover-fest",
+			env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
+		rendered := record(eventID)
+		commitBatch(t, env, sessionID, eventID, "manual-cover-1", []map[string]any{
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez",
+				"ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		})
+		imported := activeSaleIDByEmail(t, env, eventID, "ana@example.com")
+		env.email.Reset()
+
+		recordManualSaleOK(t, env, sessionID, eventID,
+			manualSaleBody("bob@example.com", "Bob", "Ng", gaID, 1, "cash", "2026-07-01T10:00:00Z"))
+		correction := correctionBody("anna@example.com", "Anna", "Lopez", gaID, 1, "cash", "2026-07-01T10:00:00Z")
+		correction["send_confirmation"] = true
+		correctImportedSaleOK(t, env, sessionID, eventID, imported, correction)
+
+		for _, address := range []string{"bob@example.com", "anna@example.com"} {
+			assertMailEvent(t, theOneConfirmationTo(t, env, address).Event, eventID, rendered)
+		}
+	})
+}
+
+// Accepting a Re-addressing mails the corrected address the Sale's receipt.
+func TestTheReAddressedSaleConfirmationCarriesItsCoverImage(t *testing.T) {
+	renditionCases(t, func(t *testing.T, env *testEnv, record func(string) *mailRenditions) {
+		const wrong, corrected = "pablo.mistyped@example.com", "pablo.meant@example.com"
+		s := strandSale(t, env, "Moved Cover Fest", "moved-cover-fest", wrong, corrected, 1)
+		rendered := record(s.eventID)
+		env.email.Reset()
+
+		acceptReAddressingLinkOK(t, payphoneEnv, s.token)
+
+		assertMailEvent(t, theOneConfirmationTo(t, env, corrected).Event, s.eventID, rendered)
+	})
+}

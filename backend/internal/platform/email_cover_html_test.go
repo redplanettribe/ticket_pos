@@ -196,8 +196,8 @@ func TestCoverMailLogoTileIsPaintedWhiteTwice(t *testing.T) {
 func TestCoverMailButtonIsTheTextsLink(t *testing.T) {
 	labels := map[string]map[Locale]string{
 		"saleconfirmation": {LocaleEN: "View your tickets", LocaleES: "Vea sus entradas"},
-		"ticketassignment": {LocaleEN: "Accept your ticket", LocaleES: "Aceptar su entrada"},
-		"salereaddressing": {LocaleEN: "Accept this purchase", LocaleES: "Aceptar esta compra"},
+		"ticketassignment": {LocaleEN: "Accept your ticket", LocaleES: "Acepte su entrada"},
+		"salereaddressing": {LocaleEN: "Accept this purchase", LocaleES: "Acepte esta compra"},
 	}
 	for _, f := range coverFixtures() {
 		t.Run(f.name, func(t *testing.T) {
@@ -238,6 +238,10 @@ func TestSaleConfirmationHTMLWithoutALinkHasNoButton(t *testing.T) {
 		if strings.Contains(read, absent) {
 			t.Errorf("with no link the HTML still says %q", absent)
 		}
+	}
+	preheader := findAll(doc, func(n *html.Node) bool { return n.Data == "div" && hasClass(n, "preheader") })[0]
+	if !strings.Contains(textOf(preheader), "Reference ABC123. Present it at the event.") || strings.Contains(textOf(preheader), "open your tickets") {
+		t.Errorf("with no link the preheader promises one: %q", textOf(preheader))
 	}
 	assertMailStructure(t, body, c.Text(), LocaleEN, goldenAssetOrigin, goldenMediaOrigin)
 }
