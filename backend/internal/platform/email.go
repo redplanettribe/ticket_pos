@@ -902,8 +902,8 @@ type FollowDigest struct {
 	// footer degrades to the closing line alone rather than the Digest failing to
 	// send — see digest/service.unsubscribeURL.
 	UnsubscribeURL string
-	// ExploreURL is the Storefront's explorer, every upcoming Event on the
-	// platform: the HTML part's one button, "See all upcoming events", and the
+	// ExploreURL is the Storefront's global explorer, every Discoverable Event
+	// across all Organizations: the HTML part's one button, "See all upcoming events", and the
 	// text's line of the same name (#880). Empty only when the platform has no
 	// Storefront origin configured, which drops the button and the line.
 	ExploreURL string

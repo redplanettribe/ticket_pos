@@ -1884,8 +1884,8 @@ var (
 		"Because you follow: %s",
 		"Porque usted sigue: %s",
 	)
-	// The overflow line of a capped section (#222), in its two forms. The bare
-	// form is also the HTML part's link label, its address behind it.
+	// The overflow line of a capped section (#222), in its two forms. The
+	// count alone is also the HTML part's link label, its address behind it.
 	//
 	// It says the NUMBER and then where to see them, in that order, because the
 	// number is the part that changes what the reader believes about the section
@@ -1898,7 +1898,7 @@ var (
 		"+%d more: %s",
 		"+%d más: %s",
 	)
-	digestMoreWithoutLinkCopy = translated(
+	digestMoreCountCopy = translated(
 		"+%d more",
 		"+%d más",
 	)
@@ -1913,9 +1913,8 @@ var (
 	// losing what they follow would otherwise have no way to tell, and the
 	// safest-looking answer available to them is to stop opening the mail.
 	//
-	// It is three sentences (#880): the question, the act (the link's words in
-	// the HTML part's footer) and what the act keeps. They were one sentence
-	// joined by an em dash, split in two so no em dash reaches either part.
+	// It is three sentences (#880), the same in both parts: the question, the
+	// act (the link's words in the HTML part's footer) and what the act keeps.
 	digestUnsubscribeQuestionCopy = translated(
 		"Don't want these?",
 		"¿No quiere recibirlos?",
@@ -2024,6 +2023,12 @@ func (d FollowDigest) unsubscribeLine() string {
 		labelledLink(digestUnsubscribeLinkCopy.in(d.Locale), d.UnsubscribeURL)
 }
 
+// events is both sections' entries, New first, the order the reader meets
+// them.
+func (d FollowDigest) events() []FollowDigestEvent {
+	return append(append([]FollowDigestEvent{}, d.New...), d.Happening...)
+}
+
 // labelledLink is a link as the Digest's text prints it: its label, a colon,
 // its address.
 func labelledLink(label, url string) string {
@@ -2056,7 +2061,7 @@ func digestSection(heading string, events []FollowDigestEvent, overflow FollowDi
 		if overflow.URL != "" {
 			text += "\n\n" + fmt.Sprintf(digestMoreCopy.in(locale), overflow.Count, overflow.URL)
 		} else {
-			text += "\n\n" + fmt.Sprintf(digestMoreWithoutLinkCopy.in(locale), overflow.Count)
+			text += "\n\n" + fmt.Sprintf(digestMoreCountCopy.in(locale), overflow.Count)
 		}
 	}
 	return text

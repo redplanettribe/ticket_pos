@@ -725,8 +725,8 @@ func (s *Service) compose(
 		// a credential whose entire content is "this person, until they say
 		// otherwise".
 		UnsubscribeURL: s.unsubscribeURL(customerID),
-		// The one button (#880): every upcoming Event, on the explorer the
-		// overflow links already point into.
+		// The one button (#880): the unfiltered explorer the overflow links
+		// already point into.
 		ExploreURL: s.storefrontExplorerHomeURL(),
 	}, nil
 }
@@ -884,8 +884,9 @@ func (s *Service) storefrontExplorerURL(canonicalKeys []string) string {
 	return s.storefrontBaseURL + "/?tags=" + strings.Join(escaped, ",")
 }
 
-// storefrontExplorerHomeURL is the global explorer with no filter: every
-// upcoming Event on the platform, the Digest's "See all upcoming events"
+// storefrontExplorerHomeURL is the global explorer with no filter, every
+// Discoverable Event across all Organizations: the Digest's "See all upcoming
+// events"
 // (#880). No Locale segment, for the reason storefrontEventURL carries none.
 func (s *Service) storefrontExplorerHomeURL() string {
 	if s.storefrontBaseURL == "" {

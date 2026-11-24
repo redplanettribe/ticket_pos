@@ -212,14 +212,14 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 					URL: fixtureStorefront + "/e/noche-de-jazz", MatchedOrganization: true,
 					SquareURL: fixtureSquareURL, LogoURL: fixtureLogoURL,
 				}},
+				// The second entry has no renditions, so the inbox check sees an
+				// Event row with its image cell dropped beside a full one.
 				Happening: []platform.FollowDigestEvent{{
 					Name: "Feria del Libro de Quito", StartsAt: now.AddDate(0, 0, 3), Timezone: guayaquil,
 					OrganizationName: "Libros EC", Venue: "Centro de Convenciones Bicentenario",
 					URL: fixtureStorefront + "/e/feria-del-libro", MatchedTagNames: []string{"Literatura"},
 					Attending: true, TicketSaleURL: fixtureStorefront + "/tickets#sale-fixture",
 				}},
-				// The second entry has no renditions, so the inbox check sees an
-				// Event row with its image cell dropped beside a full one.
 				NewOverflow:    platform.FollowDigestOverflow{Count: 4, URL: fixtureStorefront + "/?tags=jazz"},
 				UnsubscribeURL: fixtureStorefront + "/u/fixture-unsubscribe",
 				ExploreURL:     fixtureStorefront + "/",

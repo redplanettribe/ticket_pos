@@ -82,7 +82,7 @@ Issuer is configured, rather than invented. The unsubscribe line is the Follow
 Digest's alone (ADR 0034): it is the only mail a Customer can turn off. */}}
 {{define "footer"}}<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Reason}}</p>
 {{- with .Unsubscribe}}
-<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Question}} <a class="t-fg" href="{{.URL}}" style="color:#121921;text-decoration:underline;">{{.Label}}</a>. {{.Keep}}</p>
+<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.Question}} <a class="t-fg" href="{{.URL}}" style="color:#121921;text-decoration:underline;">{{.Label}}</a>. {{.KeepsFollows}}</p>
 {{- end}}
 <p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:19px;color:#5c646f;text-align:center;">{{.SupportLead}} <a class="t-fg" href="mailto:{{.SupportEmail}}" style="color:#121921;text-decoration:underline;">{{.SupportEmail}}</a></p>
 {{- if .Legal}}

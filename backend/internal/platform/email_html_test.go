@@ -122,13 +122,7 @@ func digestMailFixtures(locale Locale) []mailFixture {
 	capped.HappeningOverflow = FollowDigestOverflow{Count: 2}
 	add("followdigest-capped", capped)
 
-	noImages := goldenFollowDigest(locale)
-	for _, section := range [][]FollowDigestEvent{noImages.New, noImages.Happening} {
-		for i := range section {
-			section[i].SquareURL, section[i].LogoURL = "", ""
-		}
-	}
-	add("followdigest-noimages", noImages)
+	add("followdigest-noimages", withoutRenditions(goldenFollowDigest(locale)))
 
 	noLinks := goldenFollowDigest(locale)
 	noLinks.New = nil
@@ -138,6 +132,16 @@ func digestMailFixtures(locale Locale) []mailFixture {
 	}
 	add("followdigest-nolinks", noLinks)
 	return fixtures
+}
+
+// withoutRenditions is d with no entry's renditions made yet.
+func withoutRenditions(d FollowDigest) FollowDigest {
+	for _, section := range [][]FollowDigestEvent{d.New, d.Happening} {
+		for i := range section {
+			section[i].SquareURL, section[i].LogoURL = "", ""
+		}
+	}
+	return d
 }
 
 // goldenFollowDigest is an invented reader's week: two new Events (one

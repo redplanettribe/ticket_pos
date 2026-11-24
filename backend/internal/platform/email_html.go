@@ -105,7 +105,9 @@ type mailUnsubscribe struct {
 	Question string
 	Label    string
 	URL      string
-	Keep     string
+	// KeepsFollows is what turning the Digest off leaves alone: the
+	// reader's Follows.
+	KeepsFollows string
 }
 
 // mailButton is the primary button and its raw-link fallback. A kind builds
@@ -147,7 +149,7 @@ const (
 
 // dryRunEventRow is a compact Event row with every optional branch filled.
 var dryRunEventRow = eventRowView{
-	SquareURL: "#", Meta: "-", Detail: "-", Going: "-",
+	SquareURL: "#", Meta: "-", Detail: "-", Attending: "-",
 	Organization: &orgRowView{LogoURL: "#"},
 	Action:       &rowActionView{Label: "-", URL: "#", Because: "-"},
 }
@@ -297,8 +299,9 @@ func newMailFooter(locale Locale, chrome MailChrome, reason string) mailFooter {
 	return footer
 }
 
-// renderMailPage is renderMail with the footer already built, for the one
-// kind whose footer carries more than the reason (the Follow Digest).
+// renderMailPage is renderMail with the footer already built by the caller,
+// for the one kind whose footer carries more than the reason (the Follow
+// Digest's unsubscribe line).
 func renderMailPage(kind mailKind, locale Locale, chrome MailChrome, subject, preheader string, footer mailFooter, card any) (string, error) {
 	tpl, ok := mailTemplates[kind]
 	if !ok {
@@ -532,14 +535,14 @@ func newOrgRow(event MailEvent, tile int) *orgRowView {
 }
 
 // eventRowView is one compact Event row: the square rendition (none when
-// empty), the Event's name, the Follow Digest's "You're going" mark when the
+// empty), the Event's name, the Follow Digest's attending mark when the
 // reader holds Tickets to it, the date and venue line, an optional detail
 // line, the Organization row, and the Digest's call to action line (nil on
 // every other kind).
 type eventRowView struct {
 	Name         string
 	SquareURL    string
-	Going        string
+	Attending    string
 	Meta         string
 	Detail       string
 	Organization *orgRowView
@@ -872,8 +875,8 @@ func (r SaleReAddressing) HTML(chrome MailChrome) (string, error) {
 // The Follow Digest (#880): the reader's week at a glance. Its two sections
 // sit under headings over a heavy rule, each entry a compact Event row with
 // its call to action and "Because you follow ..." on one line, a capped
-// section ends with its "+N more" link, and the one button opens every
-// upcoming Event. The footer carries the unsubscribe line, on this kind only.
+// section ends with its "+N more" link, and the one button opens the
+// explorer. The footer carries the unsubscribe line, on this kind only.
 
 // digestCard is the Follow Digest's card: a heading, the greeting's
 // paragraphs, the sections that have Events, and the one button (nil when the
@@ -926,7 +929,7 @@ func (d FollowDigest) HTML(chrome MailChrome) (string, error) {
 		}
 		if section.overflow.Count > 0 {
 			view.More = &digestMoreView{
-				Label: fmt.Sprintf(digestMoreWithoutLinkCopy.in(d.Locale), section.overflow.Count),
+				Label: fmt.Sprintf(digestMoreCountCopy.in(d.Locale), section.overflow.Count),
 				URL:   section.overflow.URL,
 			}
 		}
@@ -940,10 +943,10 @@ func (d FollowDigest) HTML(chrome MailChrome) (string, error) {
 	footer := newMailFooter(d.Locale, chrome, digestClosingCopy.in(d.Locale))
 	if d.UnsubscribeURL != "" {
 		footer.Unsubscribe = &mailUnsubscribe{
-			Question: digestUnsubscribeQuestionCopy.in(d.Locale),
-			Label:    digestUnsubscribeLinkCopy.in(d.Locale),
-			URL:      d.UnsubscribeURL,
-			Keep:     digestUnsubscribeKeepCopy.in(d.Locale),
+			Question:     digestUnsubscribeQuestionCopy.in(d.Locale),
+			Label:        digestUnsubscribeLinkCopy.in(d.Locale),
+			URL:          d.UnsubscribeURL,
+			KeepsFollows: digestUnsubscribeKeepCopy.in(d.Locale),
 		}
 	}
 	return renderMailPage(mailKindDigest, d.Locale, chrome, d.Subject(), d.preheader(), footer, card)
@@ -952,7 +955,9 @@ func (d FollowDigest) HTML(chrome MailChrome) (string, error) {
 // preheader names the first Event the Digest lists, and says there is more
 // when there is.
 func (d FollowDigest) preheader() string {
-	events := append(append([]FollowDigestEvent{}, d.New...), d.Happening...)
+	events := d.events()
+	// Never empty in practice (an empty Digest is never composed), but a
+	// preheader must not index past the end if one ever were.
 	if len(events) == 0 {
 		return digestSubjectCopy.in(d.Locale)
 	}
@@ -962,8 +967,8 @@ func (d FollowDigest) preheader() string {
 	return fmt.Sprintf(digestPreheaderManyCopy.in(d.Locale), events[0].Name)
 }
 
-// row is one Digest entry as a compact Event row: the "You're going" mark
-// under the name where the text prints it, then the date, venue and
+// row is one Digest entry as a compact Event row: the attending mark under
+// the name where the text prints it, then the date, venue and
 // Organization, then the call to action with the attribution beside it.
 func (e FollowDigestEvent) row(locale Locale) eventRowView {
 	row := newEventRow(locale, e.Name, "", MailEvent{
@@ -975,7 +980,7 @@ func (e FollowDigestEvent) row(locale Locale) eventRowView {
 		VenueName:        e.Venue,
 	})
 	if e.Attending {
-		row.Going = digestAttendingCopy.in(locale)
+		row.Attending = digestAttendingCopy.in(locale)
 	}
 	label, url := e.action(locale)
 	if because := e.because(locale); url != "" || because != "" {

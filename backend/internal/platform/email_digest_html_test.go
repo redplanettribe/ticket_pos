@@ -115,7 +115,7 @@ func TestFollowDigestHTMLEntries(t *testing.T) {
 			d := goldenFollowDigest(locale)
 			doc := renderDigest(t, d)
 			read := textOf(doc)
-			for _, e := range append(append([]FollowDigestEvent{}, d.New...), d.Happening...) {
+			for _, e := range d.events() {
 				label, url := e.action(locale)
 				links := linksTo(doc, url)
 				if len(links) != 1 || !strings.HasPrefix(textOf(links[0]), label) {
@@ -169,10 +169,10 @@ func TestFollowDigestHTMLOverflow(t *testing.T) {
 			d.HappeningOverflow = FollowDigestOverflow{Count: 2}
 			doc := renderDigest(t, d)
 			more := linksTo(doc, d.NewOverflow.URL)
-			if want := strings.Replace(digestMoreWithoutLinkCopy.in(locale), "%d", "4", 1); len(more) != 1 || !strings.HasPrefix(textOf(more[0]), want) {
+			if want := strings.Replace(digestMoreCountCopy.in(locale), "%d", "4", 1); len(more) != 1 || !strings.HasPrefix(textOf(more[0]), want) {
 				t.Fatalf("want one %q link to %s, got %d", want, d.NewOverflow.URL, len(more))
 			}
-			if want := strings.Replace(digestMoreWithoutLinkCopy.in(locale), "%d", "2", 1); !strings.Contains(textOf(doc), want) {
+			if want := strings.Replace(digestMoreCountCopy.in(locale), "%d", "2", 1); !strings.Contains(textOf(doc), want) {
 				t.Fatalf("the capped section with no link does not say %q", want)
 			}
 
@@ -212,7 +212,7 @@ func TestFollowDigestHTMLImages(t *testing.T) {
 	for _, img := range findAll(doc, func(n *html.Node) bool { return n.Data == "img" }) {
 		srcs[attr(img, "src")]++
 	}
-	for _, e := range append(append([]FollowDigestEvent{}, d.New...), d.Happening...) {
+	for _, e := range d.events() {
 		if e.SquareURL != "" && srcs[e.SquareURL] != 1 {
 			t.Errorf("%s: its square rendition shows %d times, want once", e.Name, srcs[e.SquareURL])
 		}
@@ -222,12 +222,7 @@ func TestFollowDigestHTMLImages(t *testing.T) {
 		t.Fatalf("found %d square cells, want 3: the Event with no rendition has none", len(thumbs))
 	}
 
-	none := goldenFollowDigest(LocaleEN)
-	for _, section := range [][]FollowDigestEvent{none.New, none.Happening} {
-		for i := range section {
-			section[i].SquareURL, section[i].LogoURL = "", ""
-		}
-	}
+	none := withoutRenditions(goldenFollowDigest(LocaleEN))
 	imgs := findAll(renderDigest(t, none), func(n *html.Node) bool { return n.Data == "img" })
 	if len(imgs) != 1 || attr(imgs[0], "src") != goldenChrome.MarkURL {
 		t.Fatalf("with no renditions the Digest shows %d images, want only the mark", len(imgs))
