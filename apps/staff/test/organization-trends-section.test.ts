@@ -200,7 +200,7 @@ test("the picker offers every span and both comparisons, and all time disables t
 
   const allTime = renderPicker({ span: "all", from: "", to: "", compare: "previous" });
   assert.match(allTime, /id="organization-trends-compare"[^>]*disabled=""/);
-  assert.match(text(allTime), /all time has no span before it/);
+  assert.match(text(allTime), /Nothing to compare with/);
 
   const custom = renderPicker({ span: "custom", from: "2026-01-15", to: "2026-06-10", compare: "previous" });
   assert.match(custom, /id="organization-trends-from"[^>]*value="2026-01-15"/);

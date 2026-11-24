@@ -225,9 +225,13 @@ export function stackHeight(parts: readonly (number | null | undefined)[]): numb
  * The top of a chart's Y axis: the tallest thing it draws, rounded up as
  * every trends chart rounds (`axisTopFor`). The tallest thing is a value, a
  * comparison value, or the height of a stack, so neither the comparison line
- * nor a stacked bar leaves the plot.
+ * nor a stacked bar leaves the plot. `floor` is the lowest top it may have
+ * (`axisTopFor`).
  */
-export function trendChartYMax(data: readonly (TrendChartDatum & { total?: number | null })[]): number {
+export function trendChartYMax(
+  data: readonly (TrendChartDatum & { total?: number | null })[],
+  floor = 1,
+): number {
   const tallest = data.reduce(
     (max, datum) =>
       Math.max(
@@ -238,7 +242,7 @@ export function trendChartYMax(data: readonly (TrendChartDatum & { total?: numbe
       ),
     0,
   );
-  return axisTopFor(tallest);
+  return axisTopFor(tallest, floor);
 }
 
 // ---------------------------------------------------------------------------

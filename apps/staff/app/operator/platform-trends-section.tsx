@@ -60,7 +60,7 @@ import {
   type TrendTileSecondaryInput,
 } from "@/lib/platform-trends";
 import type { PlatformTrendFigureId, TrendBucketSelection } from "@/lib/platform-trends-breakdown";
-import { formatTakingsTick } from "@/lib/sales-trends";
+import { formatTakingsTick, MONEY_AXIS_FLOOR } from "@/lib/sales-trends";
 import {
   STACK_COMPARISON_ID,
   bucketSelectionIn,
@@ -612,6 +612,7 @@ function LineFigureChart({
   seriesId,
   formatValue,
   formatTickValue,
+  yFloor,
   marker,
   notRecordedLabel,
   granularity,
@@ -628,6 +629,8 @@ function LineFigureChart({
   seriesId: string;
   formatValue: (value: number) => string;
   formatTickValue?: (value: number) => string;
+  /** The lowest top of the Y axis: `MONEY_AXIS_FLOOR` for an amount. */
+  yFloor?: number;
   marker?: ChartMarker;
   notRecordedLabel?: string;
 }) {
@@ -664,6 +667,7 @@ function LineFigureChart({
       comparisonSeries={comparisonSeries}
       formatValue={formatValue}
       formatTickValue={formatTickValue}
+      yFloor={yFloor}
       // A day nothing happened on is a finding here, and is named as a
       // zero beside a comparison that may not be one.
       nothingCountedLabel={t("trendsNothingCounted")}
@@ -793,6 +797,7 @@ function MoneyCurrencyChart({
       seriesId={series.key}
       formatValue={(cents) => formatMoney(cents, series.key, rest.locale)}
       formatTickValue={(cents) => formatTakingsTick(cents, series.key, rest.locale)}
+      yFloor={MONEY_AXIS_FLOOR}
       notRecordedLabel={t("trendsChartNotRecorded")}
     />
   );

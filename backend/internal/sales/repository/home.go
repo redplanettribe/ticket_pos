@@ -26,7 +26,7 @@ type OrganizationSales struct {
 //
 // The Organization row is read even when it sold nothing, so the currency is
 // always stated. The read is bounded by the Organization and by a day, which
-// ticket_sales_organization_sold_at_idx backs (migration 141).
+// ticket_sales_organization_sold_at_idx backs (migration 143).
 func (r *Repository) OrganizationSalesBetween(ctx context.Context, orgID string, from, until time.Time) (OrganizationSales, error) {
 	var out OrganizationSales
 	err := r.db.Pool.QueryRowContext(ctx, `
@@ -86,7 +86,7 @@ type OrganizationSalesDay struct {
 // nothing have no row.
 //
 // The read is bounded by the Organization and by the span, which
-// ticket_sales_organization_sold_at_idx backs (migration 141), as Home now's
+// ticket_sales_organization_sold_at_idx backs (migration 143), as Home now's
 // is.
 func (r *Repository) OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]OrganizationSalesDay, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `

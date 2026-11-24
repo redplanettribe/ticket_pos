@@ -354,12 +354,16 @@ export function chartSelection<Datum extends TrendChartDatum>(
   };
 }
 
-/** The top of a chart's Y axis and its ticks, for the tallest thing drawn. */
-export function useTrendYAxis(data: readonly (TrendChartDatum & { total?: number | null })[]): {
+/** The top of a chart's Y axis and its ticks, for the tallest thing drawn,
+ * never below `floor` (`axisTopFor`). */
+export function useTrendYAxis(
+  data: readonly (TrendChartDatum & { total?: number | null })[],
+  floor = 1,
+): {
   yMax: number;
   yTicks: number[];
 } {
-  const yMax = useMemo(() => trendChartYMax(data), [data]);
+  const yMax = useMemo(() => trendChartYMax(data, floor), [data, floor]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
   return { yMax, yTicks };
 }
@@ -407,6 +411,7 @@ export function TrendLineChart({
   comparisonSeries,
   formatValue,
   formatTickValue,
+  yFloor,
   marker,
   notRecordedLabel,
   nothingCountedLabel,
@@ -424,6 +429,8 @@ export function TrendLineChart({
   comparisonSeries?: StackedSeries[];
   formatValue: (value: number) => string;
   formatTickValue?: (value: number) => string;
+  /** The lowest top of the Y axis: `MONEY_AXIS_FLOOR` for an amount. */
+  yFloor?: number;
   marker?: ChartMarker;
   notRecordedLabel?: string;
   nothingCountedLabel: string;
@@ -431,7 +438,7 @@ export function TrendLineChart({
   selection?: ChartBucketSelection;
   ariaLabel: string;
 }) {
-  const { yMax, yTicks } = useTrendYAxis(data);
+  const { yMax, yTicks } = useTrendYAxis(data, yFloor);
   return (
     <TrendChartWindow ariaLabel={scrollLabel} scrollAnchor={scrollAnchor}>
       {(plotWidth) => (

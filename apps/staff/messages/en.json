@@ -83,7 +83,7 @@
     "compareLabel": "Compared with",
     "comparePrevious": "The span before",
     "compareYear": "The same span a year earlier",
-    "compareNone": "Nothing: all time has no span before it",
+    "compareNone": "Nothing to compare with",
     "reading": "{from} to {to}, {granularity, select, month {by month} other {by day}}.",
     "readingCompared": "{from} to {to}, {granularity, select, month {by month} other {by day}}. Compared with {compareFrom} to {compareTo}.",
     "loading": "Loading Organization Trends...",

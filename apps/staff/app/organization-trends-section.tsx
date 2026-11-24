@@ -53,7 +53,7 @@ import {
   type OrganizationTrendsView,
 } from "@/lib/organization-trends";
 import type { OrganizationTrendBucketSelection, OrganizationTrendFigureId } from "@/lib/organization-trends-breakdown";
-import { formatTakingsTick, type TrendsView } from "@/lib/sales-trends";
+import { formatTakingsTick, MONEY_AXIS_FLOOR, type TrendsView } from "@/lib/sales-trends";
 import {
   STACK_COMPARISON_ID,
   bucketSelectionIn,
@@ -370,6 +370,7 @@ export function OrganizationTrendsReading({
               totalLabel={t("takingsTotal")}
               formatValue={money}
               formatTickValue={moneyTick}
+              yFloor={MONEY_AXIS_FLOOR}
               view={chartView}
               locale={locale}
               channelName={channelName}
@@ -556,6 +557,7 @@ function StackedFigureChart({
   totalLabel,
   formatValue: format,
   formatTickValue,
+  yFloor,
   view,
   locale,
   channelName,
@@ -569,6 +571,8 @@ function StackedFigureChart({
    * formatTickValue says otherwise. */
   formatValue: (value: number) => string;
   formatTickValue?: (value: number) => string;
+  /** The lowest top of the Y axis: `MONEY_AXIS_FLOOR` for an amount. */
+  yFloor?: number;
   view: TrendsView;
   locale: AppLocale;
   channelName: (key: string) => string;
@@ -592,7 +596,7 @@ function StackedFigureChart({
     name: channelName(entry.key),
     color: chartSeriesColor(index),
   }));
-  const { yMax, yTicks } = useTrendYAxis(data);
+  const { yMax, yTicks } = useTrendYAxis(data, yFloor);
   const ariaLabel = cumulative
     ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
     : t("chartLabel", { figure: figureName, granularity: trends.granularity });

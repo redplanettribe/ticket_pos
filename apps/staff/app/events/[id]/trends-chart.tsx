@@ -8,6 +8,7 @@ import { StackedAreaChart, StackedBarChart, type StackedSeries } from "@ticket-p
 import {
   cumulativeTrends,
   trendsSeries,
+  MONEY_AXIS_FLOOR,
   trendsYMax,
   trendsYTicks,
   type TrendsDay,
@@ -118,7 +119,10 @@ export function TrendsChart({
   // Scaled to what is drawn, so the Cumulative view's axis tops the span's final
   // total rather than its busiest day — otherwise most of the curve would sit
   // above the top of the chart.
-  const yMax = useMemo(() => trendsYMax(data), [data]);
+  const yMax = useMemo(
+    () => trendsYMax(data, measure === "takings_cents" ? MONEY_AXIS_FLOOR : 1),
+    [data, measure],
+  );
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
 
   // Bars for a figure that stands alone, an area for one carrying its own

@@ -319,22 +319,29 @@ const AXIS_TOP_TENTHS = [10, 12, 15, 18, 20, 25, 30, 35, 40, 50, 60, 70, 80, 100
  *
  * It is derived from the filtered data rather than from the whole catalog, so
  * deselecting the Ticket Type that dominated the Event genuinely gives the
- * remaining bars the full height of the chart. An all-zero or empty set gets a
- * floor of 1 so the axis draws a scale instead of collapsing to a line.
+ * remaining bars the full height of the chart. An all-zero or empty set gets
+ * `floor` as its top so the axis draws a scale instead of collapsing to a line.
  */
-export function trendsYMax(data: readonly TrendsDatum[]): number {
-  return axisTopFor(data.reduce((max, datum) => Math.max(max, datum.total), 0));
+export function trendsYMax(data: readonly TrendsDatum[], floor = 1): number {
+  return axisTopFor(
+    data.reduce((max, datum) => Math.max(max, datum.total), 0),
+    floor,
+  );
 }
 
 /**
  * axisTopFor is the top of a Y axis whose tallest drawn value is `tallest`:
- * that value rounded up to a readable tick, and 1 when nothing is above zero.
- * The rounding of `trendsYMax`, apart from what it measures, so a chart of
+ * that value rounded up to a readable tick, and `floor` when nothing reaches
+ * it. The rounding of `trendsYMax`, apart from what it measures, so a chart of
  * another shape of data (Platform Trends) tops its axis the same way.
+ *
+ * The floor is the lowest top the axis may have, and must itself be a
+ * readable tick: 1 for a count, `MONEY_AXIS_FLOOR` for an amount in minor
+ * units.
  */
-export function axisTopFor(tallest: number): number {
-  if (!(tallest > 0)) {
-    return 1;
+export function axisTopFor(tallest: number, floor = 1): number {
+  if (!(tallest > floor)) {
+    return floor;
   }
   const decade = 10 ** Math.floor(Math.log10(tallest));
   for (const tenths of AXIS_TOP_TENTHS) {
@@ -422,6 +429,14 @@ export function trendsYTicks(yMax: number): number[] {
 export function formatTakings(cents: number, currency: string, locale: AppLocale): string {
   return formatMoney(cents, currency, locale);
 }
+
+/**
+ * MONEY_AXIS_FLOOR is the lowest top of an axis of Takings: one whole unit of
+ * the currency, in minor units. `formatTakingsTick` writes whole units to one
+ * decimal, so an axis topped at a few cents, as an all-zero span's is, would
+ * read "$0" at every tick, its top included.
+ */
+export const MONEY_AXIS_FLOOR = 100;
 
 /**
  * formatTakingsTick renders a Takings figure short enough for an axis tick:
