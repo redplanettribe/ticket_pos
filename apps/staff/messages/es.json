@@ -124,7 +124,20 @@
     "scrollLabel": "Gráfico de {figure}. Se desplaza hacia los lados cuando es más ancho que su tarjeta.",
     "viewLabel": "Cómo se cuentan los periodos",
     "viewDaily": "Diario",
-    "viewCumulative": "Acumulado"
+    "viewCumulative": "Acumulado",
+    "selectBucket": "{figure}: elija {granularity, select, month {un mes} other {un día}} para ver los eventos que lo formaron",
+    "bucketReading": "{bucket}: {value}",
+    "bucketPartial": "{bucket}: {value}, parcial",
+    "breakdownTitle": "{figure}, {bucket}: los eventos que lo formaron",
+    "breakdownClose": "Cerrar",
+    "breakdownLoading": "Cargando los eventos...",
+    "breakdownFailedTitle": "No se pudieron cargar los eventos",
+    "breakdownFailed": "No se pudieron cargar los eventos que formaron esta cifra.",
+    "breakdownRetry": "Reintentar",
+    "breakdownEmpty": "Ningún evento aportó a esta cifra aquí.",
+    "breakdownPartial": "En lo que va de hoy: el día sigue en curso, así que esto todavía puede crecer.",
+    "breakdownTotal": "Total",
+    "breakdownEvents": "Eventos"
   },
   "login": {
     "title": "Iniciar sesión",

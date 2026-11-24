@@ -124,7 +124,20 @@
     "scrollLabel": "{figure} chart. It scrolls sideways when it is wider than its card.",
     "viewLabel": "How the buckets are counted",
     "viewDaily": "Daily",
-    "viewCumulative": "Cumulative"
+    "viewCumulative": "Cumulative",
+    "selectBucket": "{figure}: choose a {granularity, select, month {month} other {day}} to see the Events that made it",
+    "bucketReading": "{bucket}: {value}",
+    "bucketPartial": "{bucket}: {value}, partial",
+    "breakdownTitle": "{figure}, {bucket}: the Events that made it",
+    "breakdownClose": "Close",
+    "breakdownLoading": "Loading the Events...",
+    "breakdownFailedTitle": "Could not load the Events",
+    "breakdownFailed": "Could not load the Events that made this figure.",
+    "breakdownRetry": "Try again",
+    "breakdownEmpty": "No Event contributed to this figure here.",
+    "breakdownPartial": "Today so far: the day is still running, so this can still grow.",
+    "breakdownTotal": "Total",
+    "breakdownEvents": "Events"
   },
   "login": {
     "title": "Sign in",

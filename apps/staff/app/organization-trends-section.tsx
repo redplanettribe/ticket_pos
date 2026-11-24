@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
@@ -25,6 +25,7 @@ import {
   StackedBarChart,
   TrendTile,
   chartSeriesColor,
+  type ChartBucketSelection,
   type ChartViewOption,
   type StackedSeries,
   type TrendTileChangeCopy,
@@ -55,9 +56,21 @@ import {
   type OrganizationTrends,
   type OrganizationTrendsView,
 } from "@/lib/organization-trends";
-import { STACK_COMPARISON_ID, formatTrendChange, trendChartYMax } from "@/lib/platform-trends";
+import {
+  organizationBucketSelectionIn,
+  type OrganizationTrendBucketSelection,
+  type OrganizationTrendFigureId,
+} from "@/lib/organization-trends-breakdown";
+import {
+  STACK_COMPARISON_ID,
+  formatTrendChange,
+  trendChartYMax,
+  type TrendStackDatum,
+} from "@/lib/platform-trends";
 import { cumulativePlotWidth, formatTakingsTick, trendsYTicks, type TrendsView } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
+
+import { OrganizationTrendBreakdownPanel } from "./organization-trends-breakdown";
 
 /** Home's own path: the reading's address is this plus its query. */
 const HOME_PATH = "/";
@@ -95,6 +108,18 @@ const CHANNEL_KEYS: Record<string, "channelOnline" | "channelInPerson" | "channe
 const STACK_COMPARISON_COLOR = "var(--foreground)";
 
 const CHART_HEIGHT = 240;
+
+/** The figures a chart is drawn for, by their names in the API, which a
+ * bucket's breakdown is asked for by. */
+const FIGURE_IDS = {
+  takings: "takings",
+  ticketsSold: "tickets_sold",
+  pageViews: "page_views",
+  eventsHeld: "events_held",
+} as const satisfies Record<string, OrganizationTrendFigureId>;
+
+/** What a chart's choosable buckets are drawn as, for focus to return to. */
+const BUCKET_LISTBOX = '[role="listbox"]';
 
 /**
  * Organization Trends (#861, #862, #863, spec #858, ADR 0081), beneath what stands
@@ -313,21 +338,54 @@ function CustomRangeForm({
  *
  * Page Views (#863) are loads, never people, and are drawn and said as such:
  * nothing here divides anything by them.
+ *
+ * Any bucket of a Daily chart opens into the Events that made it (#864),
+ * beneath that chart, as on Platform Trends. The Cumulative view draws
+ * running sums, which no Event made alone, so its buckets open nothing.
  */
 export function OrganizationTrendsReading({
   trends,
   locale,
   initialChartView = "daily",
+  initialSelection = null,
 }: {
   trends: OrganizationTrends;
   locale: AppLocale;
   /** The view the charts open in (tests). */
   initialChartView?: TrendsView;
+  /** The bucket whose breakdown is open at first (tests). */
+  initialSelection?: OrganizationTrendBucketSelection | null;
 }) {
   const t = useTranslations("organizationTrends");
   const tSales = useTranslations("sales");
   const [chartView, setChartView] = useState<TrendsView>(initialChartView);
   const { figures, comparison } = trends;
+
+  // The bucket whose breakdown is open: one for the whole section, so
+  // choosing a bucket on another chart moves the panel there. It is held with
+  // the reading it was chosen on and let go when another reading arrives, so
+  // a day chosen on the span before is not left open under other buckets.
+  const [chosen, setChosen] = useState<{ trends: OrganizationTrends; selection: OrganizationTrendBucketSelection } | null>(
+    initialSelection === null ? null : { trends, selection: initialSelection },
+  );
+  const selected = chosen !== null && chosen.trends === trends && chartView === "daily" ? chosen.selection : null;
+  const onSelect = useCallback(
+    (selection: OrganizationTrendBucketSelection) => setChosen({ trends, selection }),
+    [trends],
+  );
+  const choice = { selected, onSelect };
+  const breakdownOf = (figureId: OrganizationTrendFigureId, formatValue: (value: number) => string) =>
+    selected?.figure === figureId ? { selection: selected, formatValue, onClose: () => setChosen(null) } : undefined;
+  const bucketName = (selection: OrganizationTrendBucketSelection) =>
+    formatOrganizationTrendBucket(
+      {
+        first_day: selection.firstDay,
+        last_day: selection.lastDay,
+        partial: trends.span.buckets.find((bucket) => bucket.first_day === selection.firstDay)?.partial ?? false,
+      },
+      trends.granularity,
+      locale,
+    );
 
   const count = (value: number) => formatNumber(value, locale);
   const money = (cents: number) => formatMoney(cents, trends.currency, locale);
@@ -411,9 +469,13 @@ export function OrganizationTrendsReading({
           <FigureCard
             title={t("takings")}
             description={chartView === "cumulative" ? t("takingsDescriptionCumulative") : t("takingsDescription")}
+            breakdown={breakdownOf(FIGURE_IDS.takings, money)}
+            bucketName={bucketName}
           >
             <StackedFigureChart
               trends={trends}
+              figureId={FIGURE_IDS.takings}
+              {...choice}
               source={takings}
               title={t("takings")}
               totalLabel={t("takingsTotal")}
@@ -428,9 +490,13 @@ export function OrganizationTrendsReading({
         <FigureCard
           title={t("ticketsSold")}
           description={chartView === "cumulative" ? t("ticketsSoldDescriptionCumulative") : t("ticketsSoldDescription")}
+          breakdown={breakdownOf(FIGURE_IDS.ticketsSold, count)}
+          bucketName={bucketName}
         >
           <StackedFigureChart
             trends={trends}
+            figureId={FIGURE_IDS.ticketsSold}
+            {...choice}
             source={figures.tickets_sold}
             title={t("ticketsSold")}
             totalLabel={t("ticketsTotal")}
@@ -446,9 +512,13 @@ export function OrganizationTrendsReading({
         <FigureCard
           title={t("pageViews")}
           description={chartView === "cumulative" ? t("pageViewsDescriptionCumulative") : t("pageViewsDescription")}
+          breakdown={breakdownOf(FIGURE_IDS.pageViews, count)}
+          bucketName={bucketName}
         >
           <LineFigureChart
             trends={trends}
+            figureId={FIGURE_IDS.pageViews}
+            {...choice}
             source={figures.page_views}
             title={t("pageViews")}
             formatValue={count}
@@ -462,9 +532,13 @@ export function OrganizationTrendsReading({
         <FigureCard
           title={t("eventsHeld")}
           description={chartView === "cumulative" ? t("eventsHeldDescriptionCumulative") : t("eventsHeldDescription")}
+          breakdown={breakdownOf(FIGURE_IDS.eventsHeld, count)}
+          bucketName={bucketName}
         >
           <StackedFigureChart
             trends={trends}
+            figureId={FIGURE_IDS.eventsHeld}
+            {...choice}
             source={figures.events_held}
             title={t("eventsHeld")}
             totalLabel={t("eventsHeldTotal")}
@@ -482,16 +556,103 @@ export function OrganizationTrendsReading({
   );
 }
 
-function FigureCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+/** The open breakdown of a figure, as its card draws it beneath the chart. */
+type FigureBreakdown = {
+  selection: OrganizationTrendBucketSelection;
+  formatValue: (value: number) => string;
+  onClose: () => void;
+};
+
+/** What lets a chart's buckets be chosen: the bucket open on whichever chart
+ * it was chosen on, and what a choice opens. */
+type BucketChoice = {
+  figureId: OrganizationTrendFigureId;
+  selected: OrganizationTrendBucketSelection | null;
+  onSelect: (selection: OrganizationTrendBucketSelection) => void;
+};
+
+/**
+ * One figure's card: its chart, and beneath it the Events of the bucket
+ * chosen on that chart, while one is.
+ */
+function FigureCard({
+  title,
+  description,
+  breakdown,
+  bucketName,
+  children,
+}: {
+  title: string;
+  description: string;
+  breakdown?: FigureBreakdown;
+  bucketName: (selection: OrganizationTrendBucketSelection) => string;
+  children: ReactNode;
+}) {
+  const content = useRef<HTMLDivElement>(null);
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">{children}</CardContent>
+      <CardContent ref={content} className="space-y-3">
+        {children}
+        {breakdown === undefined ? null : (
+          <OrganizationTrendBreakdownPanel
+            selection={breakdown.selection}
+            figure={title}
+            bucket={bucketName(breakdown.selection)}
+            formatValue={breakdown.formatValue}
+            onClose={() => {
+              // The Close button goes with the panel. Focus returns to the
+              // chart the bucket was chosen on, so a keyboard reader is not
+              // dropped at the top of the page.
+              content.current?.querySelector<HTMLElement>(BUCKET_LISTBOX)?.focus();
+              breakdown.onClose();
+            }}
+          />
+        )}
+      </CardContent>
     </Card>
   );
+}
+
+/**
+ * What lets a Daily chart's buckets be chosen (#864): which of them is
+ * selected, what a choice opens, and how each is read aloud. Choosing the
+ * selected bucket again keeps it open; the panel is closed by its own button.
+ */
+function chartSelection(
+  data: readonly TrendStackDatum[],
+  { figureId, selected, onSelect }: BucketChoice,
+  label: string,
+  describe: (datum: TrendStackDatum) => string,
+): ChartBucketSelection {
+  const find = (key: string) => data.find((datum) => datum.key === key);
+  return {
+    selectedKey: organizationBucketSelectionIn(selected, figureId, data),
+    onSelect: (key) => {
+      const datum = find(key);
+      if (datum !== undefined) {
+        onSelect({ figure: figureId, key, firstDay: datum.firstDay, lastDay: datum.lastDay });
+      }
+    },
+    label,
+    describeBucket: (key) => {
+      const datum = find(key);
+      return datum === undefined ? key : describe(datum);
+    },
+  };
+}
+
+/** How a Daily chart's bucket is read aloud: its name and its stack height,
+ * said partial for today and a month the span cuts. */
+function describeStack(
+  t: ReturnType<typeof useTranslations<"organizationTrends">>,
+  format: (value: number) => string,
+): (datum: TrendStackDatum) => string {
+  return (datum) =>
+    t(datum.partial ? "bucketPartial" : "bucketReading", { bucket: datum.label, value: format(datum.total ?? 0) });
 }
 
 /**
@@ -504,6 +665,9 @@ function FigureCard({ title, description, children }: { title: string; descripti
  */
 function StackedFigureChart({
   trends,
+  figureId,
+  selected,
+  onSelect,
   source,
   title: figureName,
   totalLabel,
@@ -512,7 +676,7 @@ function StackedFigureChart({
   view,
   locale,
   channelName,
-}: {
+}: BucketChoice & {
   trends: OrganizationTrends;
   source: OrganizationTrendFigure;
   /** The figure's name, which the chart's labels carry. */
@@ -592,6 +756,12 @@ function StackedFigureChart({
               formatTickValue={formatTickValue}
               totalLabel={totalLabel}
               partialLabel={t("partial")}
+              selection={chartSelection(
+                data,
+                { figureId, selected, onSelect },
+                t("selectBucket", { figure: figureName, granularity: trends.granularity }),
+                describeStack(t, format),
+              )}
               ariaLabel={ariaLabel}
             />
           )
@@ -661,12 +831,15 @@ function FigureChartWindow({
  */
 function LineFigureChart({
   trends,
+  figureId,
+  selected,
+  onSelect,
   source,
   title: figureName,
   formatValue: format,
   view,
   locale,
-}: {
+}: BucketChoice & {
   trends: OrganizationTrends;
   source: OrganizationTrendFigure;
   /** The figure's name, which the chart's labels carry. */
@@ -711,6 +884,16 @@ function LineFigureChart({
           zeroIsMeasured
           nothingCountedLabel={t("nothingCounted")}
           partialLabel={t("partial")}
+          selection={
+            cumulative
+              ? undefined
+              : chartSelection(
+                  data,
+                  { figureId, selected, onSelect },
+                  t("selectBucket", { figure: figureName, granularity: trends.granularity }),
+                  describeStack(t, format),
+                )
+          }
           ariaLabel={ariaLabel}
         />
       )}
