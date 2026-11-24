@@ -145,7 +145,7 @@ type MailEvent struct {
 	// 64px: from the Thumbnail, or from the Cover Image cropped to its centre.
 	SquareURL string
 	// StartsAt and Timezone are when the Event starts, printed in its own zone
-	// exactly as the Follow Digest prints it; an unloadable zone or a zero
+	// exactly as the Follow Digest prints it; no zone, an unloadable one or a zero
 	// StartsAt prints no date. VenueName is printed as stored.
 	StartsAt  time.Time
 	Timezone  string

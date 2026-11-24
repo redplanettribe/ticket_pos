@@ -199,7 +199,7 @@ func TestEventRowMailFooterReasons(t *testing.T) {
 		"assignmentreminder":  {LocaleEN: "you bought tickets for Noche de Jazz", LocaleES: "compró entradas para Noche de Jazz"},
 		"salevoided":          {LocaleEN: "you bought tickets for Noche de Jazz", LocaleES: "compró entradas para Noche de Jazz"},
 		"salereversalrefused": {LocaleEN: "you bought tickets for Noche de Jazz", LocaleES: "compró entradas para Noche de Jazz"},
-		"nolongerholding":     {LocaleEN: "you accepted a ticket for Noche de Jazz", LocaleES: "aceptó una entrada para Noche de Jazz"},
+		"nolongerholding":     {LocaleEN: "you held a ticket for Noche de Jazz", LocaleES: "tenía una entrada para Noche de Jazz"},
 	}
 	for _, f := range eventRowFixtures() {
 		body, err := f.html(goldenChrome)
@@ -249,5 +249,15 @@ func TestEventRowMailEscapesTypedNames(t *testing.T) {
 				t.Fatalf("the typed name does not read as the text that was typed")
 			}
 		})
+	}
+}
+
+// An Event with no zone prints no date in its row rather than a UTC one.
+func TestEventRowMailPrintsNoDateWithoutAZone(t *testing.T) {
+	event := goldenMailEvent()
+	event.Timezone = ""
+	row := newEventRow(LocaleEN, "Noche de Jazz", "", event)
+	if row.Meta != event.VenueName {
+		t.Fatalf("meta = %q, want the venue alone", row.Meta)
 	}
 }

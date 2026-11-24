@@ -477,8 +477,12 @@ type eventRowView struct {
 
 func newEventRow(locale Locale, name, detail string, event MailEvent) eventRowView {
 	var meta []string
-	if when := formatEventDate(event.StartsAt, event.Timezone, locale); when != "" {
-		meta = append(meta, when)
+	// No zone prints no date: time.LoadLocation reads "" as UTC, and an
+	// Event's time is only true in its own zone.
+	if strings.TrimSpace(event.Timezone) != "" {
+		if when := formatEventDate(event.StartsAt, event.Timezone, locale); when != "" {
+			meta = append(meta, when)
+		}
 	}
 	if venue := strings.TrimSpace(event.VenueName); venue != "" {
 		meta = append(meta, venue)
@@ -525,10 +529,7 @@ func splitLines(blocks []string) [][]string {
 // with its Ticket Type under the Event's name, and the Customer Area as the
 // one button.
 func (r HolderAnswerReminder) HTML(chrome MailChrome) (string, error) {
-	opening, closing := holderAnswerReminderOpeningCopy, holderAnswerReminderClosingCopy
-	if len(r.Tickets) != 1 {
-		opening, closing = holderAnswerReminderOpeningPluralCopy, holderAnswerReminderClosingPluralCopy
-	}
+	opening, closing := r.openingAndClosing()
 	rows := make([]eventRowView, 0, len(r.Tickets))
 	for _, ticket := range r.Tickets {
 		rows = append(rows, newEventRow(r.Locale, ticket.EventName,
@@ -555,17 +556,7 @@ func (r HolderAnswerReminder) HTML(chrome MailChrome) (string, error) {
 func (r AssignmentReminder) HTML(chrome MailChrome) (string, error) {
 	event := r.Event
 	event.StartsAt, event.Timezone = r.EventStartsAt, r.EventTimezone
-	tally := assignmentReminderTallyCopy
-	if r.UnassignedTickets == 1 {
-		tally = assignmentReminderTallyOneCopy
-	}
-	blocks := []string{
-		fmt.Sprintf(assignmentReminderGreetingCopy.in(r.Locale), r.FirstName),
-		fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets),
-	}
-	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
-		blocks = append(blocks, assignmentReminderGoLiveCopy.in(r.Locale))
-	}
+	blocks := append([]string{fmt.Sprintf(assignmentReminderGreetingCopy.in(r.Locale), r.FirstName)}, r.tally()...)
 	button := newMailButton(r.Locale, assignmentReminderButtonCopy.in(r.Locale), r.ConfirmationLink)
 	return renderMail(mailKindEventRow, r.Locale, chrome, r.Subject(),
 		assignmentReminderPreheaderCopy.in(r.Locale),

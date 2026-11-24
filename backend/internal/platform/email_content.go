@@ -895,23 +895,24 @@ func (r HolderAnswerReminder) Subject() string {
 // whatever is listed, and the closing states the per-Ticket cap in the reader's
 // own terms.
 func (r HolderAnswerReminder) Text() string {
-	if len(r.Tickets) == 1 {
-		ticket := r.Tickets[0]
-		text := holderAnswerReminderOpeningCopy.in(r.Locale)
-		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
-		text += "\n\n" + r.action()
-		text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
-		return text
-	}
-
-	text := holderAnswerReminderOpeningPluralCopy.in(r.Locale)
+	opening, closing := r.openingAndClosing()
+	text := opening.in(r.Locale)
 	for _, ticket := range r.Tickets {
 		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale),
 			ticket.EventName, ticket.TicketTypeName)
 	}
 	text += "\n\n" + r.action()
-	text += "\n\n" + holderAnswerReminderClosingPluralCopy.in(r.Locale)
+	text += "\n\n" + closing.in(r.Locale)
 	return text
+}
+
+// openingAndClosing is the singular copy for one Ticket and the plural copy
+// for several, which both parts read.
+func (r HolderAnswerReminder) openingAndClosing() (opening, closing mailCopy) {
+	if len(r.Tickets) == 1 {
+		return holderAnswerReminderOpeningCopy, holderAnswerReminderClosingCopy
+	}
+	return holderAnswerReminderOpeningPluralCopy, holderAnswerReminderClosingPluralCopy
 }
 
 // action is the instruction and the address, then the sign-in sentence:
@@ -1042,6 +1043,21 @@ var buyerFooterReasonCopy = translated(
 	"Recibe este correo porque compró entradas para %s.",
 )
 
+// tally is the paragraphs between the Event and the action, which both parts
+// carry: the tally, and the go-live sentence for a Sale older than
+// TicketAssignmentWentLiveAt.
+func (r AssignmentReminder) tally() []string {
+	tally := assignmentReminderTallyCopy
+	if r.UnassignedTickets == 1 {
+		tally = assignmentReminderTallyOneCopy
+	}
+	blocks := []string{fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets)}
+	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
+		blocks = append(blocks, assignmentReminderGoLiveCopy.in(r.Locale))
+	}
+	return blocks
+}
+
 // TicketAssignmentWentLiveAt is the moment Ticket Assignment first existed in
 // production: the deploy of commit 5c567c9, in which ticket_assignment_enabled
 // first became true there. A Sale created before it was made when no buyer
@@ -1076,13 +1092,8 @@ func (r AssignmentReminder) Text() string {
 	if when := formatEventDate(r.EventStartsAt, r.EventTimezone, r.Locale); when != "" {
 		text += "\n" + fmt.Sprintf(assignmentReminderEventDateCopy.in(r.Locale), when)
 	}
-	tally := assignmentReminderTallyCopy
-	if r.UnassignedTickets == 1 {
-		tally = assignmentReminderTallyOneCopy
-	}
-	text += "\n\n" + fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets)
-	if r.SaleCreatedAt.Before(TicketAssignmentWentLiveAt) {
-		text += "\n\n" + assignmentReminderGoLiveCopy.in(r.Locale)
+	for _, block := range r.tally() {
+		text += "\n\n" + block
 	}
 	text += "\n\n" + assignmentReminderActionLeadCopy.in(r.Locale) + "\n" + r.ConfirmationLink
 	text += "\n\n" + assignmentReminderDisclosureCopy.in(r.Locale)
@@ -1335,8 +1346,10 @@ var (
 		"No tiene que hacer nada. Su cuenta sigue igual.",
 	)
 	noLongerHoldingFooterReasonCopy = translated(
-		"You're getting this because you accepted a ticket for %s.",
-		"Recibe este correo porque aceptó una entrada para %s.",
+		// "held" and not "accepted": the buyer's own Self-held Ticket was never
+		// accepted, and this mail reaches them too.
+		"You're getting this because you held a ticket for %s.",
+		"Recibe este correo porque tenía una entrada para %s.",
 	)
 )
 
