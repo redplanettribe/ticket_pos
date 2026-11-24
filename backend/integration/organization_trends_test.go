@@ -63,7 +63,7 @@ type organizationTrends struct {
 	} `json:"comparison"`
 	Granularity string `json:"granularity"`
 	Figures     struct {
-		TicketsSold orgTrendFigure `json:"tickets_sold"`
+		TicketsSold orgTrendFigure  `json:"tickets_sold"`
 		TicketSales orgTrendFigure  `json:"ticket_sales"`
 		Takings     *orgTrendFigure `json:"takings"`
 	} `json:"figures"`

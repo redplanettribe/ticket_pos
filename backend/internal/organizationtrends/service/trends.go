@@ -103,15 +103,17 @@ type OrganizationTrendComparison struct {
 type OrganizationTrendFigures struct {
 	// TicketsSold is the quantity over active Ticket Sales, by the platform
 	// day each was made, one series per Sales Channel.
-	TicketsSold OrganizationTrendFigure `json:"tickets_sold"`
-	// TicketSales is how many active Ticket Sales were made, by the platform
-	// day each was made, in one series keyed all.
-	TicketSales OrganizationTrendFigure `json:"ticket_sales"`
 	// Takings is what the active Ticket Sales took, in the Organization's
 	// minor units, by the platform day each was made, one series per Sales
 	// Channel: Sales Trends' Takings (ADR 0040), summed across the
-	// Organization. Null for Event Staff, who are handed no money.
-	Takings *OrganizationTrendFigure `json:"takings"`
+	// Organization. Null for Event Staff, who are handed no money. It comes
+	// first so swag, which describes a shared schema by the last field
+	// naming it, does not describe every figure by it.
+	Takings     *OrganizationTrendFigure `json:"takings"`
+	TicketsSold OrganizationTrendFigure  `json:"tickets_sold"`
+	// TicketSales is how many active Ticket Sales were made, by the platform
+	// day each was made, in one series keyed all.
+	TicketSales OrganizationTrendFigure `json:"ticket_sales"`
 }
 
 // OrganizationTrendFigure is one figure: its total over the span, the
@@ -209,11 +211,9 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 	}
 
 	ticketSeries := make([]trendspan.Series, 0, len(salesChannels))
-	takingsSeries := make([]trendspan.Series, 0, len(salesChannels))
 	keys := make([]string, 0, len(salesChannels))
 	for _, channel := range salesChannels {
 		ticketSeries = append(ticketSeries, span.Series(ticketsByChannel[channel]))
-		takingsSeries = append(takingsSeries, span.Series(takingsByChannel[channel]))
 		keys = append(keys, channel)
 	}
 
@@ -229,6 +229,10 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 		},
 	}
 	if reader.seesTakings() {
+		takingsSeries := make([]trendspan.Series, 0, len(keys))
+		for _, channel := range keys {
+			takingsSeries = append(takingsSeries, span.Series(takingsByChannel[channel]))
+		}
 		takings := figureOf(keys, takingsSeries)
 		out.Figures.Takings = &takings
 	}

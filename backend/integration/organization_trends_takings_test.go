@@ -29,8 +29,9 @@ func salesTrendsTakingsOn(trends salesTrends, date string) int {
 }
 
 // TestOrganizationTrendsTakingsMatchesSalesTrends: an Online Sale, a
-// backdated Sale Import, a reversed import, one in the comparison span and
-// one made today read, per bucket and in every total, as the two Events'
+// backdated Sale Import, a reversed import, a reversed Online Sale, a sale
+// in the comparison span on each channel and one made today read, per
+// bucket, per comparison bucket and in every total, as the two Events'
 // Sales Trends report them, each on its own Sales Channel.
 func TestOrganizationTrendsTakingsMatchesSalesTrends(t *testing.T) {
 	env := setupTest(t)
@@ -39,6 +40,11 @@ func TestOrganizationTrendsTakingsMatchesSalesTrends(t *testing.T) {
 	onlineEvent, onlineGA := publishCheckoutEvent(t, env, admin, "Online Fest", "online-fest", feeTestBaseCents, 100)
 	buyOnlineOn(t, env, testOrgSlug, "online-fest", onlineGA, "ana@example.com", 2, time.Date(2026, 7, 5, 18, 0, 0, 0, time.UTC))
 	buyOnlineOn(t, env, testOrgSlug, "online-fest", onlineGA, "bob@example.com", 1, time.Date(2026, 7, 2, 17, 0, 0, 0, time.UTC))
+	// An Online Sale on 2026-07-04, reversed, and one in the previous span.
+	reversedOnline := time.Date(2026, 7, 4, 17, 0, 0, 0, time.UTC)
+	buyOnlineOn(t, env, testOrgSlug, "online-fest", onlineGA, "rev@example.com", 3, reversedOnline)
+	reverseSaleSoldAt(t, env, onlineEvent, reversedOnline)
+	buyOnlineOn(t, env, testOrgSlug, "online-fest", onlineGA, "old@example.com", 1, time.Date(2026, 6, 27, 17, 0, 0, 0, time.UTC))
 
 	importEvent := createDraftEvent(t, env, admin, "Import Fest", "import-fest")
 	importGA := createTicketTypeWithCapacity(t, env, admin, importEvent, "GA", importedPriceCents, 100)
@@ -81,6 +87,17 @@ func TestOrganizationTrendsTakingsMatchesSalesTrends(t *testing.T) {
 		}
 		wantTotal += wantOnline + wantImport
 	}
+	for i, day := range online.ComparisonBuckets {
+		wantOnline := salesTrendsTakingsOn(onlineTrends, day.FirstDay)
+		wantImport := salesTrendsTakingsOn(importTrends, day.FirstDay)
+		if day.Value != wantOnline || imported.ComparisonBuckets[i].Value != wantImport {
+			t.Fatalf("comparison %s takings online=%d import=%d, want Sales Trends' %d and %d",
+				day.FirstDay, day.Value, imported.ComparisonBuckets[i].Value, wantOnline, wantImport)
+		}
+	}
+	if online.Buckets[4].Value != 0 {
+		t.Fatalf("2026-07-04 online takings = %d, want 0: the Online Sale was reversed", online.Buckets[4].Value)
+	}
 	// The reversed import is out and the backdated one is on its own day.
 	if want := 3 * importedPriceCents; imported.Buckets[2].Value != want {
 		t.Fatalf("2026-07-02 import takings = %d, want %d: the reversed 4 are out", imported.Buckets[2].Value, want)
@@ -94,7 +111,7 @@ func TestOrganizationTrendsTakingsMatchesSalesTrends(t *testing.T) {
 	if takings.Total != wantTotal || online.Total+imported.Total != wantTotal {
 		t.Fatalf("takings total=%d online=%d import=%d, want %d, Sales Trends' sum over the span", takings.Total, online.Total, imported.Total, wantTotal)
 	}
-	if want := salesTrendsTakingsOn(importTrends, "2026-06-25"); takings.ComparisonTotal == nil || *takings.ComparisonTotal != want || want != 2*importedPriceCents {
+	if want := salesTrendsTakingsOn(importTrends, "2026-06-25") + salesTrendsTakingsOn(onlineTrends, "2026-06-27"); takings.ComparisonTotal == nil || *takings.ComparisonTotal != want || want <= 2*importedPriceCents {
 		t.Fatalf("takings comparison_total = %v, want Sales Trends' %d", intOrNil(takings.ComparisonTotal), want)
 	}
 	if want := salesTrendsTakingsOn(importTrends, "2026-07-07"); imported.Today == nil || !imported.Today.Partial || imported.Today.Value != want {

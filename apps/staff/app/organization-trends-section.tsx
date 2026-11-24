@@ -465,7 +465,7 @@ function FigureCard({ title, description, children }: { title: string; descripti
 function StackedFigureChart({
   trends,
   source,
-  title: figure,
+  title: figureName,
   totalLabel,
   formatValue: format,
   formatTickValue,
@@ -511,8 +511,8 @@ function StackedFigureChart({
   const availableWidth = useElementWidth(scrollArea);
   const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
   const ariaLabel = cumulative
-    ? t("chartLabelCumulative", { figure, granularity: trends.granularity })
-    : t("chartLabel", { figure, granularity: trends.granularity });
+    ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
+    : t("chartLabel", { figure: figureName, granularity: trends.granularity });
 
   return (
     <>
@@ -526,7 +526,7 @@ function StackedFigureChart({
       </ul>
       <ChartScrollArea
         ref={setScrollArea}
-        ariaLabel={t("scrollLabel", { figure })}
+        ariaLabel={t("scrollLabel", { figure: figureName })}
         openAtNewestEnd={{ key: organizationTrendsScrollAnchor(trends, view), contentWidth: plotWidth }}
       >
         {cumulative ? (

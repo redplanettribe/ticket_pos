@@ -7718,7 +7718,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "service.OrganizationTrendFigure": {
-                "description": "Takings is what the active Ticket Sales took, in the Organization's\nminor units, by the platform day each was made, one series per Sales\nChannel: Sales Trends' Takings (ADR 0040), summed across the\nOrganization. Null for Event Staff, who are handed no money.",
+                "description": "TicketSales is how many active Ticket Sales were made, by the platform\nday each was made, in one series keyed all.",
                 "properties": {
                     "change": {
                         "description": "Change is a signed ratio (0.5 for half as much again), null when the\ncomparison total is zero or there is no comparison.",

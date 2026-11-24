@@ -19790,10 +19790,8 @@ export interface components {
             partial?: boolean;
         };
         /**
-         * @description Takings is what the active Ticket Sales took, in the Organization's
-         *     minor units, by the platform day each was made, one series per Sales
-         *     Channel: Sales Trends' Takings (ADR 0040), summed across the
-         *     Organization. Null for Event Staff, who are handed no money.
+         * @description TicketSales is how many active Ticket Sales were made, by the platform
+         *     day each was made, in one series keyed all.
          */
         "service.OrganizationTrendFigure": {
             /**
