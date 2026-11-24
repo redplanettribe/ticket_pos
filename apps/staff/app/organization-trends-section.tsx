@@ -32,7 +32,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 
 import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
-import { PLATFORM_TIME_ZONE, formatCalendarDay, formatNumber } from "@/lib/format";
+import { PLATFORM_TIME_ZONE, formatCalendarDay, formatMoney, formatNumber } from "@/lib/format";
 import {
   ORGANIZATION_TREND_COMPARISONS,
   ORGANIZATION_TREND_SPANS,
@@ -49,12 +49,13 @@ import {
   soldNothing,
   type OrganizationTrendComparison,
   type OrganizationTrendDays,
+  type OrganizationTrendFigure,
   type OrganizationTrendSpan,
   type OrganizationTrends,
   type OrganizationTrendsView,
 } from "@/lib/organization-trends";
 import { STACK_COMPARISON_ID, formatTrendChange, trendChartYMax } from "@/lib/platform-trends";
-import { cumulativePlotWidth, trendsYTicks, type TrendsView } from "@/lib/sales-trends";
+import { cumulativePlotWidth, formatTakingsTick, trendsYTicks, type TrendsView } from "@/lib/sales-trends";
 import { useElementWidth } from "@/lib/use-element-width";
 
 /** Home's own path: the reading's address is this plus its query. */
@@ -95,8 +96,8 @@ const STACK_COMPARISON_COLOR = "var(--foreground)";
 const CHART_HEIGHT = 240;
 
 /**
- * Organization Trends (#861, spec #858, ADR 0081), beneath what stands now on
- * Home.
+ * Organization Trends (#861, #862, spec #858, ADR 0081), beneath what stands
+ * now on Home.
  *
  * The reading on screen is named by the page's address (`view`, parsed from
  * it on the server), and every choice is a push of a new address, so a
@@ -304,6 +305,10 @@ function CustomRangeForm({
 /**
  * One reading, drawn: a tile per figure, then the charts, with one Daily and
  * Cumulative choice for every chart of the section.
+ *
+ * Takings is drawn only when the reading carries it. The API withholds it
+ * from Event Staff (#862), so the section decides nothing about money: what
+ * it is not handed, it does not draw, and never as a zero.
  */
 export function OrganizationTrendsReading({
   trends,
@@ -321,6 +326,9 @@ export function OrganizationTrendsReading({
   const { figures, comparison } = trends;
 
   const count = (value: number) => formatNumber(value, locale);
+  const money = (cents: number) => formatMoney(cents, trends.currency, locale);
+  const moneyTick = (cents: number) => formatTakingsTick(cents, trends.currency, locale);
+  const takings = figures.takings ?? null;
   const changeCopy: TrendTileChangeCopy = {
     format: (ratio) => formatTrendChange(ratio, locale),
     growth: t("changeGrowth"),
@@ -328,15 +336,15 @@ export function OrganizationTrendsReading({
     unchanged: t("changeUnchanged"),
     nothingToCompare: t("nothingToCompare"),
   };
-  const tile = (id: string, label: string, figure: OrganizationTrends["figures"]["tickets_sold"]) => {
-    const reading = organizationTrendTile(figure, comparison !== null, count);
+  const tile = (id: string, label: string, figure: OrganizationTrendFigure, format: (value: number) => string) => {
+    const reading = organizationTrendTile(figure, comparison !== null, format);
     return {
       id,
       label,
       readings: [
         {
           id: reading.id,
-          value: reading.value ?? count(0),
+          value: reading.value ?? format(0),
           change: reading.change,
           noChange: reading.noChange === undefined ? undefined : t(reading.noChange),
           trend: reading.trend,
@@ -345,8 +353,9 @@ export function OrganizationTrendsReading({
     };
   };
   const tiles = [
-    tile("tickets_sold", t("ticketsSold"), figures.tickets_sold),
-    tile("ticket_sales", t("ticketSales"), figures.ticket_sales),
+    ...(takings === null ? [] : [tile("takings", t("takings"), takings, money)]),
+    tile("tickets_sold", t("ticketsSold"), figures.tickets_sold, count),
+    tile("ticket_sales", t("ticketSales"), figures.ticket_sales, count),
   ];
 
   const viewOptions: ChartViewOption<TrendsView>[] = useMemo(
@@ -392,11 +401,38 @@ export function OrganizationTrendsReading({
       </div>
 
       <div role="group" aria-label={t("chartsLabel")} className="grid grid-cols-1 gap-4">
+        {takings === null ? null : (
+          <FigureCard
+            title={t("takings")}
+            description={chartView === "cumulative" ? t("takingsDescriptionCumulative") : t("takingsDescription")}
+          >
+            <StackedFigureChart
+              trends={trends}
+              source={takings}
+              title={t("takings")}
+              totalLabel={t("takingsTotal")}
+              formatValue={money}
+              formatTickValue={moneyTick}
+              view={chartView}
+              locale={locale}
+              channelName={channelName}
+            />
+          </FigureCard>
+        )}
         <FigureCard
           title={t("ticketsSold")}
           description={chartView === "cumulative" ? t("ticketsSoldDescriptionCumulative") : t("ticketsSoldDescription")}
         >
-          <TicketsSoldChart trends={trends} view={chartView} locale={locale} channelName={channelName} />
+          <StackedFigureChart
+            trends={trends}
+            source={figures.tickets_sold}
+            title={t("ticketsSold")}
+            totalLabel={t("ticketsTotal")}
+            formatValue={count}
+            view={chartView}
+            locale={locale}
+            channelName={channelName}
+          />
           {soldNothing(figures.tickets_sold) ? (
             <p className="text-sm text-muted-foreground">{t("nothingSold")}</p>
           ) : null}
@@ -419,26 +455,38 @@ function FigureCard({ title, description, children }: { title: string; descripti
 }
 
 /**
- * Tickets Sold, stacked by Sales Channel in Platform Trends' channel colours.
+ * A figure stacked by Sales Channel (Tickets Sold, Takings) in Platform
+ * Trends' channel colours.
  * The Daily view draws a bar per bucket, the comparison span's stack height
  * as the faint line and today, and any month the span cuts, as a faint bar.
  * The Cumulative view draws each channel's running sum from zero at the
  * span's start as stacked bands, ending at the span's total.
  */
-function TicketsSoldChart({
+function StackedFigureChart({
   trends,
+  source,
+  title: figure,
+  totalLabel,
+  formatValue: format,
+  formatTickValue,
   view,
   locale,
   channelName,
 }: {
   trends: OrganizationTrends;
+  source: OrganizationTrendFigure;
+  /** The figure's name, which the chart's labels carry. */
+  title: string;
+  totalLabel: string;
+  /** How a value is written in the hover card, and on the axis unless
+   * formatTickValue says otherwise. */
+  formatValue: (value: number) => string;
+  formatTickValue?: (value: number) => string;
   view: TrendsView;
   locale: AppLocale;
   channelName: (key: string) => string;
 }) {
   const t = useTranslations("organizationTrends");
-  const figure = t("ticketsSold");
-  const source = trends.figures.tickets_sold;
   const label = useCallback(
     (bucket: OrganizationTrendDays) => formatOrganizationTrendBucket(bucket, trends.granularity, locale),
     [trends.granularity, locale],
@@ -462,7 +510,6 @@ function TicketsSoldChart({
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const availableWidth = useElementWidth(scrollArea);
   const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
-  const format = (value: number) => formatNumber(value, locale);
   const ariaLabel = cumulative
     ? t("chartLabelCumulative", { figure, granularity: trends.granularity })
     : t("chartLabel", { figure, granularity: trends.granularity });
@@ -491,7 +538,8 @@ function TicketsSoldChart({
             plotWidth={plotWidth}
             height={CHART_HEIGHT}
             formatValue={format}
-            totalLabel={t("ticketsTotal")}
+            formatTickValue={formatTickValue}
+            totalLabel={totalLabel}
             ariaLabel={ariaLabel}
           />
         ) : (
@@ -514,7 +562,8 @@ function TicketsSoldChart({
             plotWidth={plotWidth}
             height={CHART_HEIGHT}
             formatValue={format}
-            totalLabel={t("ticketsTotal")}
+            formatTickValue={formatTickValue}
+            totalLabel={totalLabel}
             partialLabel={t("partial")}
             ariaLabel={ariaLabel}
           />

@@ -1,4 +1,4 @@
-// Organization Trends (#861, spec #858, ADR 0081): the Organization's figures
+// Organization Trends (#861, #862, spec #858, ADR 0081): the Organization's figures
 // over a chosen span, beneath what stands now on Home.
 //
 // The backend answers everything drawn: the buckets, which are partial, the
@@ -76,6 +76,13 @@ export type OrganizationTrends = {
   figures: {
     tickets_sold: OrganizationTrendFigure;
     ticket_sales: OrganizationTrendFigure;
+    /**
+     * Takings by Sales Channel, in the Organization's minor units, as Sales
+     * Trends computes it (ADR 0040). The API withholds it from Event Staff
+     * (#862): absent or null, never a zero, and the page then draws no
+     * Takings at all.
+     */
+    takings?: OrganizationTrendFigure | null;
   };
 };
 

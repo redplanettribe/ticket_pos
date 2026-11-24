@@ -193,3 +193,50 @@ test("the picker offers every span and both comparisons, and all time disables t
   assert.match(custom, /id="organization-trends-from"[^>]*value="2026-01-15"/);
   assert.match(text(renderPicker({ span: "all", from: "", to: "", compare: "previous" }, "es")), /Desde el inicio/);
 });
+
+// Takings (#862): the API sends it to an Org Admin and an Event Owner and
+// withholds it from Event Staff, so the reading each is handed differs by
+// whether figures.takings is there. The page draws Takings only when it is.
+
+const takingsFigure = () =>
+  figure({ online: [2000, 0, 3000], in_person: [0, 0, 0], import: [7500, 0, 0] }, { online: 4000 }, 6250);
+
+const handedTo = {
+  orgAdmin: () => reading({ figures: { ...reading().figures, takings: takingsFigure() } }),
+  eventOwner: () => reading({ figures: { ...reading().figures, takings: takingsFigure() } }),
+  eventStaffNull: () => reading({ figures: { ...reading().figures, takings: null } }),
+  eventStaffOmitted: () => reading(),
+};
+
+for (const role of ["orgAdmin", "eventOwner"] as const) {
+  test(`an ${role === "orgAdmin" ? "Org Admin" : "Event Owner"} sees the Takings tile and the Takings chart`, () => {
+    const markup = renderReading(handedTo[role]());
+    const words = text(markup);
+    // 20.00 + 30.00 + 75.00, today's 40.00 in no total, against 62.50.
+    assert.match(words, /Takings \$125\.00 /);
+    assert.match(words, /\+100%/);
+    assert.match(markup, /aria-label="Takings, day by day"/);
+    assert.match(words, /on every Sales Channel/);
+    const cumulative = renderReading(handedTo[role](), "en", "cumulative");
+    assert.match(cumulative, /aria-label="Takings since the start of the span, day by day"/);
+  });
+}
+
+for (const handed of ["eventStaffNull", "eventStaffOmitted"] as const) {
+  test(`Event Staff see neither the Takings tile nor the Takings chart (${handed === "eventStaffNull" ? "null" : "omitted"})`, () => {
+    const markup = renderReading(handedTo[handed]());
+    const words = text(markup);
+    assert.doesNotMatch(words, /Takings/);
+    assert.doesNotMatch(words, /\$/);
+    assert.doesNotMatch(markup, /aria-label="Takings/);
+    // The counts are still there.
+    assert.match(words, /Tickets sold 10 /);
+    assert.match(markup, /aria-label="Tickets sold, day by day"/);
+  });
+}
+
+test("Takings reads in Ecuadorian Spanish, in the Organization's currency", () => {
+  const words = text(renderReading(handedTo.orgAdmin(), "es"));
+  assert.match(words, /Recaudación \$125,00 /);
+  assert.match(words, /en todos los canales de venta/);
+});
