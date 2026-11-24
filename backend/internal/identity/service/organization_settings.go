@@ -175,13 +175,17 @@ func (s *Service) UpdateOrganization(ctx context.Context, actor ActiveMemberCont
 			return nil, identity.ErrInvalidLogoImageKey()
 		}
 
-		updated, err = s.repo.UpdateOrganizationLogoKey(ctx, actor.OrganizationID, input.LogoImageKey)
+		var before repository.LogoKeys
+		updated, before, err = s.repo.UpdateOrganizationLogoKey(ctx, actor.OrganizationID, input.LogoImageKey)
 		if err != nil {
 			return nil, err
 		}
 		if updated == nil {
 			return nil, identity.ErrOrganizationNotFound()
 		}
+		// The write above has committed; the Logo's email rendition follows
+		// it, best-effort, and never fails this save.
+		s.refreshEmailLogoRendition(ctx, actor.OrganizationID, before, updated.LogoImageKey)
 	}
 
 	// The Support WhatsApp number. Whether the request is talking about it at all

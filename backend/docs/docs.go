@@ -5660,7 +5660,7 @@ const docTemplate = `{
             "service.EmailRenditionFillResult": {
                 "properties": {
                     "complete": {
-                        "description": "Complete is false when the run stopped at its time budget with Events\nleft unvisited; run it again.",
+                        "description": "Complete is false when the run stopped at its time budget with Events\nor Logos left unvisited; run it again.",
                         "type": "boolean"
                     },
                     "failed": {
@@ -5668,7 +5668,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "remaining": {
-                        "description": "Remaining counts the Events still holding an original with a null\nrendition after this run: the failures, and anything the run's time\nbudget did not reach.",
+                        "description": "Remaining counts the Events and the Organizations still holding an\noriginal with a null rendition after this run: the failures, and\nanything the run's time budget did not reach.",
                         "type": "integer"
                     },
                     "rendered": {
@@ -13793,7 +13793,7 @@ const docTemplate = `{
         },
         "/api/v1/internal/email-renditions/fill": {
             "post": {
-                "description": "Renders every Event original whose email rendition is null, across every Organization: the wide rendition (the Cover Image as a JPEG 1200px wide) and the square one (a 128px JPEG from the Thumbnail, or from the Cover Image cropped to its centre). Each rendition is best-effort: one that cannot be produced is logged, stays null and is counted as failed, and the next run tries it again. A run stops starting Events after four minutes, inside the request timeout, and says so with complete=false; run it again until complete is true and remaining is zero, or remaining holds only originals that keep failing (their causes are in the log). Idempotent: a second run after a clean one renders nothing. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Run by hand, not on a schedule. The response names no Event.",
+                "description": "Renders every Event original and every Organization Logo whose email rendition is null, across every Organization: an Event's wide rendition (the Cover Image as a JPEG 1200px wide) and square one (a 128px JPEG from the Thumbnail, or from the Cover Image cropped to its centre), and an Organization's Logo rendition (a PNG fitted within 96px square, its transparency kept). Each rendition is best-effort: one that cannot be produced is logged, stays null and is counted as failed, and the next run tries it again. A run stops starting Events and Logos after four minutes, inside the request timeout, and says so with complete=false; run it again until complete is true and remaining is zero, or remaining holds only originals that keep failing (their causes are in the log). Idempotent: a second run after a clean one renders nothing. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Run by hand, not on a schedule. The response names no Event and no Organization.",
                 "responses": {
                     "200": {
                         "content": {

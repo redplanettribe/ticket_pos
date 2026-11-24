@@ -196,10 +196,10 @@ func registerInternalRoutes(mux Router, app *App) {
 // have none, so they stay out of scheduledJobs, whose names are a contract
 // with the Terraform cron monitors.
 func registerInternalByHandRoutes(mux Router, app *App) {
-	// The rendition fill (#876, spec #870): renders every Event original whose
-	// email rendition is null. Run once after the deploy that introduced
-	// renditions, to fill the existing catalogue, and again whenever its
-	// answer says it is not done. Idempotent.
+	// The rendition fill (#876, #877, spec #870): renders every Event original
+	// and every Organization Logo whose email rendition is null. Run once after
+	// the deploy that introduced renditions, to fill the existing catalogue,
+	// and again whenever its answer says it is not done. Idempotent.
 	mux.HandleFunc("POST /api/v1/internal/email-renditions/fill", app.CatalogHandler.FillEmailRenditions)
 }
 

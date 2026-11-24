@@ -272,8 +272,11 @@ type CustomerHoldings interface {
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
-	fees    sales.FeeRates
-	now     func() time.Time
+	// emailLogos fills the Organization Logo renditions beside the Event ones
+	// (#877). Nil until WithEmailLogoRenditions sets it.
+	emailLogos EmailLogoRenditions
+	fees       sales.FeeRates
+	now        func() time.Time
 	// holdings answers what a signed-in Customer already holds of an Event's
 	// Ticket Types, for the public Event read only.
 	holdings CustomerHoldings

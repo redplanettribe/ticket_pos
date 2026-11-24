@@ -209,8 +209,8 @@ type EnvelopeHolderAddressPurge struct {
 }
 
 // EnvelopeEmailRenditionFill documents POST
-// /api/v1/internal/email-renditions/fill success responses (#876): counts
-// only, naming no Event.
+// /api/v1/internal/email-renditions/fill success responses (#876, #877):
+// counts only, naming no Event and no Organization.
 type EnvelopeEmailRenditionFill struct {
 	Data      service.EmailRenditionFillResult `json:"data"`
 	Error     *platform.APIError               `json:"error"`

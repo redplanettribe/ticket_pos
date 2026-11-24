@@ -425,6 +425,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// structurally on the transactional identity (ADR 0030), which matters
 	// because its recipient has consented to nothing and could not have.
 	catalogService = catalogService.WithAssignmentMail(emailSender)
+	// The rendition fill covers the Organization Logos beside the Events
+	// (#877): identity owns the Logo, so it renders those.
+	catalogService = catalogService.WithEmailLogoRenditions(identityService)
 	// The other mail this flow sends: the one an accepted Holder gets when a
 	// Ticket stops being theirs (#327, ADR 0046).
 	//

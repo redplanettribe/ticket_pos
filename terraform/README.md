@@ -514,10 +514,12 @@ the Terraform defaults and fails if the three stop agreeing.
 ## The email rendition fill
 
 Mail shows an Event's imagery through its email renditions (spec #870): the Cover Image as a JPEG 1200px wide, and a 128px square JPEG from the Thumbnail, or from the Cover Image cropped to its centre.
-The API renders them itself whenever an Organizer sets or replaces an image, so only Events saved before renditions existed are missing them.
-Until they are filled, mail about those Events simply shows no images.
+It shows an Organization's Logo through the Logo's email rendition: a PNG fitted within 96px square, its transparency kept.
+The API renders them itself whenever an Organizer sets or replaces an image or a Logo, so only Events and Organizations saved before renditions existed are missing them.
+Until they are filled, mail about those Events and Organizations simply shows no images.
 
-**Run the fill once after the deploy that adds renditions (#876, migration 144).**
+**Run the fill once after the deploy that adds renditions (#876 and #877, migrations 144 and 145).**
+One run covers both the Events and the Logos.
 It is an internal route with no schedule and no Terraform behind it, authenticated by Cloud Run IAM like the scheduled ones, so your own identity token is the credential:
 
 ```bash
@@ -529,11 +531,11 @@ curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" 
 # {"data":{"rendered":N,"failed":N,"remaining":N,"complete":true},...}
 ```
 
-It renders every original whose rendition is null and skips everything already rendered, so it is safe to run again at any time.
+It renders every original (Cover Image, Thumbnail or Logo) whose rendition is null and skips everything already rendered, so it is safe to run again at any time.
 `complete: false` means the run stopped at its four-minute budget, inside the request timeout; run it again until it says `true`.
-`remaining` counts the Events still missing a rendition afterwards.
-Anything left in it failed to render (a missing or unreadable original), each failure is in the logs as `email rendition: the rendition could not be produced and stays empty` with its Event and object key, and the next run tries it again.
-A failure never affects anything but that Event's mail imagery.
+`remaining` counts the Events and the Organizations still missing a rendition afterwards.
+Anything left in it failed to render (a missing or unreadable original), each failure is in the logs as `email rendition: the rendition could not be produced and stays empty` with its Event or Organization and object key, and the next run tries it again.
+A failure never affects anything but that Event's or Organization's mail imagery.
 
 ## Email
 

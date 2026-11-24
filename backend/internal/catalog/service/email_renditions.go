@@ -156,17 +156,33 @@ type EmailRenditionFillResult struct {
 	// Failed counts the renditions this run could not produce. Each stays
 	// null, its cause is logged, and the next run tries it again.
 	Failed int `json:"failed"`
-	// Remaining counts the Events still holding an original with a null
-	// rendition after this run: the failures, and anything the run's time
-	// budget did not reach.
+	// Remaining counts the Events and the Organizations still holding an
+	// original with a null rendition after this run: the failures, and
+	// anything the run's time budget did not reach.
 	Remaining int `json:"remaining"`
 	// Complete is false when the run stopped at its time budget with Events
-	// left unvisited; run it again.
+	// or Logos left unvisited; run it again.
 	Complete bool `json:"complete"`
 }
 
-// FillEmailRenditions renders every Event original whose rendition is null,
-// across every Organization. Idempotent and safe to rerun: what is rendered is
+// EmailLogoRenditions fills the Organization Logo renditions (#877), which the
+// identity module owns since it owns the Organization and its Logo. The fill
+// the catalog serves runs it beside the Event renditions, inside the same
+// time budget, so one command fills both.
+type EmailLogoRenditions interface {
+	FillEmailLogoRenditions(ctx context.Context, deadline time.Time) (storage.EmailRenditionCounts, error)
+}
+
+// WithEmailLogoRenditions sets who fills the Logo renditions. Identity is built
+// before the catalog service but reads the catalog's repository, so this is set
+// once both exist. Without it the fill covers Events alone.
+func (s *Service) WithEmailLogoRenditions(logos EmailLogoRenditions) *Service {
+	s.emailLogos = logos
+	return s
+}
+
+// FillEmailRenditions renders every Event original and every Organization
+// Logo whose rendition is null, across every Organization. Idempotent and safe to rerun: what is rendered is
 // skipped, so a second run after a clean one renders nothing.
 //
 // It visits each Event once per run, in id order, so an original that cannot
@@ -218,6 +234,17 @@ func (s *Service) FillEmailRenditions(ctx context.Context) (*EmailRenditionFillR
 		return nil, err
 	}
 	result.Remaining = remaining
+	if s.emailLogos != nil {
+		// Past the deadline it starts no Logo, but still counts what remains.
+		logos, err := s.emailLogos.FillEmailLogoRenditions(ctx, deadline)
+		if err != nil {
+			return nil, err
+		}
+		result.Rendered += logos.Rendered
+		result.Failed += logos.Failed
+		result.Remaining += logos.Remaining
+		result.Complete = result.Complete && logos.Complete
+	}
 	if s.logger != nil {
 		s.logger.Info("email rendition fill ran",
 			"rendered", result.Rendered, "failed", result.Failed, "remaining", result.Remaining, "complete", result.Complete)
