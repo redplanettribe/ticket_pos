@@ -64,7 +64,8 @@ type organizationTrends struct {
 	Granularity string `json:"granularity"`
 	Figures     struct {
 		TicketsSold orgTrendFigure `json:"tickets_sold"`
-		TicketSales orgTrendFigure `json:"ticket_sales"`
+		TicketSales orgTrendFigure  `json:"ticket_sales"`
+		Takings     *orgTrendFigure `json:"takings"`
 	} `json:"figures"`
 }
 

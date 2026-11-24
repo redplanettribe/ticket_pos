@@ -9,7 +9,7 @@ import (
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
-// Organization Trends (#861): the figures of the Organization over a chosen
+// Organization Trends (#861, #862): the figures of the Organization over a chosen
 // span, beneath Home now. The span arithmetic is trendspan's, in month mode;
 // every figure is read live per platform day and stated over the span with
 // trendspan.Span.Series, so today stays apart and in no total.
@@ -107,6 +107,11 @@ type OrganizationTrendFigures struct {
 	// TicketSales is how many active Ticket Sales were made, by the platform
 	// day each was made, in one series keyed all.
 	TicketSales OrganizationTrendFigure `json:"ticket_sales"`
+	// Takings is what the active Ticket Sales took, in the Organization's
+	// minor units, by the platform day each was made, one series per Sales
+	// Channel: Sales Trends' Takings (ADR 0040), summed across the
+	// Organization. Null for Event Staff, who are handed no money.
+	Takings *OrganizationTrendFigure `json:"takings"`
 }
 
 // OrganizationTrendFigure is one figure: its total over the span, the
@@ -171,8 +176,10 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 	}
 
 	ticketsByChannel := make(map[string]map[string]int, len(salesChannels))
+	takingsByChannel := make(map[string]map[string]int, len(salesChannels))
 	for _, channel := range salesChannels {
 		ticketsByChannel[channel] = map[string]int{}
+		takingsByChannel[channel] = map[string]int{}
 	}
 	salesByDay := map[string]int{}
 	// The span, with today, and the comparison span are read apart, so a
@@ -193,16 +200,20 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 			seen[cell] = true
 			if ticketsByChannel[day.Channel] == nil {
 				ticketsByChannel[day.Channel] = map[string]int{}
+				takingsByChannel[day.Channel] = map[string]int{}
 			}
 			ticketsByChannel[day.Channel][day.Day] += day.TicketsSold
+			takingsByChannel[day.Channel][day.Day] += day.TakingsCents
 			salesByDay[day.Day] += day.TicketSales
 		}
 	}
 
 	ticketSeries := make([]trendspan.Series, 0, len(salesChannels))
+	takingsSeries := make([]trendspan.Series, 0, len(salesChannels))
 	keys := make([]string, 0, len(salesChannels))
 	for _, channel := range salesChannels {
 		ticketSeries = append(ticketSeries, span.Series(ticketsByChannel[channel]))
+		takingsSeries = append(takingsSeries, span.Series(takingsByChannel[channel]))
 		keys = append(keys, channel)
 	}
 
@@ -216,6 +227,10 @@ func (s *Service) Trends(ctx context.Context, reader Reader, query TrendSpanQuer
 			TicketsSold: figureOf(keys, ticketSeries),
 			TicketSales: figureOf([]string{countSeriesKey}, []trendspan.Series{span.Series(salesByDay)}),
 		},
+	}
+	if reader.seesTakings() {
+		takings := figureOf(keys, takingsSeries)
+		out.Figures.Takings = &takings
 	}
 	if compared, ok := span.Compared(); ok {
 		kind := ComparePrevious

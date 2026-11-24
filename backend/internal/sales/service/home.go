@@ -32,20 +32,23 @@ func (s *Service) EventTicketsSold(ctx context.Context, orgID, eventID string) (
 }
 
 // OrganizationSalesDay is how many tickets, in how many Ticket Sales, one
-// Organization sold on one Sales Channel on one day, the day being a
-// YYYY-MM-DD calendar date on the clock the caller asked for.
+// Organization sold on one Sales Channel on one day, and what they took
+// (Takings, ADR 0040), the day being a YYYY-MM-DD calendar date on the clock
+// the caller asked for.
 type OrganizationSalesDay struct {
-	Day         string
-	Channel     string
-	TicketsSold int
-	TicketSales int
+	Day          string
+	Channel      string
+	TicketsSold  int
+	TicketSales  int
+	TakingsCents int
 }
 
-// OrganizationSalesByDay is one Organization's Tickets Sold and Ticket Sales
-// per day and Sales Channel over the active Ticket Sales sold in [from,
+// OrganizationSalesByDay is one Organization's Tickets Sold, Ticket Sales and
+// Takings per day and Sales Channel over the active Ticket Sales sold in [from,
 // until), read for Organization Trends (#861): by the instant each sale was
-// made, on the named timezone, reversed sales left out. Days that sold
-// nothing have no entry, and filling them is the caller's.
+// made, on the named timezone, reversed sales left out, Takings as Sales
+// Trends computes it (ADR 0040, #862). Days that sold nothing have no entry,
+// and filling them is the caller's.
 func (s *Service) OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]OrganizationSalesDay, error) {
 	rows, err := s.repo.OrganizationSalesByDay(ctx, orgID, from, until, timezone)
 	if err != nil {
@@ -53,7 +56,7 @@ func (s *Service) OrganizationSalesByDay(ctx context.Context, orgID string, from
 	}
 	out := make([]OrganizationSalesDay, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, OrganizationSalesDay{Day: row.Day, Channel: row.Channel, TicketsSold: row.TicketsSold, TicketSales: row.TicketSales})
+		out = append(out, OrganizationSalesDay{Day: row.Day, Channel: row.Channel, TicketsSold: row.TicketsSold, TicketSales: row.TicketSales, TakingsCents: row.TakingsCents})
 	}
 	return out, nil
 }

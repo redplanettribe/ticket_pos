@@ -62,13 +62,15 @@ func (r *Repository) EventTicketsSold(ctx context.Context, orgID, eventID string
 }
 
 // OrganizationSalesDay is one (day, Sales Channel) cell of an Organization's
-// active Ticket Sales: their Tickets Sold and how many Ticket Sales they are.
-// Day is a calendar date on the clock the caller named, YYYY-MM-DD.
+// active Ticket Sales: their Tickets Sold, how many Ticket Sales they are,
+// and their Takings in the Organization's minor units. Day is a calendar
+// date on the clock the caller named, YYYY-MM-DD.
 type OrganizationSalesDay struct {
-	Day         string
-	Channel     string
-	TicketsSold int
-	TicketSales int
+	Day          string
+	Channel      string
+	TicketsSold  int
+	TicketSales  int
+	TakingsCents int
 }
 
 // OrganizationSalesByDay totals one Organization's active Ticket Sales sold in
@@ -77,8 +79,11 @@ type OrganizationSalesDay struct {
 //
 // It keeps Sales Trends' rules, as OrganizationSalesBetween does: by sold_at,
 // the instant the sale was MADE, so a backdated Sale Import lands on its own
-// day; reversed sales left out, live. The day is read on the zone the caller
-// passes, the platform's own clock. Days that sold nothing have no row.
+// day; reversed sales left out, live; and the money is Takings, the
+// single-sourced per-line expression with no channel filter (ADR 0040, #862),
+// so each channel's cell is what Sales Trends draws for it. The day is read
+// on the zone the caller passes, the platform's own clock. Days that sold
+// nothing have no row.
 //
 // No index is added: the read is bounded by the Organization and by the
 // span, over ticket_sales(organization_id, ...), as Home now's is.
@@ -88,7 +93,8 @@ func (r *Repository) OrganizationSalesByDay(ctx context.Context, orgID string, f
 			to_char((ts.sold_at AT TIME ZONE $4)::date, 'YYYY-MM-DD') AS day,
 			ts.channel,
 			SUM(tsl.quantity)::bigint,
-			COUNT(DISTINCT ts.id)::bigint
+			COUNT(DISTINCT ts.id)::bigint,
+			COALESCE(SUM(`+lineNetProceedsSQL+`), 0)::bigint
 		FROM ticket_sales ts
 		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
 		WHERE ts.organization_id = $1 AND ts.status = 'active'
@@ -104,7 +110,7 @@ func (r *Repository) OrganizationSalesByDay(ctx context.Context, orgID string, f
 	var out []OrganizationSalesDay
 	for rows.Next() {
 		var day OrganizationSalesDay
-		if err := rows.Scan(&day.Day, &day.Channel, &day.TicketsSold, &day.TicketSales); err != nil {
+		if err := rows.Scan(&day.Day, &day.Channel, &day.TicketsSold, &day.TicketSales, &day.TakingsCents); err != nil {
 			return nil, err
 		}
 		out = append(out, day)

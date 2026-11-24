@@ -6877,8 +6877,10 @@ components:
       type: object
     service.OrganizationTrendFigure:
       description: |-
-        TicketSales is how many active Ticket Sales were made, by the platform
-        day each was made, in one series keyed all.
+        Takings is what the active Ticket Sales took, in the Organization's
+        minor units, by the platform day each was made, one series per Sales
+        Channel: Sales Trends' Takings (ADR 0040), summed across the
+        Organization. Null for Event Staff, who are handed no money.
       properties:
         change:
           description: |-
@@ -6899,6 +6901,8 @@ components:
     service.OrganizationTrendFigures:
       description: Figures carries one entry per figure.
       properties:
+        takings:
+          $ref: '#/components/schemas/service.OrganizationTrendFigure'
         ticket_sales:
           $ref: '#/components/schemas/service.OrganizationTrendFigure'
         tickets_sold:
@@ -22829,10 +22833,13 @@ paths:
         leaves them out. tickets_sold is the quantity over active Ticket Sales, one
         series per Sales Channel (online, in_person, import), each always present;
         ticket_sales is how many active Ticket Sales were made, one series keyed all.
-        A bucket nothing sold in is zero, never absent. Each figure''s total is its
-        series'' summed. change is a signed ratio (0.5 for half as much again), null
-        when the comparison total is zero or there is none. currency is the Organization''s.
-        Any Member.'
+        takings is the Takings of the active Ticket Sales in the Organization''s minor
+        units, computed exactly as Sales Trends computes it (every Sales Channel,
+        no channel filter), one series per Sales Channel like tickets_sold; it is
+        null for Event Staff, never zero in its place. A bucket nothing sold in is
+        zero, never absent. Each figure''s total is its series'' summed. change is
+        a signed ratio (0.5 for half as much again), null when the comparison total
+        is zero or there is none. currency is the Organization''s. Any Member.'
       parameters:
       - description: Span
         in: query
