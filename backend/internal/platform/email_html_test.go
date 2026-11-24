@@ -19,7 +19,7 @@ import (
 //
 // rewrites the goldens; review the diff before committing it.
 
-var update = flag.Bool("update", false, "rewrite the golden HTML mail files")
+var updateMailGoldens = flag.Bool("update", false, "rewrite the golden HTML mail files")
 
 // Invented throughout: the platform's own asset origin, a media bucket, and an
 // Issuer nobody registered.
@@ -75,7 +75,7 @@ func TestMailHTMLGoldens(t *testing.T) {
 				t.Fatalf("render: %v", err)
 			}
 			path := filepath.Join("testdata", "mail", f.name+".html")
-			if *update {
+			if *updateMailGoldens {
 				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
 					t.Fatalf("write golden: %v", err)
 				}
@@ -174,6 +174,23 @@ func TestMailFooterLegalLine(t *testing.T) {
 	}
 }
 
+// Half an Issuer is no Issuer: a name without a country, or the reverse,
+// omits the legal line rather than printing half of it.
+func TestMailFooterLegalLineNeedsBothNameAndCountry(t *testing.T) {
+	for _, chrome := range []MailChrome{
+		{OperatorName: "FUNDACION EJEMPLO"},
+		{OperatorCountry: "Ecuador"},
+	} {
+		body, err := OTPMessage{Code: "1", Locale: LocaleEN}.HTML(chrome)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		if strings.Contains(textOf(parseMail(t, body)), "operated by") {
+			t.Fatalf("chrome %+v printed a legal line", chrome)
+		}
+	}
+}
+
 // The support contact defaults when the chrome names none, as a mailto link.
 func TestMailFooterSupportLink(t *testing.T) {
 	body, err := OTPMessage{Code: "1", Locale: LocaleEN}.HTML(MailChrome{})
@@ -242,7 +259,7 @@ func TestBrokenMailTemplateFailsAtBoot(t *testing.T) {
 	}
 
 	t.Run("a declared kind with no file", func(t *testing.T) {
-		kinds := map[string]any{"otp": otpCard{}, "consentwithdrawal": consentWithdrawalCard{}, "missing": otpCard{}}
+		kinds := withCard(mailKinds, "missing", otpCard{})
 		if _, err := parseMailTemplates(mailTemplateFiles, kinds); err == nil {
 			t.Fatal("parseMailTemplates accepted a kind with no template file")
 		}
@@ -255,8 +272,8 @@ func TestBrokenMailTemplateFailsAtBoot(t *testing.T) {
 }
 
 // withCard is kinds with one more declared.
-func withCard(kinds map[string]any, kind string, card any) map[string]any {
-	all := map[string]any{kind: card}
+func withCard(kinds map[mailKind]any, kind mailKind, card any) map[mailKind]any {
+	all := map[mailKind]any{kind: card}
 	for name, c := range kinds {
 		all[name] = c
 	}
@@ -264,7 +281,7 @@ func withCard(kinds map[string]any, kind string, card any) map[string]any {
 }
 
 // withKind is the shipped templates with one kind's file replaced (or added).
-func withKind(t *testing.T, kind, source string) fstest.MapFS {
+func withKind(t *testing.T, kind mailKind, source string) fstest.MapFS {
 	t.Helper()
 	fsys := fstest.MapFS{}
 	for _, name := range []string{"mailtemplates/layout.html", "mailtemplates/components.html", "mailtemplates/kinds/otp.html", "mailtemplates/kinds/consentwithdrawal.html"} {
@@ -274,7 +291,7 @@ func withKind(t *testing.T, kind, source string) fstest.MapFS {
 		}
 		fsys[name] = &fstest.MapFile{Data: data}
 	}
-	fsys["mailtemplates/kinds/"+kind+".html"] = &fstest.MapFile{Data: []byte(source)}
+	fsys["mailtemplates/kinds/"+string(kind)+".html"] = &fstest.MapFile{Data: []byte(source)}
 	return fsys
 }
 
@@ -316,6 +333,10 @@ func assertMailStructure(t *testing.T, body, text string, locale Locale, assetOr
 		})
 		if len(fallback) == 0 {
 			t.Errorf("the button to %q has no raw-link fallback", href)
+			continue
+		}
+		if !strings.Contains(textOf(fallback[0].Parent), mailLinkFallbackCopy.in(locale)) {
+			t.Errorf("the raw link to %q is not introduced by %q", href, mailLinkFallbackCopy.in(locale))
 		}
 	}
 

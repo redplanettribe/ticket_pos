@@ -107,13 +107,21 @@ func newMailButton(locale Locale, label, url string) mailButton {
 	return mailButton{Label: label, URL: url, Fallback: mailLinkFallbackCopy.in(locale)}
 }
 
+// mailKind names one kind's template file, mailtemplates/kinds/<kind>.html.
+type mailKind string
+
+const (
+	mailKindOTP               mailKind = "otp"
+	mailKindConsentWithdrawal mailKind = "consentwithdrawal"
+)
+
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
 // and the card value it is executed with. The zero value is what the boot-time
 // dry run executes, which is what turns a template referring to a field its
 // card does not have into a failed boot rather than a failed send.
-var mailKinds = map[string]any{
-	"otp":               otpCard{},
-	"consentwithdrawal": consentWithdrawalCard{},
+var mailKinds = map[mailKind]any{
+	mailKindOTP:               otpCard{},
+	mailKindConsentWithdrawal: consentWithdrawalCard{},
 }
 
 //go:embed mailtemplates
@@ -123,7 +131,7 @@ var mailTemplateFiles embed.FS
 // template panics here, which is the process failing at boot.
 var mailTemplates = mustParseMailTemplates(mailTemplateFiles, mailKinds)
 
-func mustParseMailTemplates(fsys fs.FS, kinds map[string]any) map[string]*template.Template {
+func mustParseMailTemplates(fsys fs.FS, kinds map[mailKind]any) map[mailKind]*template.Template {
 	templates, err := parseMailTemplates(fsys, kinds)
 	if err != nil {
 		panic(fmt.Sprintf("mail templates: %v", err))
@@ -153,7 +161,7 @@ var mailTemplateFuncs = template.FuncMap{
 // clone of them per kind with that kind's card, and executes each kind against
 // its zero card so escaping and field errors surface now. A kind with no file,
 // or a file with no kind, is an error too.
-func parseMailTemplates(fsys fs.FS, kinds map[string]any) (map[string]*template.Template, error) {
+func parseMailTemplates(fsys fs.FS, kinds map[mailKind]any) (map[mailKind]*template.Template, error) {
 	base, err := template.New("mail").Funcs(mailTemplateFuncs).ParseFS(fsys, "mailtemplates/layout.html", "mailtemplates/components.html")
 	if err != nil {
 		return nil, err
@@ -162,9 +170,9 @@ func parseMailTemplates(fsys fs.FS, kinds map[string]any) (map[string]*template.
 	if err != nil {
 		return nil, err
 	}
-	templates := make(map[string]*template.Template, len(files))
+	templates := make(map[mailKind]*template.Template, len(files))
 	for _, file := range files {
-		name := strings.TrimSuffix(path.Base(file), ".html")
+		name := mailKind(strings.TrimSuffix(path.Base(file), ".html"))
 		card, known := kinds[name]
 		if !known {
 			return nil, fmt.Errorf("%s: no mail kind is declared for it", file)
@@ -194,7 +202,7 @@ func parseMailTemplates(fsys fs.FS, kinds map[string]any) (map[string]*template.
 
 // renderMail renders one kind's card inside the chrome. subject is the
 // <title>; preheader and reason are the kind's own copy, already in locale.
-func renderMail(kind string, locale Locale, chrome MailChrome, subject, preheader, reason string, card any) (string, error) {
+func renderMail(kind mailKind, locale Locale, chrome MailChrome, subject, preheader, reason string, card any) (string, error) {
 	tpl, ok := mailTemplates[kind]
 	if !ok {
 		return "", fmt.Errorf("no mail template for %q", kind)
@@ -261,7 +269,7 @@ type otpCard struct {
 // HTML is the passcode's HTML part: the code large and monospace, the same
 // expiry sentence the text carries, and no button.
 func (o OTPMessage) HTML(chrome MailChrome) (string, error) {
-	return renderMail("otp", o.Locale, chrome, o.Subject(),
+	return renderMail(mailKindOTP, o.Locale, chrome, o.Subject(),
 		fmt.Sprintf(otpPreheaderCopy.in(o.Locale), o.Code),
 		otpFooterReasonCopy.in(o.Locale),
 		otpCard{Heading: o.Subject(), Code: o.Code, Expiry: otpExpiryCopy.in(o.Locale)},
@@ -278,7 +286,7 @@ type consentWithdrawalCard struct {
 // text's own paragraphs, chosen by what the act took away exactly as Text()
 // chooses them.
 func (c ConsentWithdrawalConfirmation) HTML(chrome MailChrome) (string, error) {
-	return renderMail("consentwithdrawal", c.Locale, chrome, c.Subject(),
+	return renderMail(mailKindConsentWithdrawal, c.Locale, chrome, c.Subject(),
 		consentWithdrawalPreheaderCopy.in(c.Locale),
 		consentWithdrawalFooterReasonCopy.in(c.Locale),
 		consentWithdrawalCard{Heading: c.Subject(), Paragraphs: paragraphs(c.Text())},
