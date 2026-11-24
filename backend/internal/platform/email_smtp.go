@@ -355,50 +355,50 @@ func (s *SMTPEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddr
 
 // SendTicketQuestionRevoked delivers an Org Admin's revocation notice.
 func (s *SMTPEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	return s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), "")
+	return s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "ticket question revoked", r.HTML, s.chrome))
 }
 
 // SendPayoutRequestSubmitted delivers a Platform Operator's Payout Request
 // notice.
 func (s *SMTPEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	return s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), "")
+	return s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request submitted", p.HTML, s.chrome))
 }
 
 // SendQuestionReviewSubmitted delivers a Platform Operator's Question Review
 // notice.
 func (s *SMTPEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	return s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), "")
+	return s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review submitted", q.HTML, s.chrome))
 }
 
 // SendQuestionReviewAnswered delivers the submitter's verdicts notice.
 func (s *SMTPEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	return s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), "")
+	return s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review answered", q.HTML, s.chrome))
 }
 
 // SendPayoutRequestPaid delivers the asker's paid notice.
 func (s *SMTPEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	return s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), "")
+	return s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request paid", p.HTML, s.chrome))
 }
 
 // SendPayoutRequestDeclined delivers the asker's declined notice.
 func (s *SMTPEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	return s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), "")
+	return s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request declined", p.HTML, s.chrome))
 }
 
 // SendPayoutRequestTransferSent delivers the asker's transfer-sent notice.
 func (s *SMTPEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	return s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), "")
+	return s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer sent", p.HTML, s.chrome))
 }
 
 // SendPayoutRequestTransferFailed delivers the asker's transfer-failed notice.
 func (s *SMTPEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	return s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), "")
+	return s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer failed", p.HTML, s.chrome))
 }
 
 // SendCertificateExpiryWarning delivers a Platform Operator's Certificate
 // Expiry Warning.
 func (s *SMTPEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	return s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), "")
+	return s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome))
 }
 
 // SendFollowDigest delivers the weekly Follow Digest. It is only reached on

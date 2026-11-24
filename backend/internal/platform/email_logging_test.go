@@ -16,6 +16,15 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	withdrawal := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: LocaleEN, MarketingConsent: true}
 	taxDocument := goldenTaxDocumentDelivery(LocaleES)
 	annulment := goldenAnnulmentNotice(LocaleEN)
+	expiry := goldenCertificateExpiryWarning(LocaleES)
+	payoutSubmitted := goldenPayoutRequestSubmitted(LocaleEN)
+	payoutPaid := PayoutRequestPaid{To: "luis@example.com", Locale: LocaleES, OrganizationName: "Club de Jazz", AmountCents: 100, RequestedCents: 100, Currency: "USD"}
+	payoutDeclined := goldenPayoutRequestDeclined(LocaleEN)
+	transferSent := PayoutRequestTransferSent{To: "luis@example.com", Locale: LocaleEN, OrganizationName: "Club de Jazz", AmountCents: 100, Currency: "USD"}
+	transferFailed := PayoutRequestTransferFailed{To: "luis@example.com", Locale: LocaleES, OrganizationName: "Club de Jazz", AmountCents: 100, Currency: "USD", Reason: "Cuenta cerrada"}
+	reviewSubmitted := goldenQuestionReviewSubmitted(LocaleES)
+	reviewAnswered := goldenQuestionReviewAnswered(LocaleEN)
+	revoked := goldenTicketQuestionRevoked(LocaleES)
 	cases := []struct {
 		name   string
 		msg    string
@@ -33,6 +42,33 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"annulment notice", "annulment notice sent", annulment.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendAnnulmentNotice(ctx, annulment)
+		}},
+		{"certificate expiry warning", "certificate expiry warning sent", expiry.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendCertificateExpiryWarning(ctx, expiry)
+		}},
+		{"payout request submitted", "payout request submitted notice sent", payoutSubmitted.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendPayoutRequestSubmitted(ctx, payoutSubmitted)
+		}},
+		{"payout request paid", "payout request paid notice sent", payoutPaid.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendPayoutRequestPaid(ctx, payoutPaid)
+		}},
+		{"payout request declined", "payout request declined notice sent", payoutDeclined.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendPayoutRequestDeclined(ctx, payoutDeclined)
+		}},
+		{"payout request transfer sent", "payout request transfer sent notice sent", transferSent.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendPayoutRequestTransferSent(ctx, transferSent)
+		}},
+		{"payout request transfer failed", "payout request transfer failed notice sent", transferFailed.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendPayoutRequestTransferFailed(ctx, transferFailed)
+		}},
+		{"question review submitted", "question review submitted notice sent", reviewSubmitted.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendQuestionReviewSubmitted(ctx, reviewSubmitted)
+		}},
+		{"question review answered", "question review answered notice sent", reviewAnswered.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendQuestionReviewAnswered(ctx, reviewAnswered)
+		}},
+		{"ticket question revoked", "ticket question revoked notice sent", revoked.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendTicketQuestionRevoked(ctx, revoked)
 		}},
 	}
 	for _, tc := range cases {

@@ -1407,59 +1407,75 @@ func (s *LoggingEmailSender) SendSaleReAddressing(_ context.Context, r SaleReAdd
 
 // SendTicketQuestionRevoked logs the Revocation notice. The reason is not
 // logged: it is the Operator's message to one Organization.
-func (s *LoggingEmailSender) SendTicketQuestionRevoked(_ context.Context, r TicketQuestionRevoked) error {
-	s.Logger.Info("ticket question revoked notice sent", "email", r.To, "organization", r.OrganizationName)
+func (s *LoggingEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
+	attrs := []any{"email", r.To, "organization", r.OrganizationName}
+	attrs = append(attrs, s.htmlAttrs(ctx, "ticket question revoked", r.HTML)...)
+	s.Logger.Info("ticket question revoked notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestSubmitted logs the operator's notice that an Organization
 // asked to be paid. The amount and the asker are logged; nothing about the bank
 // is, here or anywhere else (ADR 0026).
-func (s *LoggingEmailSender) SendPayoutRequestSubmitted(_ context.Context, p PayoutRequestSubmitted) error {
-	s.Logger.Info("payout request submitted notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_by", p.RequestedBy)
+func (s *LoggingEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_by", p.RequestedBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request submitted", p.HTML)...)
+	s.Logger.Info("payout request submitted notice sent", attrs...)
 	return nil
 }
 
 // SendQuestionReviewSubmitted logs the Operator's notice that an Event's
 // questions are waiting for review. The count is logged; no question is.
-func (s *LoggingEmailSender) SendQuestionReviewSubmitted(_ context.Context, q QuestionReviewSubmitted) error {
-	s.Logger.Info("question review submitted notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "question_count", q.QuestionCount, "submitted_by", q.SubmittedBy)
+func (s *LoggingEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
+	attrs := []any{"email", q.To, "organization", q.OrganizationName, "event", q.EventName, "question_count", q.QuestionCount, "submitted_by", q.SubmittedBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "question review submitted", q.HTML)...)
+	s.Logger.Info("question review submitted notice sent", attrs...)
 	return nil
 }
 
 // SendQuestionReviewAnswered logs the submitter's notice of the verdicts. The
 // count is logged; no question is.
-func (s *LoggingEmailSender) SendQuestionReviewAnswered(_ context.Context, q QuestionReviewAnswered) error {
-	s.Logger.Info("question review answered notice sent", "email", q.To, "organization", q.OrganizationName, "event", q.EventName, "item_count", len(q.Items), "answered_by", q.AnsweredBy)
+func (s *LoggingEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
+	attrs := []any{"email", q.To, "organization", q.OrganizationName, "event", q.EventName, "item_count", len(q.Items), "answered_by", q.AnsweredBy}
+	attrs = append(attrs, s.htmlAttrs(ctx, "question review answered", q.HTML)...)
+	s.Logger.Info("question review answered notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestPaid logs the asker's notice that the transfer was made.
-func (s *LoggingEmailSender) SendPayoutRequestPaid(_ context.Context, p PayoutRequestPaid) error {
-	s.Logger.Info("payout request paid notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents)
+func (s *LoggingEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents, "requested_cents", p.RequestedCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request paid", p.HTML)...)
+	s.Logger.Info("payout request paid notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestDeclined logs the asker's notice that the ask was refused.
 // The reason is not logged: it is the operator's message to one Organization,
 // and a log is the wrong audience for it.
-func (s *LoggingEmailSender) SendPayoutRequestDeclined(_ context.Context, p PayoutRequestDeclined) error {
-	s.Logger.Info("payout request declined notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request declined", p.HTML)...)
+	s.Logger.Info("payout request declined notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestTransferSent logs the asker's notice that the transfer has
 // been submitted to the bank.
-func (s *LoggingEmailSender) SendPayoutRequestTransferSent(_ context.Context, p PayoutRequestTransferSent) error {
-	s.Logger.Info("payout request transfer sent notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request transfer sent", p.HTML)...)
+	s.Logger.Info("payout request transfer sent notice sent", attrs...)
 	return nil
 }
 
 // SendPayoutRequestTransferFailed logs the asker's notice that the bank sent the
 // transfer back. The reason is not logged, for the reason the decline's is not:
 // it is the operator's message to one Organization.
-func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, p PayoutRequestTransferFailed) error {
-	s.Logger.Info("payout request transfer failed notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
+	attrs := []any{"email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents}
+	attrs = append(attrs, s.htmlAttrs(ctx, "payout request transfer failed", p.HTML)...)
+	s.Logger.Info("payout request transfer failed notice sent", attrs...)
 	return nil
 }
 
@@ -1467,8 +1483,10 @@ func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 // certificate is about to lapse, or has. The threshold, the RUC and the
 // date are logged: locally there is no mailbox, and the ladder's rung is
 // the whole of what a developer watching a closed-flag tick wants to see.
-func (s *LoggingEmailSender) SendCertificateExpiryWarning(_ context.Context, w CertificateExpiryWarning) error {
-	s.Logger.Info("certificate expiry warning sent", "email", w.To, "threshold_days", w.Threshold, "ruc", w.RUC, "not_after", w.NotAfter, "locale", string(w.Locale))
+func (s *LoggingEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
+	attrs := []any{"email", w.To, "threshold_days", w.Threshold, "ruc", w.RUC, "not_after", w.NotAfter, "locale", string(w.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "certificate expiry warning", w.HTML)...)
+	s.Logger.Info("certificate expiry warning sent", attrs...)
 	return nil
 }
 

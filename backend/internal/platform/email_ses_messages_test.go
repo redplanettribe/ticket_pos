@@ -130,37 +130,37 @@ func transactionalMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error { return s.SendNoLongerHolding(ctx, noLongerHolding) }},
 		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleReAddressing(ctx, reAddressing) }},
-		{"ticket question revoked", questionRevoked.To, questionRevoked.Subject(), questionRevoked.Text(), "", nil,
+		{"ticket question revoked", questionRevoked.To, questionRevoked.Subject(), questionRevoked.Text(), testHTML(questionRevoked.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendTicketQuestionRevoked(ctx, questionRevoked)
 			}},
-		{"payout request submitted", payoutSubmitted.To, payoutSubmitted.Subject(), payoutSubmitted.Text(), "", nil,
+		{"payout request submitted", payoutSubmitted.To, payoutSubmitted.Subject(), payoutSubmitted.Text(), testHTML(payoutSubmitted.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestSubmitted(ctx, payoutSubmitted)
 			}},
-		{"question review submitted", reviewSubmitted.To, reviewSubmitted.Subject(), reviewSubmitted.Text(), "", nil,
+		{"question review submitted", reviewSubmitted.To, reviewSubmitted.Subject(), reviewSubmitted.Text(), testHTML(reviewSubmitted.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendQuestionReviewSubmitted(ctx, reviewSubmitted)
 			}},
-		{"question review answered", reviewAnswered.To, reviewAnswered.Subject(), reviewAnswered.Text(), "", nil,
+		{"question review answered", reviewAnswered.To, reviewAnswered.Subject(), reviewAnswered.Text(), testHTML(reviewAnswered.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendQuestionReviewAnswered(ctx, reviewAnswered)
 			}},
-		{"payout request paid", payoutPaid.To, payoutPaid.Subject(), payoutPaid.Text(), "", nil,
+		{"payout request paid", payoutPaid.To, payoutPaid.Subject(), payoutPaid.Text(), testHTML(payoutPaid.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendPayoutRequestPaid(ctx, payoutPaid) }},
-		{"payout request declined", payoutDeclined.To, payoutDeclined.Subject(), payoutDeclined.Text(), "", nil,
+		{"payout request declined", payoutDeclined.To, payoutDeclined.Subject(), payoutDeclined.Text(), testHTML(payoutDeclined.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestDeclined(ctx, payoutDeclined)
 			}},
-		{"payout request transfer sent", transferSent.To, transferSent.Subject(), transferSent.Text(), "", nil,
+		{"payout request transfer sent", transferSent.To, transferSent.Subject(), transferSent.Text(), testHTML(transferSent.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestTransferSent(ctx, transferSent)
 			}},
-		{"payout request transfer failed", transferFailed.To, transferFailed.Subject(), transferFailed.Text(), "", nil,
+		{"payout request transfer failed", transferFailed.To, transferFailed.Subject(), transferFailed.Text(), testHTML(transferFailed.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestTransferFailed(ctx, transferFailed)
 			}},
-		{"certificate expiry warning", expiry.To, expiry.Subject(), expiry.Text(), "", nil,
+		{"certificate expiry warning", expiry.To, expiry.Subject(), expiry.Text(), testHTML(expiry.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendCertificateExpiryWarning(ctx, expiry) }},
 	}
 }

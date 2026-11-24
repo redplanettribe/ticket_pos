@@ -179,16 +179,22 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 	}
 }
 
-// The passcode, the Consent Withdrawal Confirmation and the two fiscal kinds
-// go out with their HTML part beside the text, rendered with the check's
-// chrome (ADR 0082); kinds not yet converted carry text alone.
+// The passcode, the Consent Withdrawal Confirmation, the two fiscal kinds and
+// the nine staff and operator kinds go out with their HTML part beside the
+// text, rendered with the check's chrome (ADR 0082); kinds not yet converted
+// carry text alone.
 func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 	fake, load := checkSetup(t)
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"-to", checkRecipient, "-pace", "0"}, &stdout, &stderr, load); code != 0 {
 		t.Fatalf("exit code %d\n%s", code, stderr.String())
 	}
-	withHTML := map[string]bool{"otp": true, "consent withdrawal confirmation": true, "tax document delivery": true, "annulment notice": true}
+	withHTML := map[string]bool{
+		"otp": true, "consent withdrawal confirmation": true, "tax document delivery": true, "annulment notice": true,
+		"certificate expiry warning": true, "payout request submitted": true, "payout request paid": true,
+		"payout request declined": true, "payout request transfer sent": true, "payout request transfer failed": true,
+		"question review submitted": true, "question review answered": true, "ticket question revoked": true,
+	}
 	all, err := messages(checkRecipient, fixedNow, nil, nil)
 	if err != nil {
 		t.Fatalf("messages: %v", err)

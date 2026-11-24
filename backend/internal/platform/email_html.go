@@ -113,9 +113,12 @@ type mailKind string
 const (
 	mailKindOTP               mailKind = "otp"
 	mailKindConsentWithdrawal mailKind = "consentwithdrawal"
-	// mailKindFiscal is the one card both fiscal kinds, the Tax Document
-	// Delivery and the Annulment Notice, are written in.
-	mailKindFiscal mailKind = "fiscal"
+	// mailKindNotice is the plain notice card in the platform chrome, with no
+	// Event imagery: the fiscal kinds (Tax Document Delivery, Annulment
+	// Notice) and the staff and operator kinds (the Certificate Expiry
+	// Warning, the five Payout Request notices, both Question Review notices
+	// and Ticket Question Revoked) are all written in it.
+	mailKindNotice mailKind = "notice"
 )
 
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
@@ -125,7 +128,7 @@ const (
 var mailKinds = map[mailKind]any{
 	mailKindOTP:               otpCard{},
 	mailKindConsentWithdrawal: consentWithdrawalCard{},
-	mailKindFiscal:            fiscalCard{},
+	mailKindNotice:            noticeCard{},
 }
 
 //go:embed mailtemplates
@@ -300,19 +303,20 @@ func (c ConsentWithdrawalConfirmation) HTML(chrome MailChrome) (string, error) {
 	)
 }
 
-// fiscalCard is the card of both fiscal kinds: the subject as heading, the
-// text part's paragraphs before its link, each split into the lines the text
-// breaks it into, and the link as the one button with the sentence that leads
-// to it. Button is nil when the mail has no link, which drops the lead too.
-type fiscalCard struct {
+// noticeCard is the card of the fiscal and the staff and operator kinds: a
+// heading, the text part's paragraphs before its link, each split into the
+// lines the text breaks it into, and the link as the one button with the
+// sentence that leads to it. Button is nil when the mail has no link, which
+// drops the lead too.
+type noticeCard struct {
 	Heading  string
 	Blocks   [][]string
 	LinkLead string
 	Button   *mailButton
 }
 
-func newFiscalCard(locale Locale, heading string, blocks []string, link customerAreaLink) fiscalCard {
-	card := fiscalCard{Heading: heading}
+func newNoticeCard(locale Locale, heading string, blocks []string, link mailLink) noticeCard {
+	card := noticeCard{Heading: heading}
 	for _, block := range blocks {
 		card.Blocks = append(card.Blocks, strings.Split(block, "\n"))
 	}
@@ -323,21 +327,103 @@ func newFiscalCard(locale Locale, heading string, blocks []string, link customer
 	return card
 }
 
-// HTML is the Tax Document Delivery's HTML part, in the fiscal card. The
+// HTML is the Tax Document Delivery's HTML part, in the notice card. The
 // documents travel as attachments beside both parts, never in the markup.
 func (d TaxDocumentDelivery) HTML(chrome MailChrome) (string, error) {
-	return renderMail(mailKindFiscal, d.Locale, chrome, d.Subject(),
+	return renderMail(mailKindNotice, d.Locale, chrome, d.Subject(),
 		fmt.Sprintf(taxDocumentPreheaderCopy.in(d.Locale), d.Reference),
 		fmt.Sprintf(taxDocumentFooterReasonCopy.in(d.Locale), d.EventName),
-		newFiscalCard(d.Locale, d.Subject(), d.blocks(), d.link()),
+		newNoticeCard(d.Locale, d.Subject(), d.blocks(), d.link()),
 	)
 }
 
-// HTML is the Annulment Notice's HTML part, in the same fiscal card.
+// HTML is the Annulment Notice's HTML part, in the same notice card.
 func (n AnnulmentNotice) HTML(chrome MailChrome) (string, error) {
-	return renderMail(mailKindFiscal, n.Locale, chrome, n.Subject(),
+	return renderMail(mailKindNotice, n.Locale, chrome, n.Subject(),
 		fmt.Sprintf(annulmentNoticePreheaderCopy.in(n.Locale), n.Number),
 		fmt.Sprintf(annulmentNoticeFooterReasonCopy.in(n.Locale), n.EventName),
-		newFiscalCard(n.Locale, n.Subject(), n.blocks(), n.link()),
+		newNoticeCard(n.Locale, n.Subject(), n.blocks(), n.link()),
 	)
+}
+
+// The staff and operator kinds (#875): notices to Organizers and Platform
+// Operators in the notice card, each in its reader's Staff Locale exactly as
+// its text is. Only the Certificate Expiry Warning carries a link today, so it
+// is the only one with a button. The rest are the subject as heading and the
+// text's own paragraphs, so the two parts cannot drift.
+
+// staffNotice renders a staff or operator kind with no link: the subject as
+// heading and the text part's paragraphs.
+func staffNotice(locale Locale, chrome MailChrome, subject, text, preheader, reason string) (string, error) {
+	return renderMail(mailKindNotice, locale, chrome, subject, preheader, reason,
+		newNoticeCard(locale, subject, paragraphs(text), mailLink{}))
+}
+
+// HTML is the Certificate Expiry Warning's HTML part: the heading its text
+// opens with, the date and what lapsing costs, and the Issuer page as the
+// one button.
+func (w CertificateExpiryWarning) HTML(chrome MailChrome) (string, error) {
+	return renderMail(mailKindNotice, w.Locale, chrome, w.Subject(),
+		fmt.Sprintf(certificateExpiryPreheaderCopy.in(w.Locale), w.RUC),
+		operatorFooterReasonCopy.in(w.Locale),
+		newNoticeCard(w.Locale, certificateExpiryHeadingCopy.in(w.Locale), w.blocks(), w.link()),
+	)
+}
+
+// HTML is the operators' Payout Request submission notice's HTML part.
+func (p PayoutRequestSubmitted) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(p.Locale, chrome, p.Subject(), p.Text(),
+		fmt.Sprintf(payoutSubmittedPreheaderCopy.in(p.Locale), p.RequestedBy),
+		operatorFooterReasonCopy.in(p.Locale))
+}
+
+// HTML is the paid notice's HTML part.
+func (p PayoutRequestPaid) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(p.Locale, chrome, p.Subject(), p.Text(),
+		payoutPaidPreheaderCopy.in(p.Locale),
+		fmt.Sprintf(payoutAskerFooterReasonCopy.in(p.Locale), p.OrganizationName))
+}
+
+// HTML is the decline notice's HTML part. The operator's reason is in the
+// card, quoted whole as the text quotes it, and never in the preheader.
+func (p PayoutRequestDeclined) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(p.Locale, chrome, p.Subject(), p.Text(),
+		payoutDeclinedPreheaderCopy.in(p.Locale),
+		fmt.Sprintf(payoutAskerFooterReasonCopy.in(p.Locale), p.OrganizationName))
+}
+
+// HTML is the transfer-sent notice's HTML part.
+func (p PayoutRequestTransferSent) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(p.Locale, chrome, p.Subject(), p.Text(),
+		fmt.Sprintf(payoutTransferSentPreheaderCopy.in(p.Locale), formatEcuadorDate(p.SubmittedAt, p.Locale)),
+		fmt.Sprintf(payoutAskerFooterReasonCopy.in(p.Locale), p.OrganizationName))
+}
+
+// HTML is the transfer-failed notice's HTML part.
+func (p PayoutRequestTransferFailed) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(p.Locale, chrome, p.Subject(), p.Text(),
+		payoutTransferFailedPreheaderCopy.in(p.Locale),
+		fmt.Sprintf(payoutAskerFooterReasonCopy.in(p.Locale), p.OrganizationName))
+}
+
+// HTML is the operators' Question Review submission notice's HTML part.
+func (q QuestionReviewSubmitted) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(q.Locale, chrome, q.Subject(), q.Text(),
+		fmt.Sprintf(questionReviewSubmittedPreheaderCopy.in(q.Locale), q.SubmittedBy),
+		operatorFooterReasonCopy.in(q.Locale))
+}
+
+// HTML is the verdict notice's HTML part: the verdicts are one paragraph,
+// one line each, as the text lists them.
+func (q QuestionReviewAnswered) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(q.Locale, chrome, q.Subject(), q.Text(),
+		questionReviewAnsweredPreheaderCopy.in(q.Locale),
+		fmt.Sprintf(questionReviewAnsweredFooterReasonCopy.in(q.Locale), q.EventName))
+}
+
+// HTML is the Revocation notice's HTML part.
+func (r TicketQuestionRevoked) HTML(chrome MailChrome) (string, error) {
+	return staffNotice(r.Locale, chrome, r.Subject(), r.Text(),
+		fmt.Sprintf(questionRevokedPreheaderCopy.in(r.Locale), r.QuestionLabel),
+		fmt.Sprintf(questionRevokedFooterReasonCopy.in(r.Locale), r.OrganizationName))
 }

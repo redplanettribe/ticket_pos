@@ -299,7 +299,7 @@ func (s *SESEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddre
 // SendTicketQuestionRevoked delivers one Org Admin's notice that an approved
 // Ticket Question was revoked (#410). The reason is not logged.
 func (s *SESEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	if err := s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "ticket question revoked", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "ticket question revoked", err, "organization", r.OrganizationName)
 	}
 	return nil
@@ -308,7 +308,7 @@ func (s *SESEmailSender) SendTicketQuestionRevoked(ctx context.Context, r Ticket
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	if err := s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request submitted", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request submitted", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -317,7 +317,7 @@ func (s *SESEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Payou
 // SendQuestionReviewSubmitted delivers one Platform Operator's notice that an
 // Event's questions are waiting for review (#406). Best-effort.
 func (s *SESEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	if err := s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), ""); err != nil {
+	if err := s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review submitted", q.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "question review submitted", err, "organization", q.OrganizationName)
 	}
 	return nil
@@ -326,7 +326,7 @@ func (s *SESEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Ques
 // SendQuestionReviewAnswered delivers the submitter's notice of the Operator's
 // verdicts (#407). Best-effort.
 func (s *SESEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	if err := s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), ""); err != nil {
+	if err := s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review answered", q.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "question review answered", err, "organization", q.OrganizationName)
 	}
 	return nil
@@ -335,7 +335,7 @@ func (s *SESEmailSender) SendQuestionReviewAnswered(ctx context.Context, q Quest
 // SendPayoutRequestPaid delivers the asker's notice that the transfer was
 // made. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	if err := s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request paid", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request paid", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -344,7 +344,7 @@ func (s *SESEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequ
 // SendPayoutRequestDeclined delivers the asker's notice that the ask was
 // refused. The reason is not logged.
 func (s *SESEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	if err := s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request declined", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request declined", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -353,7 +353,7 @@ func (s *SESEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Payout
 // SendPayoutRequestTransferSent delivers the asker's notice that the transfer
 // has been submitted to the bank. Best-effort.
 func (s *SESEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	if err := s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer sent", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request transfer sent", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -362,7 +362,7 @@ func (s *SESEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p Pa
 // SendPayoutRequestTransferFailed delivers the asker's notice that the bank
 // sent the transfer back. The reason is not logged.
 func (s *SESEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	if err := s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer failed", p.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "payout request transfer failed", err, "organization", p.OrganizationName)
 	}
 	return nil
@@ -372,7 +372,7 @@ func (s *SESEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p 
 // the signing certificate is about to lapse, or has (#502). The Drainer writes
 // its ledger row only once an address accepted the mail.
 func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	if err := s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), ""); err != nil {
+	if err := s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "certificate expiry warning", err, "threshold_days", w.Threshold, "ruc", w.RUC)
 	}
 	return nil

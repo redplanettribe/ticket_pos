@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -94,8 +95,108 @@ func mailFixtures() []mailFixture {
 			n.SaleReversed = variant.reversed
 			fixtures = append(fixtures, mailFixture{"annulmentnotice-" + variant.name + "-" + string(locale), locale, n.HTML, n.Text()})
 		}
+
+		fixtures = append(fixtures, staffMailFixtures(locale)...)
 	}
 	return fixtures
+}
+
+// staffMailFixtures is the staff and operator kinds in one locale (#875):
+// an invented Organization, Event, Issuer and staff.
+func staffMailFixtures(locale Locale) []mailFixture {
+	suffix := "-" + string(locale)
+	var fixtures []mailFixture
+	add := func(name string, html func(MailChrome) (string, error), text string) {
+		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	}
+
+	for _, variant := range []struct {
+		name      string
+		threshold int
+	}{
+		{"expiring", 7},
+		{"expired", 0},
+	} {
+		w := goldenCertificateExpiryWarning(locale)
+		w.Threshold = variant.threshold
+		add("certificateexpiry-"+variant.name, w.HTML, w.Text())
+	}
+
+	submitted := goldenPayoutRequestSubmitted(locale)
+	add("payoutrequest-submitted", submitted.HTML, submitted.Text())
+
+	paid := PayoutRequestPaid{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, RequestedCents: 120000, Currency: "USD"}
+	add("payoutrequest-paid", paid.HTML, paid.Text())
+	paid.AmountCents = 100000
+	add("payoutrequest-paid-shortfall", paid.HTML, paid.Text())
+
+	declined := goldenPayoutRequestDeclined(locale)
+	add("payoutrequest-declined", declined.HTML, declined.Text())
+
+	sent := PayoutRequestTransferSent{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD",
+		SubmittedAt: time.Date(2026, 11, 20, 3, 0, 0, 0, time.UTC)}
+	add("payoutrequest-transfersent", sent.HTML, sent.Text())
+
+	failed := PayoutRequestTransferFailed{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD", Reason: "Account closed"}
+	add("payoutrequest-transferfailed", failed.HTML, failed.Text())
+
+	reviewSubmitted := goldenQuestionReviewSubmitted(locale)
+	add("questionreview-submitted", reviewSubmitted.HTML, reviewSubmitted.Text())
+
+	answered := goldenQuestionReviewAnswered(locale)
+	add("questionreview-answered", answered.HTML, answered.Text())
+
+	revoked := goldenTicketQuestionRevoked(locale)
+	add("ticketquestionrevoked", revoked.HTML, revoked.Text())
+	return fixtures
+}
+
+func goldenCertificateExpiryWarning(locale Locale) CertificateExpiryWarning {
+	return CertificateExpiryWarning{
+		To: "ops@example.com", Locale: locale, Threshold: 7,
+		NotAfter: time.Date(2026, 12, 1, 3, 0, 0, 0, time.UTC), RUC: "1790012345001",
+		IssuerURL: "https://staff.example.com/operator/invoicing/issuer",
+	}
+}
+
+func goldenPayoutRequestSubmitted(locale Locale) PayoutRequestSubmitted {
+	return PayoutRequestSubmitted{
+		To: "ops@example.com", Locale: locale, OrganizationName: "Club de Jazz",
+		AmountCents: 120000, Currency: "USD", RequestedBy: "luis@example.com", Note: "We owe the venue on Monday",
+	}
+}
+
+func goldenPayoutRequestDeclined(locale Locale) PayoutRequestDeclined {
+	return PayoutRequestDeclined{
+		To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz",
+		AmountCents: 120000, Currency: "USD", Reason: "The balance does not cover it yet",
+	}
+}
+
+func goldenQuestionReviewSubmitted(locale Locale) QuestionReviewSubmitted {
+	return QuestionReviewSubmitted{
+		To: "ops@example.com", Locale: locale, OrganizationName: "Club de Jazz", EventName: "Noche de Jazz",
+		SubmittedBy: "luis@example.com", QuestionCount: 3, Note: "Doors open early",
+	}
+}
+
+func goldenQuestionReviewAnswered(locale Locale) QuestionReviewAnswered {
+	return QuestionReviewAnswered{
+		To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", EventName: "Noche de Jazz",
+		AnsweredBy: "ops@example.com",
+		Items: []QuestionReviewAnsweredItem{
+			{QuestionLabel: "Shirt size", Verdict: "approved"},
+			{QuestionLabel: "Meal", OptionLabel: "Chicken", Verdict: "approved"},
+			{QuestionLabel: "ID number", Verdict: "refused", Reason: "Not needed for entry"},
+		},
+	}
+}
+
+func goldenTicketQuestionRevoked(locale Locale) TicketQuestionRevoked {
+	return TicketQuestionRevoked{
+		To: "admin@example.com", Locale: locale, OrganizationName: "Club de Jazz", EventName: "Noche de Jazz",
+		QuestionLabel: "Shirt size", Reason: "Asks for a body measurement",
+	}
 }
 
 // The fiscal fixtures: an invented buyer, Event and factura.

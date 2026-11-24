@@ -239,7 +239,7 @@ func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n Annulment
 // accepted the mail, so a failure here is a retry on the next tick rather
 // than a lost threshold.
 func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	if err := s.send(ctx, w.To, w.Subject(), w.Text(), ""); err != nil {
+	if err := s.send(ctx, w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send certificate expiry warning failed", "threshold_days", w.Threshold, "ruc", w.RUC, "error", err)
 		return err
 	}
@@ -420,7 +420,7 @@ func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAd
 // was told, and the staff editor carries the same reason. The reason itself is
 // not logged.
 func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "ticket question revoked", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send ticket question revoked failed", "organization", r.OrganizationName, "error", err)
 		return err
 	}
@@ -436,7 +436,7 @@ func (s *ResendEmailSender) SendTicketQuestionRevoked(ctx context.Context, r Tic
 // The amount is not a secret, but the log line's job here is diagnosing a
 // delivery failure, and a money email's contents are not part of that.
 func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request submitted", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request submitted failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -447,7 +447,7 @@ func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p Pa
 // Event's questions are waiting for review (#406, ADR 0056). Best-effort: the
 // Review is recorded whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	if err := s.send(ctx, q.To, q.Subject(), q.Text(), ""); err != nil {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review submitted", q.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send question review submitted failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
@@ -458,7 +458,7 @@ func (s *ResendEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q Q
 // verdicts (#407, ADR 0056). Best-effort: the verdicts are recorded and read
 // in the editor whether or not anybody was told.
 func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	if err := s.send(ctx, q.To, q.Subject(), q.Text(), ""); err != nil {
+	if err := s.send(ctx, q.To, q.Subject(), q.Text(), renderedHTML(ctx, s.logger, "question review answered", q.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send question review answered failed", "organization", q.OrganizationName, "error", err)
 		return err
 	}
@@ -469,7 +469,7 @@ func (s *ResendEmailSender) SendQuestionReviewAnswered(ctx context.Context, q Qu
 // Best-effort: the Payout is the fact, and a failure here leaves an organizer
 // who finds out from their bank instead.
 func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request paid", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request paid failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -484,7 +484,7 @@ func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutR
 // which is the outcome the reason exists to prevent. The reason itself is not
 // logged — it is a message to one Organization, not an operational fact.
 func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request declined", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request declined failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -496,7 +496,7 @@ func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Pay
 // whether or not anybody was told, and the organizer's own payouts page carries
 // the same date and the same expectation.
 func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer sent", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request transfer sent failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}
@@ -512,7 +512,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p
 // The reason itself is not logged — it is a message to one Organization, not an
 // operational fact.
 func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	if err := s.send(ctx, p.To, p.Subject(), p.Text(), ""); err != nil {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text(), renderedHTML(ctx, s.logger, "payout request transfer failed", p.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send payout request transfer failed failed", "organization", p.OrganizationName, "error", err)
 		return err
 	}

@@ -65,6 +65,25 @@ var (
 		"\n\nOpen the Payout Request queue on the Operator Dashboard to see the bank details and answer it.",
 		"\n\nAbra la cola de solicitudes de pago en el Panel de Operador para ver los datos bancarios y responderla.",
 	)
+	// The HTML part's preheader (ADR 0082): who asked, and where to answer.
+	// The subject already names the Organization and the amount.
+	payoutSubmittedPreheaderCopy = translated(
+		"Asked by %s. Answer it from the Payout Request queue on the Operator Dashboard.",
+		"Solicitado por %s. Respóndala desde la cola de solicitudes de pago en el Panel de Operador.",
+	)
+	// The footer reason of every mail sent to the operator allowlist: the
+	// Payout Request and Question Review submission notices and the
+	// Certificate Expiry Warning.
+	operatorFooterReasonCopy = translated(
+		"You're getting this because you are a Platform Operator.",
+		"Recibe este correo porque es Operador de la Plataforma.",
+	)
+	// The footer reason of the four answers to a Payout Request, which go to
+	// the one address that asked.
+	payoutAskerFooterReasonCopy = translated(
+		"You're getting this because you submitted a Payout Request for %s.",
+		"Recibe este correo porque envió una solicitud de pago para %s.",
+	)
 )
 
 // Subject is the operator's submission notice subject line. It names the
@@ -115,6 +134,10 @@ var (
 		"\n\nReview the questions on the Operator Dashboard. Nothing is asked of a buyer until you approve it.",
 		"\n\nRevise las preguntas en el Panel de Operador. No se le pregunta nada a un comprador hasta que usted la apruebe.",
 	)
+	questionReviewSubmittedPreheaderCopy = translated(
+		"Sent by %s. Nothing is asked of a buyer until you approve it.",
+		"Enviadas por %s. No se le pregunta nada a un comprador hasta que usted la apruebe.",
+	)
 	questionReviewOneQuestionCopy   = translated("1 question", "1 pregunta")
 	questionReviewManyQuestionsCopy = translated("%d questions", "%d preguntas")
 )
@@ -160,10 +183,20 @@ var (
 	)
 	questionReviewAnsweredApprovedCopy = translated("approved", "aprobada")
 	questionReviewAnsweredRefusedCopy  = translated("refused", "rechazada")
-	questionReviewAnsweredReasonCopy   = translated(" — %s", " — %s")
-	questionReviewAnsweredClosingCopy  = translated(
+	// A refusal's reason, after its verdict on the item's line.
+	questionReviewAnsweredReasonCopy  = translated(". Reason: %s", ". Motivo: %s")
+	questionReviewAnsweredClosingCopy = translated(
 		"\n\nApproved questions are asked from now on. A refused question is not asked; edit it and submit the event's questions for review again.",
 		"\n\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
+	)
+	questionReviewAnsweredPreheaderCopy = translated(
+		"What the platform operator ruled on each of your questions.",
+		"Lo que el operador de la plataforma resolvió sobre cada una de sus preguntas.",
+	)
+	// The verdict goes to the one Member who submitted the Review.
+	questionReviewAnsweredFooterReasonCopy = translated(
+		"You're getting this because you submitted the ticket questions for %s for review.",
+		"Recibe este correo porque envió a revisión las preguntas de entrada de %s.",
 	)
 )
 
@@ -215,6 +248,10 @@ var (
 		"\n\nThis answers the Payout Request submitted for %s.",
 		"\n\nEsto responde a la solicitud de pago enviada para %s.",
 	)
+	payoutPaidPreheaderCopy = translated(
+		"The transfer has already been made to the account on your Payout Profile.",
+		"La transferencia ya se realizó a la cuenta de su Perfil de Pagos.",
+	)
 )
 
 // Subject is the paid notice's subject line: the answer itself, so an organizer
@@ -255,8 +292,12 @@ var (
 	// this request and frees the Organization to ask again — is the half an
 	// organizer who does not read it will write to ask about.
 	payoutDeclinedTextCopy = translated(
-		"The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready — being declined once has no bearing on the next ask.",
+		"The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready. Being declined once has no bearing on the next ask.",
 		"La solicitud de pago de %s enviada para %s fue rechazada.\n\nMotivo: %s\n\nNo se movió nada y no se realizó ningún pago. Puede enviar una nueva solicitud cuando quiera: que una haya sido rechazada no tiene ninguna consecuencia sobre la siguiente.",
+	)
+	payoutDeclinedPreheaderCopy = translated(
+		"Nothing has moved. You can submit a new request whenever you are ready.",
+		"No se movió nada. Puede enviar una nueva solicitud cuando quiera.",
 	)
 )
 
@@ -294,6 +335,11 @@ var (
 	payoutTransferSentTextCopy = translated(
 		"The transfer of %s to the account on your Payout Profile was submitted on %s.\n\nBank transfers can take up to 48 hours to arrive, so it may not show in your account straight away. We will email you again as soon as we know it has landed.\n\nThis answers the Payout Request submitted for %s.",
 		"La transferencia de %s a la cuenta de su Perfil de Pagos se envió el %s.\n\nLas transferencias bancarias pueden tardar hasta 48 horas en llegar, así que puede que no aparezca en su cuenta de inmediato. Le escribiremos de nuevo apenas sepamos que llegó.\n\nEsto responde a la solicitud de pago enviada para %s.",
+	)
+	// The date the transfer left, which the 48 hours count from.
+	payoutTransferSentPreheaderCopy = translated(
+		"Submitted on %s. Bank transfers can take up to 48 hours to arrive.",
+		"Enviada el %s. Las transferencias bancarias pueden tardar hasta 48 horas en llegar.",
 	)
 )
 
@@ -335,8 +381,14 @@ var (
 	// ask: `failed` and `declined` share a column and must not share a sentence in
 	// either language (ADR 0026 amendment).
 	payoutTransferFailedTextCopy = translated(
-		"The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
+		"The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request. The transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request. This one cannot be retried, because it carries a frozen copy of the details it was sent with.",
 		"La transferencia de %s para %s se envió a su banco y volvió.\n\nMotivo: %s\n\nEsto no es una decisión sobre su solicitud: la transferencia se envió y su banco no la aceptó. No se realizó ningún pago y nada salió de su saldo.\n\nRevise los datos de su Perfil de Pagos; una transferencia devuelta suele deberse a un número de cuenta incorrecto. Cuando estén correctos, envíe una nueva solicitud: esta no se puede reintentar, porque lleva una copia congelada de los datos con los que se envió.",
+	)
+	// The bank's answer and the one thing to fix; never a word that judges
+	// the ask, for the reason the body never uses one.
+	payoutTransferFailedPreheaderCopy = translated(
+		"Your bank sent the transfer back. Check the details on your Payout Profile.",
+		"Su banco devolvió la transferencia. Revise los datos de su Perfil de Pagos.",
 	)
 )
 
@@ -1868,6 +1920,15 @@ var (
 		"A Platform Operator has revoked the approval of the ticket question \"%s\" on the event \"%s\" run by %s.\n\nReason: %s\n\nFrom now on the question is no longer asked at checkout or anywhere else. The answers already given to it stay on the tickets that gave them and in your sales export. To ask something in its place, add a new question and submit it for review.",
 		"Un Operador de la Plataforma revocó la aprobación de la pregunta de entrada \"%s\" del evento \"%s\" organizado por %s.\n\nMotivo: %s\n\nDesde este momento la pregunta ya no se hace en el checkout ni en ningún otro lugar. Las respuestas ya dadas se conservan en las entradas que las dieron y en su exportación de ventas. Para preguntar algo en su lugar, agregue una nueva pregunta y envíela a revisión.",
 	)
+	questionRevokedPreheaderCopy = translated(
+		`The question "%s" is no longer asked. The answers already given stay.`,
+		`La pregunta "%s" ya no se hace. Las respuestas ya dadas se conservan.`,
+	)
+	// One notice goes to every Org Admin of the Organization.
+	questionRevokedFooterReasonCopy = translated(
+		"You're getting this because you are an Org Admin of %s.",
+		"Recibe este correo porque es Administrador de la organización %s.",
+	)
 )
 
 // Subject is the Revocation notice's subject line, naming the Event: an Org
@@ -2012,8 +2073,8 @@ func (d TaxDocumentDelivery) Text() string {
 }
 
 // link is the delivery's way back to the Sale in the Customer Area.
-func (d TaxDocumentDelivery) link() customerAreaLink {
-	return customerAreaLink{lead: taxDocumentLinkLeadCopy, label: taxDocumentButtonCopy, url: d.CustomerAreaURL}
+func (d TaxDocumentDelivery) link() mailLink {
+	return mailLink{lead: taxDocumentLinkLeadCopy, label: taxDocumentButtonCopy, url: d.CustomerAreaURL}
 }
 
 // blocks is the delivery's body before its link, one string per paragraph,
@@ -2100,21 +2161,22 @@ func (n AnnulmentNotice) Text() string {
 }
 
 // link is the notice's way back to the Sale in the Customer Area.
-func (n AnnulmentNotice) link() customerAreaLink {
-	return customerAreaLink{lead: annulmentNoticeLinkLeadCopy, label: annulmentNoticeButtonCopy, url: n.CustomerAreaURL}
+func (n AnnulmentNotice) link() mailLink {
+	return mailLink{lead: annulmentNoticeLinkLeadCopy, label: annulmentNoticeButtonCopy, url: n.CustomerAreaURL}
 }
 
-// customerAreaLink is a fiscal mail's way back to the Sale, behind a sign-in:
-// the sentence leading to it, the button's label, and the URL, "" when no
-// storefront is configured. The text part prints the lead and then the URL on
+// mailLink is a notice's one link (a fiscal mail's way back to the Sale,
+// behind a sign-in, or the Issuer page): the sentence leading to it, the
+// button's label, and the URL, "" when there is none (no storefront
+// configured). The text part prints the lead and then the URL on
 // the next line; the HTML part prints the lead and then the button.
-type customerAreaLink struct {
+type mailLink struct {
 	lead, label mailCopy
 	url         string
 }
 
 // text is the link's closing paragraph of a text part, or "" with no URL.
-func (l customerAreaLink) text(locale Locale) string {
+func (l mailLink) text(locale Locale) string {
 	if l.url == "" {
 		return ""
 	}
@@ -2164,16 +2226,28 @@ var (
 	// after the date is what the date is for, and a translation carrying one
 	// without the other would be worse than none.
 	certificateExpiringBodyCopy = translated(
-		"The signing certificate of the Issuer with RUC %s expires on %s (Ecuador time).\n\nOnce it lapses, every Sale Invoice owed is parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
-		"El certificado de firma del Emisor con RUC %s vence el %s (hora de Ecuador).\n\nCuando venza, toda Factura de venta pendiente queda detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
+		"The signing certificate of the Issuer with RUC %s expires on %s (Ecuador time).\n\nOnce it lapses, every Sale Invoice owed is parked unsigned (no sequential number, no submission) while the SRI's 24-hour window for transmitting each one keeps running.",
+		"El certificado de firma del Emisor con RUC %s vence el %s (hora de Ecuador).\n\nCuando venza, toda Factura de venta pendiente queda detenida sin firmar (sin secuencial y sin envío) mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
 	)
 	certificateExpiredBodyCopy = translated(
-		"The signing certificate of the Issuer with RUC %s expired on %s (Ecuador time).\n\nEvery Sale Invoice owed is now parked unsigned — no sequential number, no submission — while the SRI's 24-hour window for transmitting each one keeps running.",
-		"El certificado de firma del Emisor con RUC %s venció el %s (hora de Ecuador).\n\nToda Factura de venta pendiente queda ahora detenida sin firmar — sin secuencial y sin envío — mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
+		"The signing certificate of the Issuer with RUC %s expired on %s (Ecuador time).\n\nEvery Sale Invoice owed is now parked unsigned (no sequential number, no submission) while the SRI's 24-hour window for transmitting each one keeps running.",
+		"El certificado de firma del Emisor con RUC %s venció el %s (hora de Ecuador).\n\nToda Factura de venta pendiente queda ahora detenida sin firmar (sin secuencial y sin envío) mientras el plazo de 24 horas del SRI para transmitir cada una sigue corriendo.",
 	)
-	certificateExpiryActionCopy = translated(
-		"Upload the renewed .p12 on the Issuer page:\n%s",
-		"Suba el .p12 renovado en la página del Emisor:\n%s",
+	// The text part prints the Issuer page on the line after it; the HTML
+	// part puts the button there.
+	certificateExpiryLinkLeadCopy = translated(
+		"Upload the renewed .p12 on the Issuer page:",
+		"Suba el .p12 renovado en la página del Emisor:",
+	)
+	certificateExpiryButtonCopy = translated(
+		"Open the Issuer page",
+		"Abrir la página del Emisor",
+	)
+	// The HTML part's preheader (ADR 0082): whose certificate, and the
+	// remedy. The subject already says how long is left.
+	certificateExpiryPreheaderCopy = translated(
+		"Issuer RUC %s. Upload the renewed .p12 on the Issuer page.",
+		"Emisor con RUC %s. Suba el .p12 renovado en la página del Emisor.",
 	)
 )
 
@@ -2196,12 +2270,20 @@ func (w CertificateExpiryWarning) Subject() string {
 // notice's does: a NotAfter at 03:00 UTC is the previous evening in
 // Guayaquil, and the reader counting days needs the day it is there.
 func (w CertificateExpiryWarning) Text() string {
+	return certificateExpiryHeadingCopy.in(w.Locale) + "\n\n" + strings.Join(w.blocks(), "\n\n") + w.link().text(w.Locale)
+}
+
+// blocks is the warning's body between its heading and its link, one string
+// per paragraph, which both parts carry word for word.
+func (w CertificateExpiryWarning) blocks() []string {
 	body := certificateExpiringBodyCopy
 	if w.Threshold <= 0 {
 		body = certificateExpiredBodyCopy
 	}
-	text := certificateExpiryHeadingCopy.in(w.Locale)
-	text += "\n\n" + fmt.Sprintf(body.in(w.Locale), w.RUC, formatEcuadorDate(w.NotAfter, w.Locale))
-	text += "\n\n" + fmt.Sprintf(certificateExpiryActionCopy.in(w.Locale), w.IssuerURL)
-	return text
+	return paragraphs(fmt.Sprintf(body.in(w.Locale), w.RUC, formatEcuadorDate(w.NotAfter, w.Locale)))
+}
+
+// link is the Issuer page, where the renewed .p12 is uploaded.
+func (w CertificateExpiryWarning) link() mailLink {
+	return mailLink{lead: certificateExpiryLinkLeadCopy, label: certificateExpiryButtonCopy, url: w.IssuerURL}
 }
