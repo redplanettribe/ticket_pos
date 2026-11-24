@@ -51,8 +51,8 @@ The user picked a mix:
 - **Sale Confirmation: A - Card.** Grey canvas, white rounded card, Cover Image full-bleed across the top, a "Purchase confirmed" eyebrow, the Event name as the `<h1>`, then the greeting, the Reference/Total/Tax ID in a soft box, and a full-width primary button.
 - **Follow Digest: C - Letter.** No canvas or card, a narrow left-aligned column, section headings over a heavy rule, and dense Event rows with the Thumbnail on the left and the call to action and "Because you follow" on one line.
 
-Open for the spec, because the settled design asks for one shared layout on every mail and A and C have different chrome (A: grey canvas + card, 600px; C: plain white column, 560px):
+Shared layout, ruled by the user on 2026-11-23: **A's chrome for every mail** (grey canvas, Multiticketing wordmark above, one white rounded card, 600px, footer below the card).
+The Follow Digest keeps C's content inside that card: section headings over a heavy rule and dense Event rows with the Thumbnail on the left.
+So the compact Event row kinds (Answer Reminder, Assignment Reminder, Sale Voided, Sale Reversal Refused, No Longer Holding, each Digest entry) use C's row, and the Cover Image kinds (Sale Confirmation, Ticket Assignment, Sale Re-addressing) use A's full-bleed Cover Image, all inside A's card.
 
-- Which chrome is the shared layout, or whether the Cover Image kinds wear A's card and the rest wear C's plain column.
-- Assumed until ruled: the other Cover Image kinds (Ticket Assignment, Sale Re-addressing) follow A, and the compact Event row kinds (Answer Reminder, Assignment Reminder, Sale Voided, Sale Reversal Refused, No Longer Holding) use C's row.
-- C's left Thumbnail column leaves a blank indent when images are blocked; accept, or drop the cell when no rendition exists (already the rule) and live with the blocked-images case.
+Still open: C's left Thumbnail cell leaves a blank indent when images are blocked (the cell is already dropped when no rendition exists).
