@@ -583,17 +583,7 @@ function StackedFigureChart({
             <StackedBarChart
               data={data}
               series={series}
-              comparisonSeries={
-                trends.comparison === null
-                  ? undefined
-                  : [
-                      {
-                        id: STACK_COMPARISON_ID,
-                        name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
-                        color: STACK_COMPARISON_COLOR,
-                      },
-                    ]
-              }
+              comparisonSeries={comparisonLine(trends, t, STACK_COMPARISON_COLOR)}
               yMax={yMax}
               yTicks={yTicks}
               plotWidth={plotWidth}
@@ -609,6 +599,25 @@ function StackedFigureChart({
       </FigureChartWindow>
     </>
   );
+}
+
+/**
+ * The one line a Daily chart sets beside its buckets: the comparison span's
+ * value, named by its kind. All time has none.
+ */
+function comparisonLine(
+  trends: OrganizationTrends,
+  t: ReturnType<typeof useTranslations<"organizationTrends">>,
+  color: string,
+): StackedSeries[] | undefined {
+  if (trends.comparison === null) return undefined;
+  return [
+    {
+      id: STACK_COMPARISON_ID,
+      name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
+      color,
+    },
+  ];
 }
 
 /**
@@ -692,17 +701,7 @@ function LineFigureChart({
         <MultiSeriesLineChart
           data={data}
           series={series}
-          comparisonSeries={
-            cumulative || trends.comparison === null
-              ? undefined
-              : [
-                  {
-                    id: STACK_COMPARISON_ID,
-                    name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
-                    color: chartSeriesColor(0),
-                  },
-                ]
-          }
+          comparisonSeries={cumulative ? undefined : comparisonLine(trends, t, chartSeriesColor(0))}
           yMax={yMax}
           yTicks={yTicks}
           plotWidth={plotWidth}

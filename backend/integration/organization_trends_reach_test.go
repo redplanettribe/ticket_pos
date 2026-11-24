@@ -29,15 +29,24 @@ func TestOrganizationTrendsPutsAPageViewOnThePlatformDayOfItsHour(t *testing.T) 
 	env := setupTest(t)
 	admin := orgAdminSession(t, env)
 	publishCheckoutEvent(t, env, admin, "View Fest", "view-fest", feeTestBaseCents, 100)
-	publishCheckoutEvent(t, env, admin, "Second Fest", "second-fest", feeTestBaseCents, 100)
+	secondFest, _ := publishCheckoutEvent(t, env, admin, "Second Fest", "second-fest", feeTestBaseCents, 100)
 
 	// 23:30 on 2026-07-02 in Ecuador, already 2026-07-03 in UTC.
 	recordPageViews(t, env, time.Date(2026, 7, 3, 4, 30, 0, 0, time.UTC), testOrgSlug, "view-fest", "", 3)
 	// 00:10 on 2026-07-03 in Ecuador.
 	recordPageViews(t, env, time.Date(2026, 7, 3, 5, 10, 0, 0, time.UTC), testOrgSlug, "view-fest", "", 2)
-	// 2026-07-05, on both pages, one through a code no link answers to.
+	// 2026-07-05, on both pages, one through a live Affiliate Link, which is
+	// that link's Click as well and still one Page View.
+	_, created := createAffiliateLink(t, env, admin, secondFest, map[string]any{"name": "Radio"})
+	if created.Error != nil {
+		t.Fatalf("create affiliate link error=%+v", created.Error)
+	}
+	link := decodeAffiliateLink(t, created.Data)
 	recordPageViews(t, env, time.Date(2026, 7, 5, 15, 0, 0, 0, time.UTC), testOrgSlug, "view-fest", "", 4)
-	recordPageViews(t, env, time.Date(2026, 7, 5, 20, 0, 0, 0, time.UTC), testOrgSlug, "second-fest", "nobody", 1)
+	recordPageViews(t, env, time.Date(2026, 7, 5, 20, 0, 0, 0, time.UTC), testOrgSlug, "second-fest", link.Code, 1)
+	if buckets := pageViewBuckets(t, env, secondFest, &link.ID); len(buckets) != 1 {
+		t.Fatalf("link buckets = %v, want the load counted as the link's Click too", buckets)
+	}
 	// 2026-06-25, in the previous span.
 	recordPageViews(t, env, time.Date(2026, 6, 25, 15, 0, 0, 0, time.UTC), testOrgSlug, "second-fest", "", 6)
 	// Today, at the fixed clock.
