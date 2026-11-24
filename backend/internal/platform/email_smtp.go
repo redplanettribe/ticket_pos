@@ -32,8 +32,7 @@ import (
 // It is the SES sender's twin in every way that matters to a reader: one
 // private send path every public method funnels through, the copy taken from
 // the message's own content (email_content.go) and never written here, the
-// HTML part beside the text as multipart/alternative where the kind has one,
-// and the Tax Document's attachments carried as attachments. Which identity a
+// HTML part beside the text as multipart/alternative (ADR 0082), and the Tax Document's attachments carried as attachments. Which identity a
 // sender is depends only on the From it was built with, as with SES and
 // Resend: the wiring builds one per identity.
 //

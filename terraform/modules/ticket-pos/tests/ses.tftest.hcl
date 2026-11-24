@@ -12,7 +12,9 @@
 # SES only tracks opens and clicks through an event destination matching OPEN
 # or CLICK, or through Virtual Deliverability Manager's engagement tracking,
 # so the set must have engagement metrics disabled, no custom redirect domain,
-# and no Terraform here may declare an event destination at all.
+# and no Terraform here may declare an event destination at all. A test cannot
+# list resources that do not exist, so that last check reads every .tf under
+# modules/ and envs/ for the resource types; a comment naming one trips it too.
 
 mock_provider "google" {}
 mock_provider "random" {}
@@ -48,8 +50,8 @@ run "the_configuration_set_tracks_no_open_or_click" {
   }
 
   assert {
-    condition = length(fileset("${path.module}/../..", "{modules,envs}/*/*.tf")) > 0 && alltrue([
-      for f in fileset("${path.module}/../..", "{modules,envs}/*/*.tf") :
+    condition = length(fileset("${path.module}/../..", "{modules,envs}/**/*.tf")) > 0 && alltrue([
+      for f in fileset("${path.module}/../..", "{modules,envs}/**/*.tf") :
       !strcontains(file("${path.module}/../../${f}"), "aws_sesv2_configuration_set_event_destination") &&
       !strcontains(file("${path.module}/../../${f}"), "aws_ses_event_destination")
     ])

@@ -330,7 +330,7 @@ func TestSMTPSendsEveryMessageWithTheSharedCopy(t *testing.T) {
 			if got.text != tc.text {
 				t.Fatalf("text part = %q, want %q", got.text, tc.text)
 			}
-			if got.html != tc.html {
+			if tc.html == "" || got.html != tc.html {
 				t.Fatalf("html part (%d bytes) is not the message's HTML (%d bytes)", len(got.html), len(tc.html))
 			}
 

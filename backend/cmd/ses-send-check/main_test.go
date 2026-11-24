@@ -244,12 +244,12 @@ func TestSendCheckSendsEveryEmailSenderKind(t *testing.T) {
 		}
 	}
 
-	// What the capture holds, by message type.
-	captured := map[reflect.Type]reflect.Value{}
-	held := reflect.ValueOf(capture).Elem()
-	for i := range held.NumField() {
-		if field := held.Type().Field(i); field.IsExported() && field.Type.Kind() == reflect.Slice {
-			captured[field.Type.Elem()] = held.Field(i)
+	// The capture's slices of sent messages, by message type.
+	sentByType := map[reflect.Type]reflect.Value{}
+	fields := reflect.ValueOf(capture).Elem()
+	for i := range fields.NumField() {
+		if field := fields.Type().Field(i); field.IsExported() && field.Type.Kind() == reflect.Slice {
+			sentByType[field.Type.Elem()] = fields.Field(i)
 		}
 	}
 
@@ -259,13 +259,18 @@ func TestSendCheckSendsEveryEmailSenderKind(t *testing.T) {
 	sender := reflect.TypeOf((*platform.EmailSender)(nil)).Elem()
 	for i := range sender.NumMethod() {
 		method := sender.Method(i)
+		// The message value the method sends: its argument after the
+		// context, or for the passcode the OTPMessage it builds.
 		kind := reflect.TypeOf(platform.OTPMessage{})
 		if method.Name != "SendOTP" {
+			if method.Type.NumIn() != 2 {
+				t.Fatalf("%s takes %d arguments; say here which message value it sends", method.Name, method.Type.NumIn())
+			}
 			kind = method.Type.In(1)
 		}
-		sends, ok := captured[kind]
+		sends, ok := sentByType[kind]
 		if !ok {
-			t.Errorf("%s: the capture sender keeps no %s; say here where it does", method.Name, kind)
+			t.Errorf("%s: platform.CaptureEmailSender keeps no []%s to count its sends by", method.Name, kind)
 			continue
 		}
 		if sends.Len() != 1 {
