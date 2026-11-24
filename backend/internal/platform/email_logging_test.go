@@ -14,6 +14,8 @@ import (
 func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	otp := OTPMessage{Code: "482913", Locale: LocaleES}
 	withdrawal := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: LocaleEN, MarketingConsent: true}
+	taxDocument := goldenTaxDocumentDelivery(LocaleES)
+	annulment := goldenAnnulmentNotice(LocaleEN)
 	cases := []struct {
 		name   string
 		msg    string
@@ -25,6 +27,12 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"consent withdrawal confirmation", "consent withdrawal confirmation sent", withdrawal.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendConsentWithdrawalConfirmation(ctx, withdrawal)
+		}},
+		{"tax document delivery", "tax document delivery sent", taxDocument.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendTaxDocumentDelivery(ctx, taxDocument)
+		}},
+		{"annulment notice", "annulment notice sent", annulment.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendAnnulmentNotice(ctx, annulment)
 		}},
 	}
 	for _, tc := range cases {

@@ -13,6 +13,12 @@ writes its own chrome or its own button.
 {{/* One paragraph of body copy. */}}
 {{define "paragraph"}}<p class="t-fg" style="margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:24px;color:#121921;">{{.}}</p>{{end}}
 
+{{/* One paragraph whose lines the text part breaks with a single newline
+(a sentence, then "Reference: ..."), each line after the first on its own
+line here too. Takes a []string. */}}
+{{define "lines"}}<p class="t-fg" style="margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:24px;color:#121921;">{{range $i, $line := .}}{{if $i}}<br>
+{{end}}{{$line}}{{end}}</p>{{end}}
+
 {{/* A code the reader types or quotes (a passcode, a Reference): large and
 monospace in the soft box. */}}
 {{define "code"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-soft" style="background-color:#eef2f7;border-radius:10px;margin:0 0 16px;">

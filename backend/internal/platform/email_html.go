@@ -113,6 +113,9 @@ type mailKind string
 const (
 	mailKindOTP               mailKind = "otp"
 	mailKindConsentWithdrawal mailKind = "consentwithdrawal"
+	// mailKindFiscal is the one card both fiscal kinds, the Tax Document
+	// Delivery and the Annulment Notice, are written in.
+	mailKindFiscal mailKind = "fiscal"
 )
 
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
@@ -122,6 +125,7 @@ const (
 var mailKinds = map[mailKind]any{
 	mailKindOTP:               otpCard{},
 	mailKindConsentWithdrawal: consentWithdrawalCard{},
+	mailKindFiscal:            fiscalCard{},
 }
 
 //go:embed mailtemplates
@@ -290,5 +294,49 @@ func (c ConsentWithdrawalConfirmation) HTML(chrome MailChrome) (string, error) {
 		consentWithdrawalPreheaderCopy.in(c.Locale),
 		consentWithdrawalFooterReasonCopy.in(c.Locale),
 		consentWithdrawalCard{Heading: c.Subject(), Paragraphs: paragraphs(c.Text())},
+	)
+}
+
+// fiscalCard is the card of both fiscal kinds: the subject as heading, the
+// text part's paragraphs before its link, each split into the lines the text
+// breaks it into, and the link as the one button with the sentence that leads
+// to it. Button is nil when the mail has no link, which drops the lead too.
+type fiscalCard struct {
+	Heading  string
+	Blocks   [][]string
+	LinkLead string
+	Button   *mailButton
+}
+
+func newFiscalCard(locale Locale, heading string, blocks []string, lead, label, url string) fiscalCard {
+	card := fiscalCard{Heading: heading}
+	for _, block := range blocks {
+		card.Blocks = append(card.Blocks, strings.Split(block, "\n"))
+	}
+	if url != "" {
+		button := newMailButton(locale, label, url)
+		card.LinkLead, card.Button = lead, &button
+	}
+	return card
+}
+
+// HTML is the Tax Document Delivery's HTML part, in the fiscal card. The
+// documents travel as attachments beside both parts, never in the markup.
+func (d TaxDocumentDelivery) HTML(chrome MailChrome) (string, error) {
+	return renderMail(mailKindFiscal, d.Locale, chrome, d.Subject(),
+		fmt.Sprintf(taxDocumentPreheaderCopy.in(d.Locale), d.Reference),
+		fmt.Sprintf(taxDocumentFooterReasonCopy.in(d.Locale), d.EventName),
+		newFiscalCard(d.Locale, d.Subject(), d.blocks(),
+			taxDocumentLinkLeadCopy.in(d.Locale), taxDocumentButtonCopy.in(d.Locale), d.CustomerAreaURL),
+	)
+}
+
+// HTML is the Annulment Notice's HTML part, in the same fiscal card.
+func (n AnnulmentNotice) HTML(chrome MailChrome) (string, error) {
+	return renderMail(mailKindFiscal, n.Locale, chrome, n.Subject(),
+		fmt.Sprintf(annulmentNoticePreheaderCopy.in(n.Locale), n.Number),
+		fmt.Sprintf(annulmentNoticeFooterReasonCopy.in(n.Locale), n.EventName),
+		newFiscalCard(n.Locale, n.Subject(), n.blocks(),
+			annulmentNoticeLinkLeadCopy.in(n.Locale), annulmentNoticeButtonCopy.in(n.Locale), n.CustomerAreaURL),
 	)
 }

@@ -38,7 +38,7 @@ func TestTaxDocumentDeliveryIsWrittenInEnglishWhenNothingNamedALanguage(t *testi
 		"Hi Ana Lopez,",
 		"Attached is the tax invoice (factura) for your purchase for Noche de Jazz, authorized by the SRI.",
 		"Reference: ABC123",
-		"Attached are the XML — the document itself, exactly as the SRI authorized it — and its RIDE, the same document in printable form (PDF).",
+		"Attached are the XML and its RIDE. The XML is the document itself, exactly as the SRI authorized it, and the RIDE is the same document in printable form (PDF).",
 		"after signing in:\nhttps://example.test/tickets#sale-1",
 	} {
 		if !strings.Contains(text, want) {
@@ -58,7 +58,7 @@ func TestTaxDocumentDeliveryIsWrittenInSpanishForASpanishSale(t *testing.T) {
 		"Hola Ana Lopez:",
 		"Adjuntamos la factura de su compra de Noche de Jazz, autorizada por el SRI.",
 		"Referencia: ABC123",
-		"Adjuntamos el XML — el documento en sí, tal como lo autorizó el SRI — y su RIDE, el mismo documento en formato imprimible (PDF).",
+		"Adjuntamos el XML y su RIDE. El XML es el documento en sí, tal como lo autorizó el SRI, y el RIDE es el mismo documento en formato imprimible (PDF).",
 		"después de iniciar sesión:\nhttps://example.test/tickets#sale-1",
 	} {
 		if !strings.Contains(text, want) {

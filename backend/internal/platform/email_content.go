@@ -1961,17 +1961,35 @@ var (
 	)
 	// Both forms the SRI obliges the emisor to deliver (#496, ADR 0062),
 	// named in the order they are attached: the XML is the record, the RIDE
-	// its reading.
+	// its reading. Two sentences, in both parts, where there was one with
+	// em dashes, which no mail carries since ADR 0082.
 	taxDocumentAttachmentCopy = translated(
-		"Attached are the XML — the document itself, exactly as the SRI authorized it — and its RIDE, the same document in printable form (PDF).",
-		"Adjuntamos el XML — el documento en sí, tal como lo autorizó el SRI — y su RIDE, el mismo documento en formato imprimible (PDF).",
+		"Attached are the XML and its RIDE. The XML is the document itself, exactly as the SRI authorized it, and the RIDE is the same document in printable form (PDF).",
+		"Adjuntamos el XML y su RIDE. El XML es el documento en sí, tal como lo autorizó el SRI, y el RIDE es el mismo documento en formato imprimible (PDF).",
 	)
 	// The way back to the file once the mail is gone: the Sale in the
 	// Customer Area, behind a sign-in. It says "sign in" outright, because
-	// unlike the receipt's link this one opens nothing on its own.
-	taxDocumentLinkCopy = translated(
-		"You can download it again from your purchase, after signing in:\n%s",
-		"Puede volver a descargarlo desde su compra, después de iniciar sesión:\n%s",
+	// unlike the receipt's link this one opens nothing on its own. The text
+	// part prints the link on the line after it; the HTML part puts the
+	// button there.
+	taxDocumentLinkLeadCopy = translated(
+		"You can download it again from your purchase, after signing in:",
+		"Puede volver a descargarlo desde su compra, después de iniciar sesión:",
+	)
+	taxDocumentButtonCopy = translated(
+		"View your purchase",
+		"Ver su compra",
+	)
+	// The HTML part's preheader and footer reason (ADR 0082), one for every
+	// document the delivery hands over: the preheader says what is attached
+	// and to which Reference, never which document, since the subject does.
+	taxDocumentPreheaderCopy = translated(
+		"Reference %s. The XML and its RIDE (PDF) are attached.",
+		"Referencia %s. Adjuntamos el XML y su RIDE (PDF).",
+	)
+	taxDocumentFooterReasonCopy = translated(
+		"You're getting this because a tax document for your purchase for %s was issued to this address.",
+		"Recibe este correo porque se emitió a esta dirección un documento tributario de su compra de %s.",
 	)
 )
 
@@ -1990,6 +2008,16 @@ func (d TaxDocumentDelivery) Subject() string {
 // Text is the delivery's plain-text body: what is attached, which purchase
 // it belongs to, and where to find it again.
 func (d TaxDocumentDelivery) Text() string {
+	text := strings.Join(d.blocks(), "\n\n")
+	if d.CustomerAreaURL != "" {
+		text += "\n\n" + taxDocumentLinkLeadCopy.in(d.Locale) + "\n" + d.CustomerAreaURL
+	}
+	return text
+}
+
+// blocks is the delivery's body before its link, one string per paragraph,
+// which both parts carry word for word.
+func (d TaxDocumentDelivery) blocks() []string {
 	opening := taxDocumentSaleInvoiceOpeningCopy
 	if d.Kind == TaxDocumentKindCreditNote {
 		opening = taxDocumentCreditNoteOpeningCopy
@@ -2009,10 +2037,7 @@ func (d TaxDocumentDelivery) Text() string {
 		}
 	}
 	text += "\n\n" + taxDocumentAttachmentCopy.in(d.Locale)
-	if d.CustomerAreaURL != "" {
-		text += "\n\n" + fmt.Sprintf(taxDocumentLinkCopy.in(d.Locale), d.CustomerAreaURL)
-	}
-	return text
+	return paragraphs(text)
 }
 
 // The Annulment Notice (#748, spec #742, ADR 0078): the buyer learns that a
@@ -2040,9 +2065,25 @@ var (
 		"Nothing else follows: no new tax invoice (factura) will be sent.",
 		"No se enviará nada más: no habrá una nueva factura.",
 	)
-	annulmentNoticeLinkCopy = translated(
-		"You can see your purchase's documents after signing in:\n%s",
-		"Puede ver los documentos de su compra después de iniciar sesión:\n%s",
+	// The text part prints the link on the line after it; the HTML part puts
+	// the button there.
+	annulmentNoticeLinkLeadCopy = translated(
+		"You can see your purchase's documents after signing in:",
+		"Puede ver los documentos de su compra después de iniciar sesión:",
+	)
+	annulmentNoticeButtonCopy = translated(
+		"View your purchase's documents",
+		"Ver los documentos de su compra",
+	)
+	// The HTML part's preheader and footer reason (ADR 0082). The preheader
+	// is the one instruction the notice carries.
+	annulmentNoticePreheaderCopy = translated(
+		"The tax invoice (factura) %s has no tax effect. Please discard it.",
+		"La factura %s no tiene efecto tributario. Descártela.",
+	)
+	annulmentNoticeFooterReasonCopy = translated(
+		"You're getting this because a tax invoice (factura) for your purchase for %s was issued to this address.",
+		"Recibe este correo porque se emitió a esta dirección una factura de su compra de %s.",
 	)
 )
 
@@ -2054,16 +2095,23 @@ func (n AnnulmentNotice) Subject() string {
 // Text is the notice's body: which factura, that it is void, what follows by
 // the Sale as it stands, and the way back to the Sale.
 func (n AnnulmentNotice) Text() string {
+	text := strings.Join(n.blocks(), "\n\n")
+	if n.CustomerAreaURL != "" {
+		text += "\n\n" + annulmentNoticeLinkLeadCopy.in(n.Locale) + "\n" + n.CustomerAreaURL
+	}
+	return text
+}
+
+// blocks is the notice's body before its link, one string per paragraph,
+// which both parts carry word for word.
+func (n AnnulmentNotice) blocks() []string {
 	text := fmt.Sprintf(annulmentNoticeOpeningCopy.in(n.Locale), n.CustomerName, n.Number, n.EventName, n.Reference)
 	if n.SaleReversed {
 		text += "\n\n" + annulmentNoticeReversedCopy.in(n.Locale)
 	} else {
 		text += "\n\n" + annulmentNoticeStandingCopy.in(n.Locale)
 	}
-	if n.CustomerAreaURL != "" {
-		text += "\n\n" + fmt.Sprintf(annulmentNoticeLinkCopy.in(n.Locale), n.CustomerAreaURL)
-	}
-	return text
+	return paragraphs(text)
 }
 
 // The Certificate Expiry Warning (#502, ADR 0063): the Operator learns the

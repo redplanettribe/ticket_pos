@@ -2,6 +2,7 @@ package platform
 
 import (
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,8 +64,59 @@ func mailFixtures() []mailFixture {
 			c := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: locale, MarketingConsent: variant.marketing, NetworkingConsent: variant.networking}
 			fixtures = append(fixtures, mailFixture{"consentwithdrawal-" + variant.name + "-" + string(locale), locale, c.HTML, c.Text()})
 		}
+
+		for _, variant := range []struct {
+			name string
+			edit func(*TaxDocumentDelivery)
+		}{
+			{"invoice", func(*TaxDocumentDelivery) {}},
+			{"invoice-replaces-credited", func(d *TaxDocumentDelivery) { d.Replaces = TaxDocumentReplacesCredited }},
+			{"invoice-replaces-annulled", func(d *TaxDocumentDelivery) { d.Replaces = TaxDocumentReplacesAnnulled }},
+			{"invoice-reinstated", func(d *TaxDocumentDelivery) { d.Reinstated = true }},
+			{"creditnote", func(d *TaxDocumentDelivery) { d.Kind, d.Reason = TaxDocumentKindCreditNote, "refund" }},
+			{"creditnote-reissue", func(d *TaxDocumentDelivery) {
+				d.Kind, d.Reason = TaxDocumentKindCreditNote, TaxDocumentReasonReissue
+			}},
+		} {
+			d := goldenTaxDocumentDelivery(locale)
+			variant.edit(&d)
+			fixtures = append(fixtures, mailFixture{"taxdocument-" + variant.name + "-" + string(locale), locale, d.HTML, d.Text()})
+		}
+
+		for _, variant := range []struct {
+			name     string
+			reversed bool
+		}{
+			{"standing", false},
+			{"reversed", true},
+		} {
+			n := goldenAnnulmentNotice(locale)
+			n.SaleReversed = variant.reversed
+			fixtures = append(fixtures, mailFixture{"annulmentnotice-" + variant.name + "-" + string(locale), locale, n.HTML, n.Text()})
+		}
 	}
 	return fixtures
+}
+
+// The fiscal fixtures: an invented buyer, Event and factura.
+func goldenTaxDocumentDelivery(locale Locale) TaxDocumentDelivery {
+	return TaxDocumentDelivery{
+		To: "ana@example.com", Kind: TaxDocumentKindSaleInvoice, Number: "001-001-000000042",
+		CustomerName: "Ana Lopez", EventName: "Noche de Jazz", Reference: "ABC123",
+		CustomerAreaURL: goldenAssetOrigin + "/tickets#sale-1",
+		Attachments: []EmailAttachment{
+			{Filename: "0707202601.xml", ContentType: "application/xml; charset=utf-8", Body: []byte("<factura/>")},
+			{Filename: "0707202601.pdf", ContentType: "application/pdf", Body: []byte("%PDF-1.3")},
+		},
+		Locale: locale,
+	}
+}
+
+func goldenAnnulmentNotice(locale Locale) AnnulmentNotice {
+	return AnnulmentNotice{
+		To: "ana@example.com", CustomerName: "Ana Lopez", EventName: "Noche de Jazz", Reference: "ABC123",
+		Number: "001-001-000000042", CustomerAreaURL: goldenAssetOrigin + "/tickets#sale-1", Locale: locale,
+	}
 }
 
 func TestMailHTMLGoldens(t *testing.T) {
@@ -284,12 +336,19 @@ func withCard(kinds map[mailKind]any, kind mailKind, card any) map[mailKind]any 
 func withKind(t *testing.T, kind mailKind, source string) fstest.MapFS {
 	t.Helper()
 	fsys := fstest.MapFS{}
-	for _, name := range []string{"mailtemplates/layout.html", "mailtemplates/components.html", "mailtemplates/kinds/otp.html", "mailtemplates/kinds/consentwithdrawal.html"} {
+	err := fs.WalkDir(mailTemplateFiles, "mailtemplates", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
 		data, err := mailTemplateFiles.ReadFile(name)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			return err
 		}
 		fsys[name] = &fstest.MapFile{Data: data}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read the shipped templates: %v", err)
 	}
 	fsys["mailtemplates/kinds/"+string(kind)+".html"] = &fstest.MapFile{Data: []byte(source)}
 	return fsys

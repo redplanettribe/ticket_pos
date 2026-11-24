@@ -223,7 +223,7 @@ func (s *SESEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReve
 // the signed XML and its RIDE attached (#475, #496), the only message that
 // carries attachments. The Drainer reads the error and retries on its ladder.
 func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	if err := s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), "", d.Attachments...); err != nil {
+	if err := s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "tax document delivery", d.HTML, s.chrome), d.Attachments...); err != nil {
 		return s.fail(ctx, "tax document delivery", err, "kind", d.Kind, "reference", d.Reference)
 	}
 	return nil
@@ -233,7 +233,7 @@ func (s *SESEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocum
 // (#748). No attachments. The Drainer reads the error and retries on the
 // delivery's ladder.
 func (s *SESEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	if err := s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), ""); err != nil {
+	if err := s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "annulment notice", n.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "annulment notice", err, "reference", n.Reference)
 	}
 	return nil

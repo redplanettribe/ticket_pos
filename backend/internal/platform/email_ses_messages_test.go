@@ -108,9 +108,9 @@ func transactionalMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleReversalRefused(ctx, reversalRefused)
 			}},
-		{"tax document delivery", taxDocument.To, taxDocument.Subject(), taxDocument.Text(), "", taxDocument.Attachments,
+		{"tax document delivery", taxDocument.To, taxDocument.Subject(), taxDocument.Text(), testHTML(taxDocument.HTML), taxDocument.Attachments,
 			func(ctx context.Context, s EmailSender) error { return s.SendTaxDocumentDelivery(ctx, taxDocument) }},
-		{"annulment notice", annulmentNotice.To, annulmentNotice.Subject(), annulmentNotice.Text(), "", nil,
+		{"annulment notice", annulmentNotice.To, annulmentNotice.Subject(), annulmentNotice.Text(), testHTML(annulmentNotice.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendAnnulmentNotice(ctx, annulmentNotice) }},
 		{"consent withdrawal confirmation", withdrawal.To, withdrawal.Subject(), withdrawal.Text(), testHTML(withdrawal.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {

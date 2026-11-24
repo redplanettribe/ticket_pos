@@ -1322,21 +1322,23 @@ func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 // SendTaxDocumentDelivery logs the Tax Document delivery for local
 // development: the reference, the kind and each attachment's filename and
 // size, never its bytes.
-func (s *LoggingEmailSender) SendTaxDocumentDelivery(_ context.Context, d TaxDocumentDelivery) error {
+func (s *LoggingEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
 	attrs := []any{"email", d.To, "kind", d.Kind, "reference", d.Reference, "event", d.EventName}
 	for _, a := range d.Attachments {
 		attrs = append(attrs, "attachment", a.Filename, "attachment_bytes", len(a.Body))
 	}
 	attrs = append(attrs, "customer_area", d.CustomerAreaURL)
+	attrs = append(attrs, s.htmlAttrs(ctx, "tax document delivery", d.HTML)...)
 	s.Logger.Info("tax document delivery sent", attrs...)
 	return nil
 }
 
 // SendAnnulmentNotice logs the Annulment Notice for local development: the
 // reference, the number and whether the Sale was reversed.
-func (s *LoggingEmailSender) SendAnnulmentNotice(_ context.Context, n AnnulmentNotice) error {
-	s.Logger.Info("annulment notice sent", "email", n.To, "reference", n.Reference, "number", n.Number,
-		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale))
+func (s *LoggingEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
+	s.Logger.Info("annulment notice sent", append([]any{"email", n.To, "reference", n.Reference, "number", n.Number,
+		"sale_reversed", n.SaleReversed, "customer_area", n.CustomerAreaURL, "locale", string(n.Locale)},
+		s.htmlAttrs(ctx, "annulment notice", n.HTML)...)...)
 	return nil
 }
 

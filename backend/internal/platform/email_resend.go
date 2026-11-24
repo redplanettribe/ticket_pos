@@ -215,7 +215,7 @@ func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConf
 // this reports. The log names the reference and the kind, never the
 // recipient.
 func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	if err := s.send(ctx, d.To, d.Subject(), d.Text(), "", d.Attachments...); err != nil {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "tax document delivery", d.HTML, s.chrome), d.Attachments...); err != nil {
 		s.logger.Error(ctx, "resend send tax document delivery failed", "kind", d.Kind, "reference", d.Reference, "error", err)
 		return err
 	}
@@ -226,7 +226,7 @@ func (s *ResendEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDo
 // (#748). No attachments. The Drainer reads the error and retries on the
 // delivery's ladder; the log names the reference, never the recipient.
 func (s *ResendEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	if err := s.send(ctx, n.To, n.Subject(), n.Text(), ""); err != nil {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "annulment notice", n.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send annulment notice failed", "reference", n.Reference, "error", err)
 		return err
 	}

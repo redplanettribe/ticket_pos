@@ -1,0 +1,11 @@
+{{/* The fiscal card, which both fiscal kinds use: the Tax Document Delivery
+and the Annulment Notice. Official mail in the platform chrome, with no Event
+imagery, so it reads as a document rather than a promotion. The subject is the
+heading, then the text part's own paragraphs, then the way back to the Sale as
+the one button when there is one. Takes a fiscalCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Blocks}}{{template "lines" .}}
+{{end}}{{with .Button}}{{template "paragraph" $.LinkLead}}
+{{template "button" .}}
+{{end}}{{template "cardClose"}}{{end}}

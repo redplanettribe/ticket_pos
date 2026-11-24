@@ -388,6 +388,15 @@ func TestResendSendsEveryMessageWithBothParts(t *testing.T) {
 			if len(payload.Attachments) != len(tc.attachments) {
 				t.Fatalf("request carries %d attachments, want %d", len(payload.Attachments), len(tc.attachments))
 			}
+			for i, want := range tc.attachments {
+				got := payload.Attachments[i]
+				if got.Filename != want.Filename || got.ContentType != want.ContentType {
+					t.Errorf("attachment %d = %q (%q), want %q (%q)", i, got.Filename, got.ContentType, want.Filename, want.ContentType)
+				}
+				if body, err := base64.StdEncoding.DecodeString(got.Content); err != nil || !bytes.Equal(body, want.Body) {
+					t.Errorf("attachment %d bytes = %q (%v), want %q", i, body, err, want.Body)
+				}
+			}
 		})
 	}
 }

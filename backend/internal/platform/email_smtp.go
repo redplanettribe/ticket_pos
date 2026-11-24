@@ -309,14 +309,15 @@ func (s *SMTPEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleRev
 }
 
 // SendTaxDocumentDelivery delivers the Tax Document with its signed XML and
-// RIDE attached, the only message that carries attachments.
+// RIDE attached, the only message that carries attachments, beside both
+// parts.
 func (s *SMTPEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	return s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), "", d.Attachments...)
+	return s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "tax document delivery", d.HTML, s.chrome), d.Attachments...)
 }
 
 // SendAnnulmentNotice tells the buyer their factura was annulled at the SRI.
 func (s *SMTPEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	return s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), "")
+	return s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), renderedHTML(ctx, s.logger, "annulment notice", n.HTML, s.chrome))
 }
 
 // SendConsentWithdrawalConfirmation delivers the Consent Withdrawal
