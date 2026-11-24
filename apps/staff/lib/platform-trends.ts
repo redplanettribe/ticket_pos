@@ -165,14 +165,16 @@ export type PlatformTrendsSearchParams = {
   compare?: string | string[];
 };
 
-function first(raw: string | string[] | undefined): string {
+/** The first value of a query param, trimmed: a parameter written twice
+ * arrives as an array. Shared with Organization Trends' address. */
+export function firstParam(raw: string | string[] | undefined): string {
   return ((Array.isArray(raw) ? raw[0] : raw) ?? "").trim();
 }
 
 const CALENDAR_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** Whether a string is a day that exists on the calendar, spelled YYYY-MM-DD. */
-function isCalendarDay(value: string): boolean {
+export function isCalendarDay(value: string): boolean {
   const match = CALENDAR_DAY.exec(value);
   if (!match) return false;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
@@ -189,17 +191,17 @@ function isCalendarDay(value: string): boolean {
  * refusal is shown in the section.
  */
 export function parsePlatformTrendsParams(searchParams: PlatformTrendsSearchParams): PlatformTrendsView {
-  const compareRaw = first(searchParams.compare) as PlatformTrendComparison;
+  const compareRaw = firstParam(searchParams.compare) as PlatformTrendComparison;
   const compare = PLATFORM_TREND_COMPARISONS.includes(compareRaw)
     ? compareRaw
     : DEFAULT_PLATFORM_TRENDS_VIEW.compare;
-  const spanRaw = first(searchParams.span) as PlatformTrendSpan;
+  const spanRaw = firstParam(searchParams.span) as PlatformTrendSpan;
   const span = PLATFORM_TREND_SPANS.includes(spanRaw) ? spanRaw : DEFAULT_PLATFORM_TRENDS_VIEW.span;
   if (span !== "custom") {
     return { span, from: "", to: "", compare };
   }
-  const from = first(searchParams.from);
-  const to = first(searchParams.to);
+  const from = firstParam(searchParams.from);
+  const to = firstParam(searchParams.to);
   if (!isCalendarDay(from) || !isCalendarDay(to)) {
     return { ...DEFAULT_PLATFORM_TRENDS_VIEW, compare };
   }

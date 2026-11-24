@@ -17,7 +17,9 @@
 import { fetchEventsJSON } from "./events-api.ts";
 import { staffIntlLocale, type AppLocale } from "./format.ts";
 import {
+  firstParam,
   formatTrendBucket,
+  isCalendarDay,
   stackedChartData,
   type PlatformTrendDays,
   type TrendStackDatum,
@@ -118,20 +120,6 @@ export type OrganizationTrendsSearchParams = {
   compare?: string | string[];
 };
 
-function first(raw: string | string[] | undefined): string {
-  return ((Array.isArray(raw) ? raw[0] : raw) ?? "").trim();
-}
-
-const CALENDAR_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function isCalendarDay(value: string): boolean {
-  const match = CALENDAR_DAY.exec(value);
-  if (!match) return false;
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}
-
 /**
  * parseOrganizationTrendsParams reads the reading off the address. A span or
  * comparison this app does not know falls back to the default, each on its
@@ -139,11 +127,11 @@ function isCalendarDay(value: string): boolean {
  * custom range may be beyond that is the API's to say.
  */
 export function parseOrganizationTrendsParams(searchParams: OrganizationTrendsSearchParams): OrganizationTrendsView {
-  const compareRaw = first(searchParams.compare) as OrganizationTrendComparison;
+  const compareRaw = firstParam(searchParams.compare) as OrganizationTrendComparison;
   const compare = ORGANIZATION_TREND_COMPARISONS.includes(compareRaw)
     ? compareRaw
     : DEFAULT_ORGANIZATION_TRENDS_VIEW.compare;
-  const spanRaw = first(searchParams.span) as OrganizationTrendSpan;
+  const spanRaw = firstParam(searchParams.span) as OrganizationTrendSpan;
   const span = ORGANIZATION_TREND_SPANS.includes(spanRaw) ? spanRaw : DEFAULT_ORGANIZATION_TRENDS_VIEW.span;
   if (span === "all") {
     return { span, from: "", to: "", compare: DEFAULT_ORGANIZATION_TRENDS_VIEW.compare };
@@ -151,8 +139,8 @@ export function parseOrganizationTrendsParams(searchParams: OrganizationTrendsSe
   if (span !== "custom") {
     return { span, from: "", to: "", compare };
   }
-  const from = first(searchParams.from);
-  const to = first(searchParams.to);
+  const from = firstParam(searchParams.from);
+  const to = firstParam(searchParams.to);
   if (!isCalendarDay(from) || !isCalendarDay(to)) {
     return { ...DEFAULT_ORGANIZATION_TRENDS_VIEW, compare };
   }

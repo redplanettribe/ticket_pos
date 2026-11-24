@@ -6,12 +6,10 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/organizationtrends/service"
@@ -107,64 +105,27 @@ var comparisons = []service.OrganizationTrendComparisonKind{service.ComparePrevi
 
 // parseSpanQuery checks the span's shape as Platform Trends' does: a known
 // comparison (previous when absent), a known preset (30d when absent) and,
-// for a custom span, two well-formed days with the first not after the last,
-// covering at most trendspan.MaxCustomDays. Where the span falls against
-// today is the service's to resolve.
+// for a custom span, the range trendspan.ParseCustomRange accepts. Where the
+// span falls against today is the service's to resolve.
 func parseSpanQuery(values url.Values) (service.TrendSpanQuery, []platform.FieldError) {
 	compare := service.OrganizationTrendComparisonKind(strings.TrimSpace(values.Get("compare")))
 	if compare != "" && !slices.Contains(comparisons, compare) {
-		return service.TrendSpanQuery{}, []platform.FieldError{invalidEnum("compare", comparisons)}
+		return service.TrendSpanQuery{}, []platform.FieldError{trendspan.InvalidEnum("compare", comparisons)}
 	}
 	preset := trendspan.Preset(strings.TrimSpace(values.Get("span")))
 	if preset == "" {
 		return service.TrendSpanQuery{Compare: compare}, nil
 	}
 	if !slices.Contains(presets, preset) {
-		return service.TrendSpanQuery{}, []platform.FieldError{invalidEnum("span", presets)}
+		return service.TrendSpanQuery{}, []platform.FieldError{trendspan.InvalidEnum("span", presets)}
 	}
 	if preset != trendspan.PresetCustom {
 		return service.TrendSpanQuery{Preset: preset, Compare: compare}, nil
 	}
 
-	var fields []platform.FieldError
-	from, fromOK := parseDay("from", values.Get("from"), &fields)
-	to, toOK := parseDay("to", values.Get("to"), &fields)
-	if !fromOK || !toOK {
+	from, to, fields := trendspan.ParseCustomRange(values.Get("from"), values.Get("to"))
+	if len(fields) > 0 {
 		return service.TrendSpanQuery{}, fields
 	}
-	if from.After(to) {
-		return service.TrendSpanQuery{}, []platform.FieldError{{Field: "from", Code: platform.CodeStartAfterEnd, Message: "must be on or before to"}}
-	}
-	if to.Sub(from) >= trendspan.MaxCustomDays*24*time.Hour {
-		return service.TrendSpanQuery{}, []platform.FieldError{{
-			Field:   "from",
-			Code:    platform.CodeTooManyItems,
-			Message: fmt.Sprintf("the range must cover at most %d days", trendspan.MaxCustomDays),
-		}}
-	}
 	return service.TrendSpanQuery{Preset: preset, From: from, To: to, Compare: compare}, nil
-}
-
-// invalidEnum refuses a value that is not one of allowed, naming them.
-func invalidEnum[T ~string](field string, allowed []T) platform.FieldError {
-	names := make([]string, 0, len(allowed))
-	for _, value := range allowed {
-		names = append(names, string(value))
-	}
-	return platform.FieldError{Field: field, Code: platform.CodeInvalidEnum, Message: "must be one of " + strings.Join(names, ", ")}
-}
-
-// parseDay reads one day of a custom range, appending its refusal to fields.
-func parseDay(field, raw string, fields *[]platform.FieldError) (time.Time, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: "is required for a custom span"})
-		return time.Time{}, false
-	}
-	day, err := time.Parse(trendspan.DayFormat, raw)
-	if err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
-		return time.Time{}, false
-	}
-	return day, true
 }

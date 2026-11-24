@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/trendspan"
 	"github.com/peter/ticket_pos/backend/internal/platformtrends/service"
 )
 
@@ -80,64 +81,24 @@ func (h *Handler) GetPlatformTrends(w http.ResponseWriter, r *http.Request) {
 func parseSpanQuery(values url.Values) (service.SpanQuery, []platform.FieldError) {
 	compare := service.ComparisonKind(strings.TrimSpace(values.Get("compare")))
 	if compare != "" && !slices.Contains(service.Comparisons, compare) {
-		return service.SpanQuery{}, []platform.FieldError{invalidEnum("compare", service.Comparisons)}
+		return service.SpanQuery{}, []platform.FieldError{trendspan.InvalidEnum("compare", service.Comparisons)}
 	}
 	preset := service.SpanPreset(strings.TrimSpace(values.Get("span")))
 	if preset == "" {
 		return service.SpanQuery{Compare: compare}, nil
 	}
 	if !slices.Contains(service.Presets, preset) {
-		return service.SpanQuery{}, []platform.FieldError{invalidEnum("span", service.Presets)}
+		return service.SpanQuery{}, []platform.FieldError{trendspan.InvalidEnum("span", service.Presets)}
 	}
 	if preset != service.PresetCustom {
 		return service.SpanQuery{Preset: preset, Compare: compare}, nil
 	}
 
-	var fields []platform.FieldError
-	from, fromOK := parseDay("from", values.Get("from"), requiredForCustomSpan, &fields)
-	to, toOK := parseDay("to", values.Get("to"), requiredForCustomSpan, &fields)
-	if !fromOK || !toOK {
+	from, to, fields := trendspan.ParseCustomRange(values.Get("from"), values.Get("to"))
+	if len(fields) > 0 {
 		return service.SpanQuery{}, fields
 	}
-	if from.After(to) {
-		return service.SpanQuery{}, []platform.FieldError{{Field: "from", Code: platform.CodeStartAfterEnd, Message: "must be on or before to"}}
-	}
-	if to.Sub(from) >= service.MaxCustomSpanDays*24*time.Hour {
-		return service.SpanQuery{}, []platform.FieldError{{
-			Field:   "from",
-			Code:    platform.CodeTooManyItems,
-			Message: fmt.Sprintf("the range must cover at most %d days", service.MaxCustomSpanDays),
-		}}
-	}
 	return service.SpanQuery{Preset: preset, From: from, To: to, Compare: compare}, nil
-}
-
-// invalidEnum refuses a value that is not one of allowed, naming them.
-func invalidEnum[T ~string](field string, allowed []T) platform.FieldError {
-	names := make([]string, 0, len(allowed))
-	for _, value := range allowed {
-		names = append(names, string(value))
-	}
-	return platform.FieldError{Field: field, Code: platform.CodeInvalidEnum, Message: "must be one of " + strings.Join(names, ", ")}
-}
-
-// requiredForCustomSpan is how an absent end of a custom range is refused.
-const requiredForCustomSpan = "is required for a custom span"
-
-// parseDay reads one day of a query, appending its refusal to fields: an
-// absent one in the words of required, a malformed one as an invalid date.
-func parseDay(field, raw, required string, fields *[]platform.FieldError) (time.Time, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeRequired, Message: required})
-		return time.Time{}, false
-	}
-	day, err := time.Parse(service.DayFormat, raw)
-	if err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
-		return time.Time{}, false
-	}
-	return day, true
 }
 
 // GetPlatformTrendBreakdown returns what one bucket of one figure was made of.
@@ -200,7 +161,7 @@ func parseBreakdownQuery(values url.Values) (service.BreakdownFigure, service.Bu
 	case figure == "":
 		fields = append(fields, platform.FieldError{Field: "figure", Code: platform.CodeRequired, Message: "is required"})
 	case !slices.Contains(service.BreakdownFigures, figure):
-		fields = append(fields, invalidEnum("figure", service.BreakdownFigures))
+		fields = append(fields, trendspan.InvalidEnum("figure", service.BreakdownFigures))
 	}
 
 	granularity := service.PlatformTrendGranularity(strings.TrimSpace(values.Get("granularity")))
@@ -208,14 +169,14 @@ func parseBreakdownQuery(values url.Values) (service.BreakdownFigure, service.Bu
 		granularity = service.GranularityDay
 	}
 	if !slices.Contains(service.Granularities, granularity) {
-		fields = append(fields, invalidEnum("granularity", service.Granularities))
+		fields = append(fields, trendspan.InvalidEnum("granularity", service.Granularities))
 	}
 
 	query := service.BucketQuery{Granularity: granularity}
-	firstDay, firstOK := parseDay("first_day", values.Get("first_day"), "is required", &fields)
+	firstDay, firstOK := trendspan.ParseDay("first_day", values.Get("first_day"), "is required", &fields)
 	query.FirstDay = firstDay
 	if granularity == service.GranularityWeek && strings.TrimSpace(values.Get("last_day")) != "" {
-		lastDay, lastOK := parseDay("last_day", values.Get("last_day"), "is required", &fields)
+		lastDay, lastOK := trendspan.ParseDay("last_day", values.Get("last_day"), "is required", &fields)
 		switch {
 		case !firstOK || !lastOK:
 		case lastDay.Before(firstDay):

@@ -605,7 +605,7 @@ The part of Home for reading how an Organization is doing over time: Takings and
 The Organization's counterpart to Platform Trends, and read the way Sales Trends reads: a sale counts on the day it was made, and a Sale Reversal takes it out of that day, so last March reads as March's sales stand today rather than as they stood when March closed.
 Every day on it is the platform's day, one clock for every Event the Organization holds, so the Events beneath add up to the Organization above them.
 Today is shown but marked partial and left out of every total and comparison.
-A long span is read month by month, and the longest span is all time, which is how far the Organization has come since its first sale.
+A long span is read month by month, and the longest span is all time, which is how far the Organization has come since it was created or since its first sale, whichever is earlier, imported history included.
 An Event is held in the span its start falls in, if it is published; a draft or a cancelled Event is never held.
 Any day, week or month on it opens into the Events that made it, ranked.
 Carries no rate built on Page Views, for the reason Platform Trends carries none.
