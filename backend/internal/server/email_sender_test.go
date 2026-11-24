@@ -151,6 +151,9 @@ func TestWithoutAnyProviderKeyEverythingKeepsLogging(t *testing.T) {
 	if _, ok := sender.(*platform.LoggingEmailSender); !ok {
 		t.Fatalf("sender is %T, want the logging sender", sender)
 	}
+	if senderChrome(t, sender) != testMailChrome {
+		t.Fatal("the logging sender was not given the mail chrome")
+	}
 	if err := sender.SendFollowDigest(context.Background(), aFollowDigest()); err != nil {
 		t.Fatalf("SendFollowDigest: %v; local development must keep logging Digests", err)
 	}
@@ -272,7 +275,7 @@ func TestNamingResendWithoutAKeyStillLogs(t *testing.T) {
 // wiring error.
 func mustEmailSender(t *testing.T, cfg platform.Config, logger platform.Logger) platform.EmailSender {
 	t.Helper()
-	sender, err := newEmailSender(context.Background(), cfg, logger)
+	sender, err := newEmailSender(context.Background(), cfg, testMailChrome, logger)
 	if err != nil {
 		t.Fatalf("newEmailSender: %v", err)
 	}
@@ -408,6 +411,32 @@ func providerConfig(transactional, digest platform.EmailProvider, endpoint strin
 }
 
 // senderFrom reports a wired sender's provider and From.
+// testMailChrome is the chrome the wiring tests build every sender with; each
+// provider must carry it to its HTML parts.
+var testMailChrome = platform.MailChrome{
+	MarkURL:         "https://tickets.example.com/icon-192.png",
+	OperatorName:    "FUNDACION EJEMPLO",
+	OperatorCountry: "Ecuador",
+	SupportEmail:    platform.DefaultSupportEmail,
+}
+
+// senderChrome is the chrome a wired sender renders HTML with.
+func senderChrome(t *testing.T, sender any) platform.MailChrome {
+	t.Helper()
+	switch s := sender.(type) {
+	case *platform.ResendEmailSender:
+		return s.Chrome()
+	case *platform.SESEmailSender:
+		return s.Chrome()
+	case *platform.SMTPEmailSender:
+		return s.Chrome()
+	case *platform.LoggingEmailSender:
+		return s.Chrome
+	}
+	t.Fatalf("sender is %T, want a Resend, SES, SMTP or logging sender", sender)
+	return platform.MailChrome{}
+}
+
 func senderFrom(t *testing.T, sender any) (platform.EmailProvider, string) {
 	t.Helper()
 	switch s := sender.(type) {
@@ -460,6 +489,9 @@ func TestEveryCombinationOfProvidersWiresEachIdentityOnItsOwn(t *testing.T) {
 				provider, from := senderFrom(t, identity.sender)
 				if provider != identity.provider || from != identity.from {
 					t.Fatalf("%q wired %s from %q, want %s from %q", identity.prefix, provider, from, identity.provider, identity.from)
+				}
+				if senderChrome(t, identity.sender) != testMailChrome {
+					t.Fatalf("%q was not given the mail chrome", identity.prefix)
 				}
 				line := logger.line(t, identity.prefix+string(identity.provider))
 				if fmt.Sprint(line.args["provider"]) != string(identity.provider) {
@@ -596,6 +628,9 @@ func TestBothIdentitiesOnSMTPWireOneSenderEachOnItsOwnFrom(t *testing.T) {
 		provider, from := senderFrom(t, identity.sender)
 		if provider != platform.EmailProviderSMTP || from != identity.from {
 			t.Fatalf("%q wired %s from %q, want smtp from %q", identity.prefix, provider, from, identity.from)
+		}
+		if senderChrome(t, identity.sender) != testMailChrome {
+			t.Fatalf("%q was not given the mail chrome", identity.prefix)
 		}
 		line := logger.line(t, identity.prefix)
 		if fmt.Sprint(line.args["from"]) != identity.from || fmt.Sprint(line.args["addr"]) != "mailpit:1025" {

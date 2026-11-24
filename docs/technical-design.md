@@ -571,6 +571,11 @@ type EmailSender interface {
 | Development | The Compose stack sends every mail to Mailpit through a dev-only SMTP sender (web UI on `localhost:64825`); with no provider configured, the logging sender prints it to the log |
 | Production | TBD (e.g. Resend, SES, Postmark) |
 
+Mail is sent multipart, a designed HTML part beside the plain text, as kinds are converted (ADR 0082, spec #870).
+Each message value renders its own HTML with `HTML(MailChrome)` beside `Subject()` and `Text()`, from `html/template` files embedded in `backend/internal/platform/mailtemplates/` and parsed (and dry-run) once at package init, so a broken template fails boot.
+`MailChrome` is the sender-wide configuration resolved once at startup: the mark on the Storefront's origin, the support contact, and the footer's legal line from the Issuer's razón social, omitted when no Issuer is recorded.
+Every kind's HTML is pinned by golden files in `backend/internal/platform/testdata/mail/`, rewritten with `go test ./internal/platform -run TestMailHTMLGoldens -update`.
+
 ### Integration Partners
 
 - Authenticate with **API keys** or **OAuth2 client credentials**.

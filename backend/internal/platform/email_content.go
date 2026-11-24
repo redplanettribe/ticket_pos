@@ -461,9 +461,26 @@ var (
 		"Your Multiticketing passcode",
 		"Su código de acceso de Multiticketing",
 	)
-	otpTextCopy = translated(
-		"Your one-time passcode is %s.\n\nIt expires shortly. If you did not request it, ignore this email.",
-		"Su código de acceso es %s.\n\nCaduca en breve. Si no lo solicitó, ignore este correo.",
+	// The text's two paragraphs, held apart so the HTML part can set the code
+	// on its own and say the second sentence word for word.
+	otpCodeSentenceCopy = translated(
+		"Your one-time passcode is %s.",
+		"Su código de acceso es %s.",
+	)
+	otpExpiryCopy = translated(
+		"It expires shortly. If you did not request it, ignore this email.",
+		"Caduca en breve. Si no lo solicitó, ignore este correo.",
+	)
+	// The HTML part's preheader and footer reason (ADR 0082). The reason says
+	// someone asked, never that the reader did, for the reason the body names
+	// nobody.
+	otpPreheaderCopy = translated(
+		"Your code is %s. It expires shortly.",
+		"Su código es %s. Caduca en breve.",
+	)
+	otpFooterReasonCopy = translated(
+		"You're getting this because someone asked to sign in to Multiticketing with this address.",
+		"Recibe este correo porque alguien pidió iniciar sesión en Multiticketing con esta dirección.",
 	)
 )
 
@@ -475,7 +492,7 @@ func (o OTPMessage) Subject() string {
 // Text is the passcode's body: the code itself and the two things a recipient
 // needs to know about it.
 func (o OTPMessage) Text() string {
-	return fmt.Sprintf(otpTextCopy.in(o.Locale), o.Code)
+	return fmt.Sprintf(otpCodeSentenceCopy.in(o.Locale), o.Code) + "\n\n" + otpExpiryCopy.in(o.Locale)
 }
 
 // The Sale Confirmation (#245, ADR 0033) — the receipt, and the mail a Customer
@@ -1387,6 +1404,16 @@ var (
 	consentWithdrawalNetworkingTextCopy = translated(
 		"You, or someone using this address, withdrew the Networking Consent recorded for this address. Your profile is no longer shown to other people attending the same events.\n\nNothing else changes. Your account and any tickets you hold are unaffected, you can still buy tickets, and you will still receive purchase confirmations, sign-in passcodes and notices about your purchases. We continue to hold your data for the tickets you hold and for our legal and security obligations.\n\nYou can turn networking back on at any time from your account.",
 		"Usted, o alguien que usó esta dirección, revocó el consentimiento de networking registrado para esta dirección. Su perfil ya no se muestra a otras personas que asisten a los mismos eventos.\n\nNada más cambia. Su cuenta y las entradas que tenga no se ven afectadas, puede seguir comprando entradas y seguirá recibiendo las confirmaciones de compra, los códigos de acceso y los avisos sobre sus compras. Seguimos conservando sus datos para las entradas que tiene y para cumplir nuestras obligaciones legales y de seguridad.\n\nPuede volver a activar el networking cuando quiera desde su cuenta.",
+	)
+	// The HTML part's preheader and footer reason (ADR 0082), one for all
+	// three wordings: what continues is the same whatever was withdrawn.
+	consentWithdrawalPreheaderCopy = translated(
+		"Nothing else about your account or your tickets changes.",
+		"Nada más cambia en su cuenta ni en sus entradas.",
+	)
+	consentWithdrawalFooterReasonCopy = translated(
+		"You're getting this because a consent recorded for this address was withdrawn.",
+		"Recibe este correo porque se revocó un consentimiento registrado para esta dirección.",
 	)
 	consentWithdrawalBothSubjectCopy = translated(
 		"Your consents have been withdrawn",

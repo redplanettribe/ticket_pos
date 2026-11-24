@@ -19,12 +19,25 @@ import (
 // carry, any attachments, and the call that sends it. The SES and the SMTP
 // sender tests (email_smtp_test.go) both run every case.
 type messageCase struct {
-	name        string
-	to          string
-	subject     string
-	text        string
+	name    string
+	to      string
+	subject string
+	text    string
+	// html is the HTML part the message must carry beside the text, or empty
+	// for a kind not yet converted, which must carry none (ADR 0082).
+	html        string
 	attachments []EmailAttachment
 	send        func(ctx context.Context, s EmailSender) error
+}
+
+// testHTML is a message's HTML part as the senders render it, with the chrome
+// a test sender is built with (none).
+func testHTML(render func(MailChrome) (string, error)) string {
+	html, err := render(MailChrome{})
+	if err != nil {
+		panic(err)
+	}
+	return html
 }
 
 // transactionalMessageCases lists every message on the transactional
@@ -85,75 +98,76 @@ func transactionalMessageCases() []messageCase {
 	expiry := CertificateExpiryWarning{To: "ops@example.com", Locale: LocaleEN, Threshold: 7, NotAfter: startsAt, RUC: "1790012345001", IssuerURL: "https://staff.example.com/issuer"}
 
 	return []messageCase{
-		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), nil,
+		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleConfirmation(ctx, saleConfirmation)
 			}},
-		{"sale voided", saleVoided.To, saleVoided.Subject(), saleVoided.Text(), nil,
+		{"sale voided", saleVoided.To, saleVoided.Subject(), saleVoided.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleVoided(ctx, saleVoided) }},
-		{"sale reversal refused", reversalRefused.To, reversalRefused.Subject(), reversalRefused.Text(), nil,
+		{"sale reversal refused", reversalRefused.To, reversalRefused.Subject(), reversalRefused.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleReversalRefused(ctx, reversalRefused)
 			}},
-		{"tax document delivery", taxDocument.To, taxDocument.Subject(), taxDocument.Text(), taxDocument.Attachments,
+		{"tax document delivery", taxDocument.To, taxDocument.Subject(), taxDocument.Text(), "", taxDocument.Attachments,
 			func(ctx context.Context, s EmailSender) error { return s.SendTaxDocumentDelivery(ctx, taxDocument) }},
-		{"annulment notice", annulmentNotice.To, annulmentNotice.Subject(), annulmentNotice.Text(), nil,
+		{"annulment notice", annulmentNotice.To, annulmentNotice.Subject(), annulmentNotice.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendAnnulmentNotice(ctx, annulmentNotice) }},
-		{"consent withdrawal confirmation", withdrawal.To, withdrawal.Subject(), withdrawal.Text(), nil,
+		{"consent withdrawal confirmation", withdrawal.To, withdrawal.Subject(), withdrawal.Text(), testHTML(withdrawal.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendConsentWithdrawalConfirmation(ctx, withdrawal)
 			}},
-		{"holder answer reminder", answerReminder.To, answerReminder.Subject(), answerReminder.Text(), nil,
+		{"holder answer reminder", answerReminder.To, answerReminder.Subject(), answerReminder.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendHolderAnswerReminder(ctx, answerReminder)
 			}},
-		{"assignment reminder", assignmentReminder.To, assignmentReminder.Subject(), assignmentReminder.Text(), nil,
+		{"assignment reminder", assignmentReminder.To, assignmentReminder.Subject(), assignmentReminder.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendAssignmentReminder(ctx, assignmentReminder)
 			}},
-		{"ticket assignment", assignment.To, assignment.Subject(), assignment.Text(), nil,
+		{"ticket assignment", assignment.To, assignment.Subject(), assignment.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendTicketAssignment(ctx, assignment) }},
-		{"no longer holding", noLongerHolding.To, noLongerHolding.Subject(), noLongerHolding.Text(), nil,
+		{"no longer holding", noLongerHolding.To, noLongerHolding.Subject(), noLongerHolding.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendNoLongerHolding(ctx, noLongerHolding) }},
-		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), nil,
+		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleReAddressing(ctx, reAddressing) }},
-		{"ticket question revoked", questionRevoked.To, questionRevoked.Subject(), questionRevoked.Text(), nil,
+		{"ticket question revoked", questionRevoked.To, questionRevoked.Subject(), questionRevoked.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendTicketQuestionRevoked(ctx, questionRevoked)
 			}},
-		{"payout request submitted", payoutSubmitted.To, payoutSubmitted.Subject(), payoutSubmitted.Text(), nil,
+		{"payout request submitted", payoutSubmitted.To, payoutSubmitted.Subject(), payoutSubmitted.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestSubmitted(ctx, payoutSubmitted)
 			}},
-		{"question review submitted", reviewSubmitted.To, reviewSubmitted.Subject(), reviewSubmitted.Text(), nil,
+		{"question review submitted", reviewSubmitted.To, reviewSubmitted.Subject(), reviewSubmitted.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendQuestionReviewSubmitted(ctx, reviewSubmitted)
 			}},
-		{"question review answered", reviewAnswered.To, reviewAnswered.Subject(), reviewAnswered.Text(), nil,
+		{"question review answered", reviewAnswered.To, reviewAnswered.Subject(), reviewAnswered.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendQuestionReviewAnswered(ctx, reviewAnswered)
 			}},
-		{"payout request paid", payoutPaid.To, payoutPaid.Subject(), payoutPaid.Text(), nil,
+		{"payout request paid", payoutPaid.To, payoutPaid.Subject(), payoutPaid.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendPayoutRequestPaid(ctx, payoutPaid) }},
-		{"payout request declined", payoutDeclined.To, payoutDeclined.Subject(), payoutDeclined.Text(), nil,
+		{"payout request declined", payoutDeclined.To, payoutDeclined.Subject(), payoutDeclined.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestDeclined(ctx, payoutDeclined)
 			}},
-		{"payout request transfer sent", transferSent.To, transferSent.Subject(), transferSent.Text(), nil,
+		{"payout request transfer sent", transferSent.To, transferSent.Subject(), transferSent.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestTransferSent(ctx, transferSent)
 			}},
-		{"payout request transfer failed", transferFailed.To, transferFailed.Subject(), transferFailed.Text(), nil,
+		{"payout request transfer failed", transferFailed.To, transferFailed.Subject(), transferFailed.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendPayoutRequestTransferFailed(ctx, transferFailed)
 			}},
-		{"certificate expiry warning", expiry.To, expiry.Subject(), expiry.Text(), nil,
+		{"certificate expiry warning", expiry.To, expiry.Subject(), expiry.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendCertificateExpiryWarning(ctx, expiry) }},
 	}
 }
 
 // One message, one SES request: the transactional From, the recipient alone,
-// the shared copy as plain UTF-8 text, the configured configuration set, and
+// the shared copy as UTF-8 text with the HTML part beside it where the kind
+// has one, the configured configuration set, and
 // attachments on the Tax Document delivery and nowhere else.
 func TestSESSendsEveryTransactionalMessageWithTheSharedCopy(t *testing.T) {
 	for _, tc := range transactionalMessageCases() {
@@ -198,8 +212,12 @@ func TestSESSendsEveryTransactionalMessageWithTheSharedCopy(t *testing.T) {
 			if simple.Body.Text == nil || simple.Body.Text.Data != tc.text || simple.Body.Text.Charset != "UTF-8" {
 				t.Fatalf("Text = %+v, want %q in UTF-8", simple.Body.Text, tc.text)
 			}
-			if simple.Body.Html != nil {
-				t.Fatalf("the message carries HTML; SES mail is plain text only: %+v", simple.Body.Html)
+			if tc.html == "" {
+				if simple.Body.Html != nil {
+					t.Fatalf("a kind with no HTML part yet carries HTML: %+v", simple.Body.Html)
+				}
+			} else if simple.Body.Html == nil || simple.Body.Html.Data != tc.html || simple.Body.Html.Charset != "UTF-8" {
+				t.Fatalf("Html is not the message's HTML part in UTF-8 (%d bytes want)", len(tc.html))
 			}
 
 			if len(simple.Attachments) != len(tc.attachments) {

@@ -33,6 +33,17 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
+// sendCheckChrome is the chrome every HTML part is rendered with (ADR 0082):
+// what production's would be, since the check needs no database to read the
+// Issuer from. The mark is the production Storefront's, so the operator sees
+// the real one in the inbox.
+var sendCheckChrome = platform.MailChrome{
+	MarkURL:         "https://discover.multiticketing.com/icon-192.png",
+	OperatorName:    "FUNDACION REDPLANETTRIBE",
+	OperatorCountry: "Ecuador",
+	SupportEmail:    platform.DefaultSupportEmail,
+}
+
 // sandboxPace is the default gap between two sends: the SES sandbox allows
 // one message per second.
 const sandboxPace = time.Second
@@ -71,11 +82,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, load func
 		fmt.Fprintf(stderr, "ses-send-check: transactional sender: %v\n", err)
 		return 2
 	}
+	transactional.WithChrome(sendCheckChrome)
 	digest, err := platform.NewSESEmailSender(ctx, cfg.SES, cfg.DigestFrom, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "ses-send-check: digest sender: %v\n", err)
 		return 2
 	}
+	digest.WithChrome(sendCheckChrome)
 	all, err := messages(address, time.Now(), transactional, digest)
 	if err != nil {
 		fmt.Fprintf(stderr, "ses-send-check: %v\n", err)

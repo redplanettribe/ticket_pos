@@ -45,7 +45,11 @@ type sesRequest struct {
 	ConfigurationSetName string
 	Content              struct {
 		Simple *struct {
-			Subject     struct{ Data string }
+			Subject struct{ Data string }
+			Body    struct {
+				Text *struct{ Data string }
+				Html *struct{ Data string }
+			}
 			Attachments []struct {
 				FileName    string
 				ContentType string
@@ -172,6 +176,47 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 	}
 	if summary := fmt.Sprintf("%d of %d message types sent, 0 failed", messageTypes(), messageTypes()); !strings.Contains(stdout.String(), summary) {
 		t.Errorf("no summary line in output:\n%s", stdout.String())
+	}
+}
+
+// The passcode and the Consent Withdrawal Confirmation go out with their
+// HTML part beside the text, rendered with the check's chrome (ADR 0082);
+// kinds not yet converted carry text alone.
+func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
+	fake, load := checkSetup(t)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"-to", checkRecipient, "-pace", "0"}, &stdout, &stderr, load); code != 0 {
+		t.Fatalf("exit code %d\n%s", code, stderr.String())
+	}
+	withHTML := map[string]bool{"otp": true, "consent withdrawal confirmation": true}
+	all, err := messages(checkRecipient, fixedNow, nil, nil)
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	sent := fake.sent()
+	seen := 0
+	for i, m := range all {
+		body := sent[i].Content.Simple.Body
+		if body.Text == nil || body.Text.Data == "" {
+			t.Errorf("%s: no text part", m.name)
+		}
+		if !withHTML[m.name] {
+			if body.Html != nil {
+				t.Errorf("%s: a kind not yet converted carries HTML", m.name)
+			}
+			continue
+		}
+		seen++
+		if body.Html == nil || !strings.Contains(body.Html.Data, "<!doctype html>") {
+			t.Errorf("%s: no HTML part", m.name)
+			continue
+		}
+		if !strings.Contains(body.Html.Data, "operated by FUNDACION REDPLANETTRIBE, Ecuador.") && !strings.Contains(body.Html.Data, "operado por FUNDACION REDPLANETTRIBE, Ecuador.") {
+			t.Errorf("%s: the HTML part is not rendered with the check's chrome", m.name)
+		}
+	}
+	if seen != len(withHTML) {
+		t.Fatalf("saw %d converted kinds, want %d", seen, len(withHTML))
 	}
 }
 

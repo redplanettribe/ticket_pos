@@ -185,6 +185,7 @@ func TestSESSendOTPSendsOneRequestWithTheSharedCopy(t *testing.T) {
 	for _, locale := range []Locale{LocaleES, LocaleEN} {
 		t.Run(string(locale), func(t *testing.T) {
 			sender, fake := newTestSESSender(t, noopLogger{})
+			sender.WithChrome(goldenChrome)
 
 			if err := sender.SendOTP(context.Background(), "ana@example.com", "482913", locale); err != nil {
 				t.Fatalf("SendOTP: %v", err)
@@ -227,8 +228,14 @@ func TestSESSendOTPSendsOneRequestWithTheSharedCopy(t *testing.T) {
 			if simple.Body.Text == nil || simple.Body.Text.Data != want.Text() {
 				t.Fatalf("Text = %+v, want %q", simple.Body.Text, want.Text())
 			}
-			if simple.Body.Html != nil {
-				t.Fatalf("the message carries HTML; SES mail is plain text only: %+v", simple.Body.Html)
+			// The HTML part sits beside the text, rendered with the chrome the
+			// sender was built with (ADR 0082).
+			wantHTML, err := want.HTML(goldenChrome)
+			if err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			if simple.Body.Html == nil || simple.Body.Html.Data != wantHTML || simple.Body.Html.Charset != "UTF-8" {
+				t.Fatal("Html is not the passcode's HTML part, rendered with the sender's chrome, in UTF-8")
 			}
 		})
 	}

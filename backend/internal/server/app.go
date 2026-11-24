@@ -206,7 +206,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	platformLogger := platform.NewSlogLogger(logger, reporter)
 	emailSender := options.emailSender
 	if emailSender == nil {
-		emailSender, err = newEmailSender(ctx, cfg, platformLogger)
+		emailSender, err = newEmailSender(ctx, cfg, mailChrome(ctx, cfg, invoicingrepo.New(db), platformLogger), platformLogger)
 		if err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("email sender: %w", err)
@@ -807,7 +807,48 @@ func (a *App) Close() error {
 	return a.DB.Close()
 }
 
-func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Logger) (platform.EmailSender, error) {
+// ecuadorIssuerReader is the one read mailChrome makes of the invoicing
+// module.
+type ecuadorIssuerReader interface {
+	GetEcuadorIssuer(ctx context.Context) (*invoicingrepo.EcuadorIssuerRow, error)
+}
+
+// mailMarkPath is the Multiticketing mark the HTML mail's chrome shows, one of
+// the Storefront's own public assets.
+const mailMarkPath = "/icon-192.png"
+
+// mailChrome resolves what every HTML mail's chrome reads (ADR 0082), once at
+// startup and never per send: the mark on the Storefront's origin, the support
+// contact, and the footer's legal line from the Issuer's registered razón
+// social and country.
+//
+// With no Issuer recorded the legal line is omitted rather than invented, and
+// so it is when the Issuer cannot be read: mail never waits on it, and a
+// failed read is said out loud. An Issuer registered after boot reaches the
+// footer on the next start.
+func mailChrome(ctx context.Context, cfg platform.Config, issuers ecuadorIssuerReader, logger platform.Logger) platform.MailChrome {
+	chrome := platform.MailChrome{
+		MarkURL:      strings.TrimRight(cfg.StorefrontBaseURL, "/") + mailMarkPath,
+		SupportEmail: platform.DefaultSupportEmail,
+	}
+	issuer, err := issuers.GetEcuadorIssuer(ctx)
+	switch {
+	case err != nil:
+		logger.Warn("mail chrome: the Issuer could not be read; the footer's legal line is omitted", "error", err)
+	case issuer == nil:
+		logger.Info("mail chrome: no Issuer recorded; the footer's legal line is omitted")
+	default:
+		// The only Issuer is Ecuador's (ADR 0059), and the country is named in
+		// the mail as it is in both languages.
+		chrome.OperatorName = issuer.Details.RazonSocial
+		chrome.OperatorCountry = "Ecuador"
+	}
+	return chrome
+}
+
+// newEmailSender builds the sender for both identities, every one of them
+// rendering its HTML parts with chrome.
+func newEmailSender(ctx context.Context, cfg platform.Config, chrome platform.MailChrome, logger platform.Logger) (platform.EmailSender, error) {
 	// Each identity's provider is chosen by an explicit setting, EMAIL_PROVIDER
 	// and DIGEST_EMAIL_PROVIDER, which LoadConfig has already validated (ADR
 	// 0077), and the two switch independently. An unset provider reads as
@@ -837,7 +878,7 @@ func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Lo
 	if cfg.ResendAPIKey == "" && transactionalProvider == platform.EmailProviderResend && digestProvider == platform.EmailProviderResend {
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
 		logger.Info("digest email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.DigestEmail.From)
-		return &platform.LoggingEmailSender{Logger: logger}, nil
+		return &platform.LoggingEmailSender{Logger: logger, Chrome: chrome}, nil
 	}
 
 	var transactional platform.EmailSender
@@ -848,20 +889,20 @@ func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Lo
 			return nil, err
 		}
 		logger.Info("email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
-		transactional = sender
+		transactional = sender.WithChrome(chrome)
 	case transactionalProvider == platform.EmailProviderSMTP:
 		logger.Info("email sender: smtp", "provider", platform.EmailProviderSMTP, "from", cfg.EmailFrom, "addr", cfg.SMTP.Addr())
-		transactional = platform.NewSMTPEmailSender(cfg.SMTP, cfg.EmailFrom, logger)
+		transactional = platform.NewSMTPEmailSender(cfg.SMTP, cfg.EmailFrom, logger).WithChrome(chrome)
 	case cfg.ResendAPIKey == "":
 		// Only the Digest is on SES or SMTP: transactional mail on a keyless Resend
 		// keeps logging, as it would with no Digest at all.
 		logger.Info("email sender: logging (no RESEND_API_KEY set)", "provider", "logging", "from", cfg.EmailFrom)
-		transactional = &platform.LoggingEmailSender{Logger: logger}
+		transactional = &platform.LoggingEmailSender{Logger: logger, Chrome: chrome}
 	default:
 		logger.Info("email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.EmailFrom)
-		transactional = platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+		transactional = platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger).WithChrome(chrome)
 	}
-	digest, err := newDigestEmailSender(ctx, cfg, logger)
+	digest, err := newDigestEmailSender(ctx, cfg, chrome, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -883,7 +924,7 @@ func newEmailSender(ctx context.Context, cfg platform.Config, logger platform.Lo
 // Passcodes people sign in with. What this function will not do is decide that
 // for itself: the sharing is never inferred, only obeyed. An unconfigured
 // Digest sends nothing, loudly.
-func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platform.Logger) (platform.DigestEmailSender, error) {
+func newDigestEmailSender(ctx context.Context, cfg platform.Config, chrome platform.MailChrome, logger platform.Logger) (platform.DigestEmailSender, error) {
 	provider := cfg.DigestEmail.Provider.OrDefault()
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a
@@ -898,14 +939,14 @@ func newDigestEmailSender(ctx context.Context, cfg platform.Config, logger platf
 			return nil, fmt.Errorf("digest: %w", err)
 		}
 		logger.Info("digest email sender: ses", "provider", platform.EmailProviderSES, "from", sender.From())
-		return sender, nil
+		return sender.WithChrome(chrome), nil
 	}
 	if provider == platform.EmailProviderSMTP {
 		logger.Info("digest email sender: smtp", "provider", platform.EmailProviderSMTP, "from", cfg.DigestEmail.From, "addr", cfg.SMTP.Addr())
-		return platform.NewSMTPEmailSender(cfg.SMTP, cfg.DigestEmail.From, logger), nil
+		return platform.NewSMTPEmailSender(cfg.SMTP, cfg.DigestEmail.From, logger).WithChrome(chrome), nil
 	}
 	logger.Info("digest email sender: resend", "provider", platform.EmailProviderResend, "from", cfg.DigestEmail.From)
-	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger), nil
+	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger).WithChrome(chrome), nil
 }
 
 // newPaymentProvider selects the Payment Provider by credential presence,

@@ -1,0 +1,7 @@
+{{/* The Consent Withdrawal Confirmation: plain and platform-branded, a record
+rather than a pitch. No button and no Event imagery. Takes a
+consentWithdrawalCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Paragraphs}}{{template "paragraph" .}}
+{{end}}{{template "cardClose"}}{{end}}

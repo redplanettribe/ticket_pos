@@ -1277,15 +1277,30 @@ type EmailSender interface {
 }
 
 // LoggingEmailSender logs email delivery to the configured logger (development use).
+//
+// For a kind with an HTML part (ADR 0082) it renders that part and logs that
+// it exists and its size, never the markup: a page of HTML in a log line
+// helps nobody, and the rendering failing would show here first.
 type LoggingEmailSender struct {
 	Logger Logger
+	// Chrome is the sender-wide configuration the HTML parts it measures are
+	// rendered with.
+	Chrome MailChrome
+}
+
+// htmlAttrs are the log attributes saying an HTML part exists and how big it
+// is, or that it failed to render.
+func (s *LoggingEmailSender) htmlAttrs(ctx context.Context, messageType string, render func(MailChrome) (string, error)) []any {
+	html := renderedHTML(ctx, s.Logger, messageType, render, s.Chrome)
+	return []any{"html", html != "", "html_bytes", len(html)}
 }
 
 // SendOTP logs the OTP code for local development and testing. The language is
 // logged beside it because it is the one thing about a passcode that can now be
 // wrong without the code being wrong.
-func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string, locale Locale) error {
-	s.Logger.Info("otp sent", "email", to, "code", code, "locale", string(locale))
+func (s *LoggingEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
+	message := OTPMessage{Code: code, Locale: locale}
+	s.Logger.Info("otp sent", append([]any{"email", to, "code", code, "locale", string(locale)}, s.htmlAttrs(ctx, "otp", message.HTML)...)...)
 	return nil
 }
 
@@ -1337,8 +1352,8 @@ func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleRe
 // what a local developer needs from this line is that somebody was told, and in
 // which language — the rest of the message is the same two paragraphs every
 // time.
-func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, c ConsentWithdrawalConfirmation) error {
-	s.Logger.Info("consent withdrawal confirmation sent", "email", c.To, "locale", string(c.Locale))
+func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
+	s.Logger.Info("consent withdrawal confirmation sent", append([]any{"email", c.To, "locale", string(c.Locale)}, s.htmlAttrs(ctx, "consent withdrawal confirmation", c.HTML)...)...)
 	return nil
 }
 

@@ -133,6 +133,7 @@ type readMail struct {
 	header      mail.Header
 	subject     string
 	text        string
+	html        string
 	attachments []readAttachment
 }
 
@@ -158,12 +159,12 @@ func readSMTPMail(t *testing.T, data []byte) readMail {
 	if err != nil {
 		t.Fatalf("parse content type: %v", err)
 	}
-	if mediaType == "text/plain" {
-		got.text = decodeTextPart(t, message.Header.Get("Content-Transfer-Encoding"), params, message.Body)
+	if mediaType == "text/plain" || mediaType == "multipart/alternative" {
+		got.text, got.html = readContent(t, mediaType, params, message.Header.Get("Content-Transfer-Encoding"), message.Body)
 		return got
 	}
 	if mediaType != "multipart/mixed" {
-		t.Fatalf("Content-Type = %q, want text/plain or multipart/mixed", mediaType)
+		t.Fatalf("Content-Type = %q, want text/plain, multipart/alternative or multipart/mixed", mediaType)
 	}
 	parts := multipart.NewReader(message.Body, params["boundary"])
 	for i := 0; ; i++ {
@@ -179,10 +180,10 @@ func readSMTPMail(t *testing.T, data []byte) readMail {
 			t.Fatalf("part %d content type: %v", i, err)
 		}
 		if i == 0 {
-			if partType != "text/plain" || part.Header.Get("Content-Disposition") != "" {
-				t.Fatalf("first part is %q (%q), want the inline text part", partType, part.Header.Get("Content-Disposition"))
+			if (partType != "text/plain" && partType != "multipart/alternative") || part.Header.Get("Content-Disposition") != "" {
+				t.Fatalf("first part is %q (%q), want the inline text or alternative part", partType, part.Header.Get("Content-Disposition"))
 			}
-			got.text = decodeTextPart(t, part.Header.Get("Content-Transfer-Encoding"), partParams, part)
+			got.text, got.html = readContent(t, partType, partParams, part.Header.Get("Content-Transfer-Encoding"), part)
 			continue
 		}
 		disposition, dispositionParams, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
@@ -206,6 +207,42 @@ func readSMTPMail(t *testing.T, data []byte) readMail {
 	return got
 }
 
+// readContent reads the readable body: a text part alone, or a
+// multipart/alternative of exactly the text and then the HTML.
+func readContent(t *testing.T, mediaType string, params map[string]string, encoding string, body io.Reader) (text, html string) {
+	t.Helper()
+	if mediaType == "text/plain" {
+		return decodeTextPart(t, encoding, params, body), ""
+	}
+	parts := multipart.NewReader(body, params["boundary"])
+	var types []string
+	for {
+		part, err := parts.NextRawPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("alternative part: %v", err)
+		}
+		partType, partParams, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("alternative part content type: %v", err)
+		}
+		types = append(types, partType)
+		switch partType {
+		case "text/plain":
+			text = decodeTextPart(t, part.Header.Get("Content-Transfer-Encoding"), partParams, part)
+		case "text/html":
+			html = decodeTextPart(t, part.Header.Get("Content-Transfer-Encoding"), partParams, part)
+		}
+	}
+	// A client shows the last alternative it can, so the HTML comes last.
+	if len(types) != 2 || types[0] != "text/plain" || types[1] != "text/html" {
+		t.Fatalf("alternative parts = %v, want [text/plain text/html]", types)
+	}
+	return text, html
+}
+
 func decodeTextPart(t *testing.T, encoding string, params map[string]string, body io.Reader) string {
 	t.Helper()
 	if !strings.EqualFold(params["charset"], "utf-8") {
@@ -223,20 +260,20 @@ func decodeTextPart(t *testing.T, encoding string, params map[string]string, bod
 	return strings.TrimSuffix(string(text), "\n")
 }
 
-// smtpMessageCases is every mail kind: the transactional table the SES
+// everyMessageCases is every mail kind: the transactional table the SES
 // sender is held to, plus the passcode and the Follow Digest.
-func smtpMessageCases() []messageCase {
+func everyMessageCases() []messageCase {
 	otp := OTPMessage{Code: "482913", Locale: LocaleES}
 	digest := FollowDigest{
 		To: "ana@example.com", CustomerName: "Ana", Locale: LocaleEN,
 		New: []FollowDigestEvent{{Name: "Noche de Jazz", StartsAt: time.Date(2026, 12, 5, 20, 0, 0, 0, time.UTC), Timezone: "America/Guayaquil", URL: "https://shop.example.com/e/jazz"}},
 	}
 	return append(transactionalMessageCases(),
-		messageCase{"otp", "ana@example.com", otp.Subject(), otp.Text(), nil,
+		messageCase{"otp", "ana@example.com", otp.Subject(), otp.Text(), testHTML(otp.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendOTP(ctx, "ana@example.com", otp.Code, otp.Locale)
 			}},
-		messageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), nil,
+		messageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), "", nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendFollowDigest(ctx, digest) }},
 	)
 }
@@ -246,7 +283,7 @@ func smtpMessageCases() []messageCase {
 // subject and the UTF-8 text part, and the Tax Document's attachments under
 // their own names, media types and bytes, on that kind and no other.
 func TestSMTPSendsEveryMessageWithTheSharedCopy(t *testing.T) {
-	for _, tc := range smtpMessageCases() {
+	for _, tc := range everyMessageCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := newFakeSMTP(t)
 			sender := newTestSMTPSender(t, fake, noopLogger{})
@@ -293,6 +330,9 @@ func TestSMTPSendsEveryMessageWithTheSharedCopy(t *testing.T) {
 			if got.text != tc.text {
 				t.Fatalf("text part = %q, want %q", got.text, tc.text)
 			}
+			if got.html != tc.html {
+				t.Fatalf("html part (%d bytes) is not the message's HTML (%d bytes)", len(got.html), len(tc.html))
+			}
 
 			if len(got.attachments) != len(tc.attachments) {
 				t.Fatalf("message carries %d attachments, want %d", len(got.attachments), len(tc.attachments))
@@ -321,7 +361,7 @@ func TestSMTPCarriesALargeBinaryAttachmentIntact(t *testing.T) {
 		pdf[i] = byte(i * 7)
 	}
 	from := &mail.Address{Name: "Multiticketing", Address: "noreply@send.multiticketing.com"}
-	data, err := composeSMTPMessage(from, "ana@example.com", "Factura", "Adjunta.", []EmailAttachment{
+	data, err := composeSMTPMessage(from, "ana@example.com", "Factura", "Adjunta.", "", []EmailAttachment{
 		{Filename: "0707202601.pdf", ContentType: "application/pdf", Body: pdf},
 	}, time.Date(2026, 12, 5, 20, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -343,7 +383,7 @@ func TestSMTPCarriesALargeBinaryAttachmentIntact(t *testing.T) {
 // in a Subject) is folded to a space: it can never add a header.
 func TestSMTPSubjectCannotAddAHeader(t *testing.T) {
 	from := &mail.Address{Name: "Multiticketing", Address: "noreply@send.multiticketing.com"}
-	data, err := composeSMTPMessage(from, "ana@example.com", "Fest\r\nBcc: mallory@example.com\nX-Evil: 1", "Hola", nil, time.Now())
+	data, err := composeSMTPMessage(from, "ana@example.com", "Fest\r\nBcc: mallory@example.com\nX-Evil: 1", "Hola", "", nil, time.Now())
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}

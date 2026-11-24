@@ -31,8 +31,9 @@ import (
 //
 // It is the SES sender's twin in every way that matters to a reader: one
 // private send path every public method funnels through, the copy taken from
-// the message's own content (email_content.go) and never written here, and
-// the Tax Document's attachments carried as attachments. Which identity a
+// the message's own content (email_content.go) and never written here, the
+// HTML part beside the text as multipart/alternative where the kind has one,
+// and the Tax Document's attachments carried as attachments. Which identity a
 // sender is depends only on the From it was built with, as with SES and
 // Resend: the wiring builds one per identity.
 //
@@ -43,6 +44,7 @@ type SMTPEmailSender struct {
 	host   string
 	from   string
 	logger Logger
+	chrome MailChrome
 }
 
 // smtpSendTimeout bounds one whole delivery, dial to QUIT. Mailpit answers in
@@ -61,11 +63,22 @@ func NewSMTPEmailSender(settings SMTPConfig, from string, logger Logger) *SMTPEm
 // is to say which sending identity it is.
 func (s *SMTPEmailSender) From() string { return s.from }
 
+// WithChrome sets the sender-wide configuration every HTML part's chrome
+// reads, as on the SES sender.
+func (s *SMTPEmailSender) WithChrome(chrome MailChrome) *SMTPEmailSender {
+	s.chrome = chrome
+	return s
+}
+
+// Chrome reports the chrome this sender renders HTML parts with, as From
+// reports its identity: the wiring tests ask.
+func (s *SMTPEmailSender) Chrome() MailChrome { return s.chrome }
+
 // send performs the one SMTP transaction every public method funnels through:
 // the From's address as the envelope sender, the recipient alone, and the
 // message composeSMTPMessage writes.
-func (s *SMTPEmailSender) send(ctx context.Context, messageType, to, subject, text string, attachments ...EmailAttachment) error {
-	if err := s.deliver(ctx, to, subject, text, attachments); err != nil {
+func (s *SMTPEmailSender) send(ctx context.Context, messageType, to, subject, text, html string, attachments ...EmailAttachment) error {
+	if err := s.deliver(ctx, to, subject, text, html, attachments); err != nil {
 		err = redactRecipient(fmt.Errorf("smtp send %s: %w", messageType, err), to)
 		s.logger.Error(ctx, "smtp send "+messageType+" failed", "error", err)
 		return err
@@ -73,12 +86,12 @@ func (s *SMTPEmailSender) send(ctx context.Context, messageType, to, subject, te
 	return nil
 }
 
-func (s *SMTPEmailSender) deliver(ctx context.Context, to, subject, text string, attachments []EmailAttachment) error {
+func (s *SMTPEmailSender) deliver(ctx context.Context, to, subject, text, html string, attachments []EmailAttachment) error {
 	from, err := mail.ParseAddress(s.from)
 	if err != nil {
 		return fmt.Errorf("parse from %q: %w", s.from, err)
 	}
-	message, err := composeSMTPMessage(from, to, subject, text, attachments, time.Now())
+	message, err := composeSMTPMessage(from, to, subject, text, html, attachments, time.Now())
 	if err != nil {
 		return err
 	}
@@ -121,15 +134,17 @@ func (s *SMTPEmailSender) deliver(ctx context.Context, to, subject, text string,
 }
 
 // composeSMTPMessage writes the RFC 5322 message: the headers, then the text
-// part alone, or, when there are attachments, a multipart/mixed body with the
-// text part first and each attachment after it under its own filename and
-// media type, its bytes base64-encoded exactly as stored.
+// part alone; or, with an HTML part, a multipart/alternative of the text and
+// then the HTML, the order in which a client prefers the last it can show;
+// or, when there are attachments, a multipart/mixed body with that text (or
+// that alternative) first and each attachment after it under its own filename
+// and media type, its bytes base64-encoded exactly as stored.
 //
-// The text is quoted-printable so UTF-8 copy and long lines survive any
-// relay. Subject and header values come from user-entered fields (an Event
-// name), so line breaks in them are folded to spaces before they reach a
-// header: no Event name may add a header.
-func composeSMTPMessage(from *mail.Address, to, subject, text string, attachments []EmailAttachment, now time.Time) ([]byte, error) {
+// The text and the HTML are quoted-printable so UTF-8 copy and long lines
+// survive any relay. Subject and header values come from user-entered fields
+// (an Event name), so line breaks in them are folded to spaces before they
+// reach a header: no Event name may add a header.
+func composeSMTPMessage(from *mail.Address, to, subject, text, html string, attachments []EmailAttachment, now time.Time) ([]byte, error) {
 	var buf bytes.Buffer
 	header := func(name, value string) {
 		fmt.Fprintf(&buf, "%s: %s\r\n", name, value)
@@ -145,13 +160,17 @@ func composeSMTPMessage(from *mail.Address, to, subject, text string, attachment
 	header("Message-ID", messageID)
 	header("MIME-Version", "1.0")
 
+	contentType, content, err := smtpContent(text, html)
+	if err != nil {
+		return nil, err
+	}
 	if len(attachments) == 0 {
-		header("Content-Type", "text/plain; charset=utf-8")
-		header("Content-Transfer-Encoding", "quoted-printable")
-		buf.WriteString("\r\n")
-		if err := writeQuotedPrintable(&buf, text); err != nil {
-			return nil, err
+		header("Content-Type", contentType)
+		if html == "" {
+			header("Content-Transfer-Encoding", "quoted-printable")
 		}
+		buf.WriteString("\r\n")
+		buf.Write(content)
 		// SMTP carries a message as lines, so the body ends in a line break
 		// either way; writing it here keeps the message well formed as composed.
 		buf.WriteString("\r\n")
@@ -161,14 +180,15 @@ func composeSMTPMessage(from *mail.Address, to, subject, text string, attachment
 	body := multipart.NewWriter(&buf)
 	header("Content-Type", mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": body.Boundary()}))
 	buf.WriteString("\r\n")
-	textPart, err := body.CreatePart(textproto.MIMEHeader{
-		"Content-Type":              {"text/plain; charset=utf-8"},
-		"Content-Transfer-Encoding": {"quoted-printable"},
-	})
+	contentHeader := textproto.MIMEHeader{"Content-Type": {contentType}}
+	if html == "" {
+		contentHeader.Set("Content-Transfer-Encoding", "quoted-printable")
+	}
+	contentPart, err := body.CreatePart(contentHeader)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeQuotedPrintable(textPart, text); err != nil {
+	if _, err := contentPart.Write(content); err != nil {
 		return nil, err
 	}
 	for _, a := range attachments {
@@ -188,6 +208,39 @@ func composeSMTPMessage(from *mail.Address, to, subject, text string, attachment
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// smtpContent is the readable body: the quoted-printable text alone when there
+// is no HTML, or a multipart/alternative of the text and then the HTML. It
+// returns the Content-Type the body goes under and the encoded body.
+func smtpContent(text, html string) (string, []byte, error) {
+	var buf bytes.Buffer
+	if html == "" {
+		if err := writeQuotedPrintable(&buf, text); err != nil {
+			return "", nil, err
+		}
+		return "text/plain; charset=utf-8", buf.Bytes(), nil
+	}
+	alternative := multipart.NewWriter(&buf)
+	for _, part := range []struct{ mediaType, body string }{
+		{"text/plain; charset=utf-8", text},
+		{"text/html; charset=utf-8", html},
+	} {
+		w, err := alternative.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {part.mediaType},
+			"Content-Transfer-Encoding": {"quoted-printable"},
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		if err := writeQuotedPrintable(w, part.body); err != nil {
+			return "", nil, err
+		}
+	}
+	if err := alternative.Close(); err != nil {
+		return "", nil, err
+	}
+	return mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": alternative.Boundary()}), buf.Bytes(), nil
 }
 
 // singleLine folds every line break in a header value to a space.
@@ -237,121 +290,121 @@ func newMessageID(fromAddress string) (string, error) {
 // SendOTP delivers a One-time Passcode in the recipient's Mail Locale.
 func (s *SMTPEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
 	message := OTPMessage{Code: code, Locale: locale}
-	return s.send(ctx, "otp", to, message.Subject(), message.Text())
+	return s.send(ctx, "otp", to, message.Subject(), message.Text(), renderedHTML(ctx, s.logger, "otp", message.HTML, s.chrome))
 }
 
 // SendSaleConfirmation delivers a Customer's receipt.
 func (s *SMTPEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	return s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text())
+	return s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), "")
 }
 
 // SendSaleVoided delivers a cancellation notice.
 func (s *SMTPEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	return s.send(ctx, "sale voided", v.To, v.Subject(), v.Text())
+	return s.send(ctx, "sale voided", v.To, v.Subject(), v.Text(), "")
 }
 
 // SendSaleReversalRefused delivers the notice that a refund could not be made.
 func (s *SMTPEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
-	return s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text())
+	return s.send(ctx, "sale reversal refused", r.To, r.Subject(), r.Text(), "")
 }
 
 // SendTaxDocumentDelivery delivers the Tax Document with its signed XML and
 // RIDE attached, the only message that carries attachments.
 func (s *SMTPEmailSender) SendTaxDocumentDelivery(ctx context.Context, d TaxDocumentDelivery) error {
-	return s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), d.Attachments...)
+	return s.send(ctx, "tax document delivery", d.To, d.Subject(), d.Text(), "", d.Attachments...)
 }
 
 // SendAnnulmentNotice tells the buyer their factura was annulled at the SRI.
 func (s *SMTPEmailSender) SendAnnulmentNotice(ctx context.Context, n AnnulmentNotice) error {
-	return s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text())
+	return s.send(ctx, "annulment notice", n.To, n.Subject(), n.Text(), "")
 }
 
 // SendConsentWithdrawalConfirmation delivers the Consent Withdrawal
 // Confirmation.
 func (s *SMTPEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
-	return s.send(ctx, "consent withdrawal confirmation", c.To, c.Subject(), c.Text())
+	return s.send(ctx, "consent withdrawal confirmation", c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "consent withdrawal confirmation", c.HTML, s.chrome))
 }
 
 // SendHolderAnswerReminder delivers the Answer Reminder.
 func (s *SMTPEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
-	return s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text())
+	return s.send(ctx, "holder answer reminder", r.To, r.Subject(), r.Text(), "")
 }
 
 // SendAssignmentReminder delivers the Assignment Reminder.
 func (s *SMTPEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
-	return s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text())
+	return s.send(ctx, "assignment reminder", r.To, r.Subject(), r.Text(), "")
 }
 
 // SendTicketAssignment delivers the Assignment mail carrying an Assignment
 // Link.
 func (s *SMTPEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	return s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text())
+	return s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), "")
 }
 
 // SendNoLongerHolding delivers the notice that a Ticket is no longer the
 // Holder's.
 func (s *SMTPEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
-	return s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text())
+	return s.send(ctx, "no longer holding", n.To, n.Subject(), n.Text(), "")
 }
 
 // SendSaleReAddressing delivers the mail carrying a Re-addressing Link.
 func (s *SMTPEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	return s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text())
+	return s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), "")
 }
 
 // SendTicketQuestionRevoked delivers an Org Admin's revocation notice.
 func (s *SMTPEmailSender) SendTicketQuestionRevoked(ctx context.Context, r TicketQuestionRevoked) error {
-	return s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text())
+	return s.send(ctx, "ticket question revoked", r.To, r.Subject(), r.Text(), "")
 }
 
 // SendPayoutRequestSubmitted delivers a Platform Operator's Payout Request
 // notice.
 func (s *SMTPEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
-	return s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text())
+	return s.send(ctx, "payout request submitted", p.To, p.Subject(), p.Text(), "")
 }
 
 // SendQuestionReviewSubmitted delivers a Platform Operator's Question Review
 // notice.
 func (s *SMTPEmailSender) SendQuestionReviewSubmitted(ctx context.Context, q QuestionReviewSubmitted) error {
-	return s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text())
+	return s.send(ctx, "question review submitted", q.To, q.Subject(), q.Text(), "")
 }
 
 // SendQuestionReviewAnswered delivers the submitter's verdicts notice.
 func (s *SMTPEmailSender) SendQuestionReviewAnswered(ctx context.Context, q QuestionReviewAnswered) error {
-	return s.send(ctx, "question review answered", q.To, q.Subject(), q.Text())
+	return s.send(ctx, "question review answered", q.To, q.Subject(), q.Text(), "")
 }
 
 // SendPayoutRequestPaid delivers the asker's paid notice.
 func (s *SMTPEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
-	return s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text())
+	return s.send(ctx, "payout request paid", p.To, p.Subject(), p.Text(), "")
 }
 
 // SendPayoutRequestDeclined delivers the asker's declined notice.
 func (s *SMTPEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
-	return s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text())
+	return s.send(ctx, "payout request declined", p.To, p.Subject(), p.Text(), "")
 }
 
 // SendPayoutRequestTransferSent delivers the asker's transfer-sent notice.
 func (s *SMTPEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
-	return s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text())
+	return s.send(ctx, "payout request transfer sent", p.To, p.Subject(), p.Text(), "")
 }
 
 // SendPayoutRequestTransferFailed delivers the asker's transfer-failed notice.
 func (s *SMTPEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
-	return s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text())
+	return s.send(ctx, "payout request transfer failed", p.To, p.Subject(), p.Text(), "")
 }
 
 // SendCertificateExpiryWarning delivers a Platform Operator's Certificate
 // Expiry Warning.
 func (s *SMTPEmailSender) SendCertificateExpiryWarning(ctx context.Context, w CertificateExpiryWarning) error {
-	return s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text())
+	return s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), "")
 }
 
 // SendFollowDigest delivers the weekly Follow Digest. It is only reached on
 // the sender built with the Digest identity's From: the wiring routes the
 // Digest there through SplitEmailSender.
 func (s *SMTPEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	return s.send(ctx, "follow digest", d.To, d.Subject(), d.Text())
+	return s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), "")
 }
 
 var _ EmailSender = (*SMTPEmailSender)(nil)
