@@ -25,8 +25,8 @@ type OrganizationSales struct {
 // instants, which the caller bounds to the platform day.
 //
 // The Organization row is read even when it sold nothing, so the currency is
-// always stated. No index is added: the read is bounded by the Organization
-// and by a day, over ticket_sales(organization_id, ...).
+// always stated. The read is bounded by the Organization and by a day, which
+// ticket_sales_organization_sold_at_idx backs (migration 141).
 func (r *Repository) OrganizationSalesBetween(ctx context.Context, orgID string, from, until time.Time) (OrganizationSales, error) {
 	var out OrganizationSales
 	err := r.db.Pool.QueryRowContext(ctx, `
@@ -85,8 +85,9 @@ type OrganizationSalesDay struct {
 // on the zone the caller passes, the platform's own clock. Days that sold
 // nothing have no row.
 //
-// No index is added: the read is bounded by the Organization and by the
-// span, over ticket_sales(organization_id, ...), as Home now's is.
+// The read is bounded by the Organization and by the span, which
+// ticket_sales_organization_sold_at_idx backs (migration 141), as Home now's
+// is.
 func (r *Repository) OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]OrganizationSalesDay, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT

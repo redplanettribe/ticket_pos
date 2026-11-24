@@ -72,6 +72,13 @@ func cancelHomeEvent(t *testing.T, env *testEnv, sessionID, eventID string) {
 }
 
 // reverseSaleSoldAt reverses the one Ticket Sale of an Event sold at soldAt.
+//
+// SQL, for reverseSale's reason (sales_summary_test.go): these sales are
+// imported with a backdated sold_at, and no endpoint reverses an imported
+// sale on its own; Home and Organization Trends are about the status, however
+// the sale came to carry it. It finds the sale by its Event and sold_at
+// because these tests import their sales as batch rows (importSale) and hold
+// no confirmation ref for any of them.
 func reverseSaleSoldAt(t *testing.T, env *testEnv, eventID string, soldAt time.Time) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE ticket_sales SET status = 'reversed' WHERE event_id = $1 AND sold_at = $2`, eventID, soldAt)
@@ -82,8 +89,6 @@ func reverseSaleSoldAt(t *testing.T, env *testEnv, eventID string, soldAt time.T
 		t.Fatalf("reversing the sale sold at %s affected %d rows, want 1", soldAt, n)
 	}
 }
-
-func timePtr(at time.Time) *time.Time { return &at }
 
 // TestHomeNowPicksAnOngoingEventOverALaterOne: an Event running now is the
 // next Event, ahead of one still to start, and neither a draft nor a
@@ -96,7 +101,7 @@ func TestHomeNowPicksAnOngoingEventOverALaterOne(t *testing.T) {
 	later, _ := publishCheckoutEvent(t, env, admin, "Later Fest", "later-fest", feeTestBaseCents, 100)
 
 	ongoing, ongoingGA := publishCheckoutEvent(t, env, admin, "Running Fest", "running-fest", feeTestBaseCents, 100)
-	setEventRuntime(t, env, ongoing, time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC), timePtr(time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)))
+	setEventRuntime(t, env, ongoing, time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC), new(time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)))
 	commitBatch(t, env, admin, ongoing, "running", []map[string]any{
 		importSale("ana@example.com", ongoingGA, 3, "2026-07-01T15:00:00Z"),
 		importSale("bea@example.com", ongoingGA, 4, "2026-07-02T15:00:00Z"),
@@ -105,11 +110,11 @@ func TestHomeNowPicksAnOngoingEventOverALaterOne(t *testing.T) {
 
 	// A draft that started even earlier and runs on.
 	draft := createDraftEvent(t, env, admin, "Draft Fest", "draft-fest")
-	setEventRuntime(t, env, draft, time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC), timePtr(time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)))
+	setEventRuntime(t, env, draft, time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC), new(time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)))
 
 	// A cancelled Event as early, also running.
 	cancelled, _ := publishCheckoutEvent(t, env, admin, "Called Off", "called-off", feeTestBaseCents, 100)
-	setEventRuntime(t, env, cancelled, time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC), timePtr(time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)))
+	setEventRuntime(t, env, cancelled, time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC), new(time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)))
 	cancelHomeEvent(t, env, admin, cancelled)
 
 	// A published Event that is over: started with no end.

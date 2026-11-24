@@ -1,0 +1,15 @@
+-- Organization Trends and Home read an Organization's sales by sold_at (#858,
+-- ADR 0081).
+--
+-- Home now reads today's Ticket Sales across the Organization, and
+-- Organization Trends reads them day by day over a span, Event by Event over
+-- a span, and from the Organization's first sale for all time. Each is
+-- bounded by the Organization and by a window of sold_at instants, and
+-- nothing indexed ticket_sales by Organization and sold_at before: every one
+-- of those reads scanned the whole table. This index
+-- backs them all, reversed sales included, since the reads filter on status
+-- after the range.
+--
+-- Built without CONCURRENTLY because ticket_sales holds about ten thousand rows,
+-- so the write lock lasts well under a second.
+CREATE INDEX ticket_sales_organization_sold_at_idx ON ticket_sales (organization_id, sold_at);

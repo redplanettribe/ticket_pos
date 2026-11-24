@@ -162,7 +162,7 @@ type HomeTodaySoFar struct {
 func (s *Service) Now(ctx context.Context, reader Reader) (*HomeNow, error) {
 	now := s.now()
 	dayStart := platform.StartOfEcuadorDay(now)
-	dayEnd := platform.StartOfEcuadorDay(dayStart.Add(36 * time.Hour))
+	dayEnd := platform.StartOfEcuadorDate(dayStart.AddDate(0, 0, 1))
 
 	counts, err := s.events.OrganizationEventCounts(ctx, reader.OrganizationID, now)
 	if err != nil {
