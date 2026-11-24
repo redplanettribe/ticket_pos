@@ -2364,6 +2364,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeHomeNow": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HomeNow"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeInvoiceActionDetail": {
                 "properties": {
                     "data": {
@@ -2852,6 +2866,34 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOrganizationTrendBreakdown": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendBreakdown"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOrganizationTrends": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OrganizationTrends"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -6055,6 +6097,90 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.HomeNextEvent": {
+                "description": "NextEvent is the published, non-cancelled Event with the earliest\nstart that is not over, an Ongoing one included. Null when there is\nnone.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "ongoing": {
+                        "description": "Ongoing is true while the Event has started and not yet ended.",
+                        "type": "boolean"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the Event's Tickets Sold so far, on every Sales\nChannel, reversed sales left out.",
+                        "type": "integer"
+                    },
+                    "timezone": {
+                        "description": "Timezone is the Event's own, which its start is printed in. Empty\nwhere the Event names none.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HomeNow": {
+                "properties": {
+                    "active_events": {
+                        "description": "ActiveEvents is how many of the Organization's Events are Active\nEvents: neither cancelled nor over, drafts included.",
+                        "type": "integer"
+                    },
+                    "currency": {
+                        "description": "Currency is the Organization's, which every money figure is stated in.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "has_events": {
+                        "description": "HasEvents is false for an Organization that has no Event at all, in\nany status.",
+                        "type": "boolean"
+                    },
+                    "next_event": {
+                        "$ref": "#/components/schemas/service.HomeNextEvent"
+                    },
+                    "payable_balance_cents": {
+                        "description": "PayableBalanceCents is the Payable Balance, as the Payouts page states\nit, in the Organization's minor units and signed. Null for anyone but\nan Org Admin.",
+                        "type": "integer"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock today is read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "today": {
+                        "description": "Today is the platform day the reading was taken on, YYYY-MM-DD.",
+                        "example": "2026-07-07",
+                        "type": "string"
+                    },
+                    "today_so_far": {
+                        "$ref": "#/components/schemas/service.HomeTodaySoFar"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HomeTodaySoFar": {
+                "description": "TodaySoFar is today's sales so far, which today being unfinished makes\npartial.",
+                "properties": {
+                    "partial": {
+                        "description": "Partial is always true: today has not ended.",
+                        "type": "boolean"
+                    },
+                    "takings_cents": {
+                        "description": "TakingsCents is the Takings of today's active Ticket Sales, in the\nOrganization's minor units. Null for Event Staff.",
+                        "type": "integer"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the quantity over today's active Ticket Sales.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.InvoiceActionDetail": {
                 "properties": {
                     "abandon_note": {
@@ -7555,6 +7681,356 @@ const docTemplate = `{
                     "withdrawable_balance_cents": {
                         "description": "WithdrawableBalanceCents is signed: negative means the Organization owes\nthe platform after a sale was reversed post-settlement, and the list says\nso rather than clamping it to zero.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendBreakdown": {
+                "properties": {
+                    "events": {
+                        "description": "Events is the Events that contributed, largest first, then by name.\nAn Event with nothing for the figure is left out. For Events held each\ncounts one and they come earliest start first.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendBreakdownEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "figure": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigureName"
+                    },
+                    "first_day": {
+                        "description": "FirstDay and LastDay are the days the bucket covers, both included.",
+                        "example": "2026-07-01",
+                        "type": "string"
+                    },
+                    "granularity": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendGranularity"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "partial": {
+                        "description": "Partial is true when the bucket is today, a day still running.",
+                        "type": "boolean"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock the bucket's days are read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "total": {
+                        "description": "Total is what the reading states for the bucket, every Sales Channel\nsummed: the Events add up to it. Takings is in the Organization's\nminor units.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendBreakdownEvent": {
+                "properties": {
+                    "event_id": {
+                        "description": "EventID is what the Event's page is linked on.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendBucket": {
+                "description": "Today is today alone, flagged partial and in no total, when the span\nruns up to it; null otherwise.",
+                "properties": {
+                    "first_day": {
+                        "example": "2026-07-01",
+                        "type": "string"
+                    },
+                    "last_day": {
+                        "example": "2026-07-01",
+                        "type": "string"
+                    },
+                    "partial": {
+                        "type": "boolean"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendComparison": {
+                "description": "Comparison is the span every figure is set beside, bucketed the same\nway; null for all time, which has none.",
+                "properties": {
+                    "first_day": {
+                        "example": "2026-05-08",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendComparisonKind"
+                    },
+                    "last_day": {
+                        "example": "2026-06-06",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendComparisonKind": {
+                "enum": [
+                    "previous",
+                    "year",
+                    "previous",
+                    "year"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "ComparePrevious",
+                    "CompareYear"
+                ]
+            },
+            "service.OrganizationTrendDays": {
+                "properties": {
+                    "first_day": {
+                        "example": "2026-07-01",
+                        "type": "string"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "partial": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendEvent": {
+                "properties": {
+                    "event_id": {
+                        "description": "EventID is what the Event's Sales Trends and Reach are linked on.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "page_views": {
+                        "description": "PageViews is how many times the Event's page was loaded in the span.",
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "description": "StartsAt is the Event's start, null for an Event that names none.",
+                        "type": "string"
+                    },
+                    "takings_cents": {
+                        "description": "TakingsCents is the Takings of those sales (ADR 0040), in the\nOrganization's minor units. Null for Event Staff, never zero in its\nplace.",
+                        "type": "integer"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the quantity over the Event's active Ticket Sales made in\nthe span, every Sales Channel.",
+                        "type": "integer"
+                    },
+                    "timezone": {
+                        "description": "Timezone is the Event's own, which its start is printed in. Empty\nwhere the Event names none.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendFigure": {
+                "description": "TicketSales is how many active Ticket Sales were made, by the platform\nday each was made, in one series keyed all.",
+                "properties": {
+                    "change": {
+                        "description": "Change is a signed ratio (0.5 for half as much again), null when the\ncomparison total is zero or there is no comparison.",
+                        "type": "number"
+                    },
+                    "comparison_total": {
+                        "description": "ComparisonTotal is null for all time.",
+                        "type": "integer"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendFigureName": {
+                "description": "Figure is the figure broken down.",
+                "enum": [
+                    "takings",
+                    "tickets_sold",
+                    "ticket_sales",
+                    "page_views",
+                    "events_held",
+                    "takings",
+                    "tickets_sold",
+                    "ticket_sales",
+                    "page_views",
+                    "events_held"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "FigureTakings",
+                    "FigureTicketsSold",
+                    "FigureTicketSales",
+                    "FigurePageViews",
+                    "FigureEventsHeld"
+                ]
+            },
+            "service.OrganizationTrendFigures": {
+                "description": "Figures carries one entry per figure.",
+                "properties": {
+                    "events_held": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigure"
+                    },
+                    "page_views": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigure"
+                    },
+                    "takings": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigure"
+                    },
+                    "ticket_sales": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigure"
+                    },
+                    "tickets_sold": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigure"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendGranularity": {
+                "description": "Granularity is the length of a bucket: a day, or a calendar month,\nwhole or cut.",
+                "enum": [
+                    "day",
+                    "month",
+                    "day",
+                    "month"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "GranularityDay",
+                    "GranularityMonth"
+                ]
+            },
+            "service.OrganizationTrendSeries": {
+                "properties": {
+                    "buckets": {
+                        "description": "Buckets is one entry per bucket of the span, zero where nothing sold.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendBucket"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "change": {
+                        "type": "number"
+                    },
+                    "comparison_buckets": {
+                        "description": "ComparisonBuckets is one entry per entry of Buckets, at the same index,\nover the comparison span; empty for all time.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendBucket"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "comparison_total": {
+                        "description": "ComparisonTotal is null for all time.",
+                        "type": "integer"
+                    },
+                    "key": {
+                        "description": "Key is the Sales Channel, or all.",
+                        "example": "online",
+                        "type": "string"
+                    },
+                    "today": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendBucket"
+                    },
+                    "total": {
+                        "description": "Total is the series' total over the span, today excluded.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendSpan": {
+                "description": "Span is the span as resolved: a custom range reaching today or later\nends at yesterday here.",
+                "properties": {
+                    "buckets": {
+                        "description": "Buckets is every bucket of the span, oldest first: one entry per entry\nof every series' buckets, at the same index.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendDays"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "first_day": {
+                        "example": "2026-06-07",
+                        "type": "string"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "preset": {
+                        "enum": [
+                            "7d",
+                            "30d",
+                            "90d",
+                            "12m",
+                            "all",
+                            "custom"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrends": {
+                "properties": {
+                    "comparison": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendComparison"
+                    },
+                    "currency": {
+                        "description": "Currency is the Organization's.",
+                        "example": "USD",
+                        "type": "string"
+                    },
+                    "events": {
+                        "description": "Events is the Event table: every Event held, loaded or sold in the\nspan, today left out, ranked by Takings for a reader handed Takings and\nby Tickets Sold for one who is not. Its rows add up to the span's totals\nof Tickets Sold, Takings and Page Views.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "figures": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigures"
+                    },
+                    "granularity": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendGranularity"
+                    },
+                    "span": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendSpan"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock every day here is read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "today": {
+                        "description": "Today is the platform day the reading was taken on, never inside the\nspan.",
+                        "example": "2026-07-07",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -26017,6 +26493,52 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/staff/organization/home/now": {
+            "get": {
+                "description": "Returns the top of the Active Member's Organization's Home, the whole Organization whichever Member reads it. active_events counts the Active Events, those neither cancelled nor over (the end instant passed, or the start where there is no end), drafts included; has_events is false for an Organization with no Event in any status. next_event is the published, non-cancelled Event with the earliest start that is not over, so an Ongoing Event (started, end not reached) is chosen over a later one and ongoing says so; a draft is never next. It carries the Event's Tickets Sold so far on every Sales Channel, reversed sales left out, and is null when there is no such Event. today_so_far is today's sales on the platform clock (America/Guayaquil), by the instant each sale was made, so a Sale Import backdated to today counts and one backdated to another day does not; reversed Ticket Sales are left out, as Sales Trends leaves them out. It is always partial. takings_cents is the Takings of those sales, as Sales Trends computes it, in the Organization's currency: null for Event Staff, never zero in its place. payable_balance_cents is the Payable Balance exactly as the Payouts page states it, null for anyone but an Org Admin. Any Member.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHomeNow"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get what stands now on the Organization's Home",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/api/v1/staff/organization/payout-profile": {
             "get": {
                 "description": "Returns the acting Member's Organization's Payout Profile — the bank, whether the account is ` + "`" + `ahorros` + "`" + ` or ` + "`" + `corriente` + "`" + `, the account number, the name on the account, and the Organization's own Tax ID for the factura (ADR 0026). The data payload is ` + "`" + `null` + "`" + ` when the Organization has never recorded one, which is an ordinary state rather than an error. The account number is returned whole, because this is the Organization's own editor; masking belongs to the operator surfaces that show many Organizations at once. Org Admin only — an Event Owner or Event Staff is refused.",
@@ -26405,6 +26927,201 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get the Organization's balances and payout history",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/organization/trends": {
+            "get": {
+                "description": "Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. takings is the Takings of the active Ticket Sales in the Organization's minor units, computed exactly as Sales Trends computes it (every Sales Channel, no channel filter), one series per Sales Channel like tickets_sold; it is null for Event Staff, never zero in its place. page_views is how many times the Organization's Event pages were loaded, every Event's summed, read from the hourly Page View buckets with each hour on the platform day it falls in; a load through an Affiliate Link counts once. It counts loads, not people. events_held is how many published Events started, each on the platform day of its start instant; a draft or a cancelled Event is never held, an External Registration Event is. Both are one series keyed all. A bucket nothing sold, loaded or started in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. events is the Event table: every Event of the Organization held, loaded or sold in the span, today left out, each with its id, name, start (null where it names none) and timezone, its Tickets Sold, Takings and Page Views over the span by the same day rules, so the rows add up to the span's totals of tickets_sold, takings and page_views. An Event held in the span that nothing sold or loaded is listed with zeros. It is ranked by takings for an Org Admin or an Event Owner, and by tickets_sold for Event Staff, each then by page_views and name; takings_cents is null in every row for Event Staff, never zero in its place. currency is the Organization's. Any Member.",
+                "parameters": [
+                    {
+                        "description": "Span",
+                        "in": "query",
+                        "name": "span",
+                        "schema": {
+                            "default": "30d",
+                            "enum": [
+                                "7d",
+                                "30d",
+                                "90d",
+                                "12m",
+                                "all",
+                                "custom"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "First day of a custom span (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last day of a custom span (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Comparison span, ignored for all",
+                        "in": "query",
+                        "name": "compare",
+                        "schema": {
+                            "default": "previous",
+                            "enum": [
+                                "previous",
+                                "year"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOrganizationTrends"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get Organization Trends for a span",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/organization/trends/breakdown": {
+            "get": {
+                "description": "Returns the breakdown of one figure of Organization Trends for one bucket, for the Active Member's Organization: the Events that contributed, ranked largest first, then by name, each with the id its page is linked on, and the bucket's total, which they add up to and which is what the Organization Trends reading states for the bucket, every Sales Channel summed. figure is the figure's name in the reading: takings, tickets_sold, ticket_sales, page_views or events_held. A bucket is named by its days on the platform clock (America/Guayaquil), as the reading states them: first_day alone (or with an equal last_day) names a day, which may be today, answered with partial true, and never a day after today; first_day and last_day name a month bucket, the whole calendar month or the part of it a span cuts, both in the same month and ending before today, as every month bucket of a reading does. Every figure is read by the day rules of the reading: a sale on the platform day of the instant it was made, a reversed Ticket Sale in no figure, Takings computed exactly as Sales Trends computes it in the Organization's minor units, Page Views from the whole-page hourly buckets with each hour on its platform day, and Events held as the published Events whose start falls in the bucket, each counting one and listed earliest start first. An Event with nothing for the figure is left out, so a bucket nothing happened in has a zero total and no Events. takings is refused to Event Staff with 403: they are handed no money through this route, as the reading hands them none. Any Member.",
+                "parameters": [
+                    {
+                        "description": "Figure",
+                        "in": "query",
+                        "name": "figure",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "takings",
+                                "tickets_sold",
+                                "ticket_sales",
+                                "page_views",
+                                "events_held"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "First day of the bucket (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "first_day",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last day of a month bucket (YYYY-MM-DD), in the month of first_day",
+                        "in": "query",
+                        "name": "last_day",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOrganizationTrendBreakdown"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get the Events a bucket of an Organization Trends figure was made of",
                 "tags": [
                     "staff"
                 ]

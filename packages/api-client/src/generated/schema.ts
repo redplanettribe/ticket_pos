@@ -14085,6 +14085,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/home/now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get what stands now on the Organization's Home
+         * @description Returns the top of the Active Member's Organization's Home, the whole Organization whichever Member reads it. active_events counts the Active Events, those neither cancelled nor over (the end instant passed, or the start where there is no end), drafts included; has_events is false for an Organization with no Event in any status. next_event is the published, non-cancelled Event with the earliest start that is not over, so an Ongoing Event (started, end not reached) is chosen over a later one and ongoing says so; a draft is never next. It carries the Event's Tickets Sold so far on every Sales Channel, reversed sales left out, and is null when there is no such Event. today_so_far is today's sales on the platform clock (America/Guayaquil), by the instant each sale was made, so a Sale Import backdated to today counts and one backdated to another day does not; reversed Ticket Sales are left out, as Sales Trends leaves them out. It is always partial. takings_cents is the Takings of those sales, as Sales Trends computes it, in the Organization's currency: null for Event Staff, never zero in its place. payable_balance_cents is the Payable Balance exactly as the Payouts page states it, null for anyone but an Org Admin. Any Member.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHomeNow"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organization/payout-profile": {
         parameters: {
             query?: never;
@@ -14441,6 +14498,154 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopePayoutsSummary"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/organization/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Organization Trends for a span
+         * @description Returns Organization Trends for the Active Member's Organization, the whole Organization whichever Member reads it, over a span of whole days on the platform clock (America/Guayaquil), never an Event's timezone. span is 7d, 30d, 90d, 12m, all or custom, defaulting to 30d; a custom span takes from and to (YYYY-MM-DD, both included, at most 3660 days), which the other spans ignore. Every span ends at the close of yesterday: a custom range reaching today or later is cut at yesterday, and one with no day before today is refused. Buckets are days for a span of up to 90 days, and calendar months beyond it and for all time, as granularity states; a month the span cuts is flagged partial, on span.buckets and on every series bucket. 12m runs from the first of the month eleven months before the current one through yesterday, so its last month is cut at yesterday. all starts on the first of the month holding the earlier of the Organization's creation and its earliest Ticket Sale's sale day, and carries no comparison: comparison is null, every comparison_total and change is null and every comparison_buckets is empty, whatever compare says. compare is previous (the default), the span just before (as many days, or for months as many months, keeping the cuts), or year, the same span a year earlier (52 weeks back for days, so a day sits beside the same weekday, and 12 calendar months back for months). comparison_buckets has one entry per bucket at the same index. Today is returned on each series as today, a separate bucket flagged partial, whenever the span ends yesterday, and is in no total and no comparison. A sale counts on the platform day of the instant it was made, not the day it was recorded, so a backdated Sale Import lands in its own past day; reversed Ticket Sales are left out, live, as Sales Trends leaves them out. tickets_sold is the quantity over active Ticket Sales, one series per Sales Channel (online, in_person, import), each always present; ticket_sales is how many active Ticket Sales were made, one series keyed all. takings is the Takings of the active Ticket Sales in the Organization's minor units, computed exactly as Sales Trends computes it (every Sales Channel, no channel filter), one series per Sales Channel like tickets_sold; it is null for Event Staff, never zero in its place. page_views is how many times the Organization's Event pages were loaded, every Event's summed, read from the hourly Page View buckets with each hour on the platform day it falls in; a load through an Affiliate Link counts once. It counts loads, not people. events_held is how many published Events started, each on the platform day of its start instant; a draft or a cancelled Event is never held, an External Registration Event is. Both are one series keyed all. A bucket nothing sold, loaded or started in is zero, never absent. Each figure's total is its series' summed. change is a signed ratio (0.5 for half as much again), null when the comparison total is zero or there is none. events is the Event table: every Event of the Organization held, loaded or sold in the span, today left out, each with its id, name, start (null where it names none) and timezone, its Tickets Sold, Takings and Page Views over the span by the same day rules, so the rows add up to the span's totals of tickets_sold, takings and page_views. An Event held in the span that nothing sold or loaded is listed with zeros. It is ranked by takings for an Org Admin or an Event Owner, and by tickets_sold for Event Staff, each then by page_views and name; takings_cents is null in every row for Event Staff, never zero in its place. currency is the Organization's. Any Member.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Span */
+                    span?: "7d" | "30d" | "90d" | "12m" | "all" | "custom";
+                    /** @description First day of a custom span (YYYY-MM-DD) */
+                    from?: string;
+                    /** @description Last day of a custom span (YYYY-MM-DD) */
+                    to?: string;
+                    /** @description Comparison span, ignored for all */
+                    compare?: "previous" | "year";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOrganizationTrends"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/organization/trends/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the Events a bucket of an Organization Trends figure was made of
+         * @description Returns the breakdown of one figure of Organization Trends for one bucket, for the Active Member's Organization: the Events that contributed, ranked largest first, then by name, each with the id its page is linked on, and the bucket's total, which they add up to and which is what the Organization Trends reading states for the bucket, every Sales Channel summed. figure is the figure's name in the reading: takings, tickets_sold, ticket_sales, page_views or events_held. A bucket is named by its days on the platform clock (America/Guayaquil), as the reading states them: first_day alone (or with an equal last_day) names a day, which may be today, answered with partial true, and never a day after today; first_day and last_day name a month bucket, the whole calendar month or the part of it a span cuts, both in the same month and ending before today, as every month bucket of a reading does. Every figure is read by the day rules of the reading: a sale on the platform day of the instant it was made, a reversed Ticket Sale in no figure, Takings computed exactly as Sales Trends computes it in the Organization's minor units, Page Views from the whole-page hourly buckets with each hour on its platform day, and Events held as the published Events whose start falls in the bucket, each counting one and listed earliest start first. An Event with nothing for the figure is left out, so a bucket nothing happened in has a zero total and no Events. takings is refused to Event Staff with 403: they are handed no money through this route, as the reading hands them none. Any Member.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Figure */
+                    figure: "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held";
+                    /** @description First day of the bucket (YYYY-MM-DD) */
+                    first_day: string;
+                    /** @description Last day of a month bucket (YYYY-MM-DD), in the month of first_day */
+                    last_day?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOrganizationTrendBreakdown"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
                 /** @description Unauthorized */
@@ -16149,6 +16354,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeHomeNow": {
+            data?: components["schemas"]["service.HomeNow"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeInvoiceActionDetail": {
             data?: components["schemas"]["service.InvoiceActionDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -16321,6 +16531,16 @@ export interface components {
         };
         "openapi.EnvelopeOperatorTicketQuestions": {
             data?: components["schemas"]["service.TicketQuestion"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOrganizationTrendBreakdown": {
+            data?: components["schemas"]["service.OrganizationTrendBreakdown"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOrganizationTrends": {
+            data?: components["schemas"]["service.OrganizationTrends"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -18498,6 +18718,79 @@ export interface components {
             ticket_type_id?: string;
             ticket_type_name?: string;
         };
+        /**
+         * @description NextEvent is the published, non-cancelled Event with the earliest
+         *     start that is not over, an Ongoing one included. Null when there is
+         *     none.
+         */
+        "service.HomeNextEvent": {
+            id?: string;
+            name?: string;
+            /** @description Ongoing is true while the Event has started and not yet ended. */
+            ongoing?: boolean;
+            starts_at?: string;
+            /**
+             * @description TicketsSold is the Event's Tickets Sold so far, on every Sales
+             *     Channel, reversed sales left out.
+             */
+            tickets_sold?: number;
+            /**
+             * @description Timezone is the Event's own, which its start is printed in. Empty
+             *     where the Event names none.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+        };
+        "service.HomeNow": {
+            /**
+             * @description ActiveEvents is how many of the Organization's Events are Active
+             *     Events: neither cancelled nor over, drafts included.
+             */
+            active_events?: number;
+            /**
+             * @description Currency is the Organization's, which every money figure is stated in.
+             * @example USD
+             */
+            currency?: string;
+            /**
+             * @description HasEvents is false for an Organization that has no Event at all, in
+             *     any status.
+             */
+            has_events?: boolean;
+            next_event?: components["schemas"]["service.HomeNextEvent"];
+            /**
+             * @description PayableBalanceCents is the Payable Balance, as the Payouts page states
+             *     it, in the Organization's minor units and signed. Null for anyone but
+             *     an Org Admin.
+             */
+            payable_balance_cents?: number;
+            /**
+             * @description Timezone names the platform clock today is read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Today is the platform day the reading was taken on, YYYY-MM-DD.
+             * @example 2026-07-07
+             */
+            today?: string;
+            today_so_far?: components["schemas"]["service.HomeTodaySoFar"];
+        };
+        /**
+         * @description TodaySoFar is today's sales so far, which today being unfinished makes
+         *     partial.
+         */
+        "service.HomeTodaySoFar": {
+            /** @description Partial is always true: today has not ended. */
+            partial?: boolean;
+            /**
+             * @description TakingsCents is the Takings of today's active Ticket Sales, in the
+             *     Organization's minor units. Null for Event Staff.
+             */
+            takings_cents?: number;
+            /** @description TicketsSold is the quantity over today's active Ticket Sales. */
+            tickets_sold?: number;
+        };
         "service.InvoiceActionDetail": {
             abandon_note?: string;
             abandoned_at?: string;
@@ -19643,6 +19936,200 @@ export interface components {
              *     so rather than clamping it to zero.
              */
             withdrawable_balance_cents?: number;
+        };
+        "service.OrganizationTrendBreakdown": {
+            /**
+             * @description Events is the Events that contributed, largest first, then by name.
+             *     An Event with nothing for the figure is left out. For Events held each
+             *     counts one and they come earliest start first.
+             */
+            events?: components["schemas"]["service.OrganizationTrendBreakdownEvent"][];
+            figure?: components["schemas"]["service.OrganizationTrendFigureName"];
+            /**
+             * @description FirstDay and LastDay are the days the bucket covers, both included.
+             * @example 2026-07-01
+             */
+            first_day?: string;
+            granularity?: components["schemas"]["service.OrganizationTrendGranularity"];
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /** @description Partial is true when the bucket is today, a day still running. */
+            partial?: boolean;
+            /**
+             * @description Timezone names the platform clock the bucket's days are read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Total is what the reading states for the bucket, every Sales Channel
+             *     summed: the Events add up to it. Takings is in the Organization's
+             *     minor units.
+             */
+            total?: number;
+        };
+        "service.OrganizationTrendBreakdownEvent": {
+            /** @description EventID is what the Event's page is linked on. */
+            event_id?: string;
+            name?: string;
+            value?: number;
+        };
+        /**
+         * @description Today is today alone, flagged partial and in no total, when the span
+         *     runs up to it; null otherwise.
+         */
+        "service.OrganizationTrendBucket": {
+            /** @example 2026-07-01 */
+            first_day?: string;
+            /** @example 2026-07-01 */
+            last_day?: string;
+            partial?: boolean;
+            value?: number;
+        };
+        /**
+         * @description Comparison is the span every figure is set beside, bucketed the same
+         *     way; null for all time, which has none.
+         */
+        "service.OrganizationTrendComparison": {
+            /** @example 2026-05-08 */
+            first_day?: string;
+            kind?: components["schemas"]["service.OrganizationTrendComparisonKind"];
+            /** @example 2026-06-06 */
+            last_day?: string;
+        };
+        /** @enum {string} */
+        "service.OrganizationTrendComparisonKind": "previous" | "year" | "previous" | "year";
+        "service.OrganizationTrendDays": {
+            /** @example 2026-07-01 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            partial?: boolean;
+        };
+        "service.OrganizationTrendEvent": {
+            /** @description EventID is what the Event's Sales Trends and Reach are linked on. */
+            event_id?: string;
+            name?: string;
+            /** @description PageViews is how many times the Event's page was loaded in the span. */
+            page_views?: number;
+            /** @description StartsAt is the Event's start, null for an Event that names none. */
+            starts_at?: string;
+            /**
+             * @description TakingsCents is the Takings of those sales (ADR 0040), in the
+             *     Organization's minor units. Null for Event Staff, never zero in its
+             *     place.
+             */
+            takings_cents?: number;
+            /**
+             * @description TicketsSold is the quantity over the Event's active Ticket Sales made in
+             *     the span, every Sales Channel.
+             */
+            tickets_sold?: number;
+            /**
+             * @description Timezone is the Event's own, which its start is printed in. Empty
+             *     where the Event names none.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+        };
+        /**
+         * @description TicketSales is how many active Ticket Sales were made, by the platform
+         *     day each was made, in one series keyed all.
+         */
+        "service.OrganizationTrendFigure": {
+            /**
+             * @description Change is a signed ratio (0.5 for half as much again), null when the
+             *     comparison total is zero or there is no comparison.
+             */
+            change?: number;
+            /** @description ComparisonTotal is null for all time. */
+            comparison_total?: number;
+            series?: components["schemas"]["service.OrganizationTrendSeries"][];
+            total?: number;
+        };
+        /**
+         * @description Figure is the figure broken down.
+         * @enum {string}
+         */
+        "service.OrganizationTrendFigureName": "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held" | "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held";
+        /** @description Figures carries one entry per figure. */
+        "service.OrganizationTrendFigures": {
+            events_held?: components["schemas"]["service.OrganizationTrendFigure"];
+            page_views?: components["schemas"]["service.OrganizationTrendFigure"];
+            takings?: components["schemas"]["service.OrganizationTrendFigure"];
+            ticket_sales?: components["schemas"]["service.OrganizationTrendFigure"];
+            tickets_sold?: components["schemas"]["service.OrganizationTrendFigure"];
+        };
+        /**
+         * @description Granularity is the length of a bucket: a day, or a calendar month,
+         *     whole or cut.
+         * @enum {string}
+         */
+        "service.OrganizationTrendGranularity": "day" | "month" | "day" | "month";
+        "service.OrganizationTrendSeries": {
+            /** @description Buckets is one entry per bucket of the span, zero where nothing sold. */
+            buckets?: components["schemas"]["service.OrganizationTrendBucket"][];
+            change?: number;
+            /**
+             * @description ComparisonBuckets is one entry per entry of Buckets, at the same index,
+             *     over the comparison span; empty for all time.
+             */
+            comparison_buckets?: components["schemas"]["service.OrganizationTrendBucket"][];
+            /** @description ComparisonTotal is null for all time. */
+            comparison_total?: number;
+            /**
+             * @description Key is the Sales Channel, or all.
+             * @example online
+             */
+            key?: string;
+            today?: components["schemas"]["service.OrganizationTrendBucket"];
+            /** @description Total is the series' total over the span, today excluded. */
+            total?: number;
+        };
+        /**
+         * @description Span is the span as resolved: a custom range reaching today or later
+         *     ends at yesterday here.
+         */
+        "service.OrganizationTrendSpan": {
+            /**
+             * @description Buckets is every bucket of the span, oldest first: one entry per entry
+             *     of every series' buckets, at the same index.
+             */
+            buckets?: components["schemas"]["service.OrganizationTrendDays"][];
+            /** @example 2026-06-07 */
+            first_day?: string;
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /** @enum {string} */
+            preset?: "7d" | "30d" | "90d" | "12m" | "all" | "custom";
+        };
+        "service.OrganizationTrends": {
+            comparison?: components["schemas"]["service.OrganizationTrendComparison"];
+            /**
+             * @description Currency is the Organization's.
+             * @example USD
+             */
+            currency?: string;
+            /**
+             * @description Events is the Event table: every Event held, loaded or sold in the
+             *     span, today left out, ranked by Takings for a reader handed Takings and
+             *     by Tickets Sold for one who is not. Its rows add up to the span's totals
+             *     of Tickets Sold, Takings and Page Views.
+             */
+            events?: components["schemas"]["service.OrganizationTrendEvent"][];
+            figures?: components["schemas"]["service.OrganizationTrendFigures"];
+            granularity?: components["schemas"]["service.OrganizationTrendGranularity"];
+            span?: components["schemas"]["service.OrganizationTrendSpan"];
+            /**
+             * @description Timezone names the platform clock every day here is read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Today is the platform day the reading was taken on, never inside the
+             *     span.
+             * @example 2026-07-07
+             */
+            today?: string;
         };
         "service.OutstandingPagination": {
             page?: number;

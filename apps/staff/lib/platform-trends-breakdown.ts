@@ -97,22 +97,6 @@ export type TrendBucketSelection = {
   partial: boolean;
 };
 
-/**
- * The key of the bucket selected on one figure's chart, or null: the
- * selection is another figure's, or the chart does not draw the bucket, and
- * then it marks none.
- */
-export function bucketSelectionIn(
-  selection: TrendBucketSelection | null,
-  figure: PlatformTrendFigureId,
-  buckets: readonly { key: string }[],
-): string | null {
-  if (selection === null || selection.figure !== figure) {
-    return null;
-  }
-  return buckets.some((bucket) => bucket.key === selection.key) ? selection.key : null;
-}
-
 /** The staff app's own route for the read, which forwards to the Go API. */
 export const PLATFORM_TREND_BREAKDOWN_API_PATH = "/api/operator/platform-trends/breakdown";
 

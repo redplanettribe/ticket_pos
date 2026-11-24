@@ -4,15 +4,11 @@ import test from "node:test";
 import {
   DEFAULT_PLATFORM_TRENDS_VIEW,
   PLATFORM_TRENDS_API_PATH,
-  STACK_COMPARISON_ID,
   activityChartData,
   activityTile,
   allBeforeMarker,
   comparisonReachesSalesOnly,
-  comparisonSeriesId,
   countTile,
-  formatTrendBucket,
-  formatTrendChange,
   formatTrendMean,
   markerBucketKey,
   moneyTile,
@@ -24,10 +20,7 @@ import {
   platformTrendsViewAfterRangeChange,
   platformTrendsViewAfterSpanChange,
   salesOnlyThroughout,
-  seriesChartData,
   spanBuckets,
-  stackedChartData,
-  trendChartYMax,
   type PlatformTrendActivityFigure,
   type PlatformTrendBucket,
   type PlatformTrendDays,
@@ -35,6 +28,17 @@ import {
   type PlatformTrendSeries,
   type PlatformTrends,
 } from "./platform-trends.ts";
+// The spelling and the series' reshaping are shared with Organization Trends
+// (trends-chart.ts); they are tested here on Platform Trends' readings.
+import {
+  STACK_COMPARISON_ID,
+  comparisonSeriesId,
+  formatTrendBucket,
+  formatTrendChange,
+  seriesChartData,
+  stackedChartData,
+  trendChartYMax,
+} from "./trends-chart.ts";
 
 // ---------------------------------------------------------------------------
 // Address state to request

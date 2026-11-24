@@ -92,7 +92,7 @@ async function shellLabels(
       organizationHeading: t("organizationHeading"),
       organizationLogoAlt: t("organizationLogoAlt", { organization: organizationName }),
       nav: {
-        dashboard: t("navDashboard"),
+        home: t("navHome"),
         events: t("navEvents"),
         payouts: t("navPayouts"),
         settings: t("navSettings"),

@@ -5,11 +5,11 @@ import {
   PLATFORM_TREND_BREAKDOWN_API_PATH,
   breakdownRequestPath,
   breakdownView,
-  bucketSelectionIn,
   operatorOrganizationPath,
   type PlatformTrendBreakdown,
   type TrendBucketSelection,
 } from "./platform-trends-breakdown.ts";
+import { bucketSelectionIn } from "./trends-chart.ts";
 
 function breakdown(patch: Partial<PlatformTrendBreakdown>): PlatformTrendBreakdown {
   return {

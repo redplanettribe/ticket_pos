@@ -12,6 +12,7 @@ import {
   formatTakingsTick,
   formatTrendsDay,
   hasSales,
+  MONEY_AXIS_FLOOR,
   toggleTicketTypeSelection,
   trendsPlotWidth,
   trendsYTicks,
@@ -219,6 +220,20 @@ test("the Y max rounds up to a tick a person reads without counting", () => {
 test("a tallest day just over a thousand tops the axis at 1,200, not 2,000", () => {
   assert.equal(axisTopFor(1_014), 1_200);
   assert.deepEqual(trendsYTicks(1_200), [0, 200, 400, 600, 800, 1_000, 1_200]);
+});
+
+// An all-zero span of Takings, or one of a few cents, once topped its axis at
+// a cent or two, which the compact tick writes as "$0": the axis read "$0" at
+// its foot and its top alike (#866).
+test("an axis of Takings tops at one whole unit at least, so its ticks read apart", () => {
+  for (const tallest of [0, 1, 37, 100]) {
+    assert.equal(axisTopFor(tallest, MONEY_AXIS_FLOOR), MONEY_AXIS_FLOOR);
+  }
+  assert.equal(axisTopFor(101, MONEY_AXIS_FLOOR), axisTopFor(101));
+  for (const locale of ["en", "es"] as const) {
+    const labels = trendsYTicks(axisTopFor(0, MONEY_AXIS_FLOOR)).map((cents) => formatTakingsTick(cents, "USD", locale));
+    assert.equal(new Set(labels).size, labels.length, labels.join(" "));
+  }
 });
 
 // The tallest value against the top it gets, across the decades: never below

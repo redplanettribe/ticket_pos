@@ -255,6 +255,8 @@ func setupTest(t *testing.T) *testEnv {
 	// Platform Trends reads today off its own clock: what is partial, and
 	// where every span ends, is decided there.
 	sharedApp.PlatformTrendsService.WithClock(func() time.Time { return fixedClock })
+	// Home reads now, today and what is over off its own clock (#859).
+	sharedApp.OrganizationTrendsService.WithClock(func() time.Time { return fixedClock })
 	// Which Organizations a process has already marked active today is held
 	// in memory, so that a Member's later requests cost no write. The tables
 	// were just emptied, so that memory is emptied with them, and a store a
