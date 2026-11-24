@@ -33,6 +33,7 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	confirmation := goldenSaleConfirmation(LocaleEN, goldenMailEvent())
 	assignment := goldenTicketAssignment(LocaleES, goldenMailEvent())
 	reAddressing := goldenSaleReAddressing(LocaleEN, goldenMailEventNoImages())
+	digest := goldenFollowDigest(LocaleEN)
 	cases := []struct {
 		name   string
 		msg    string
@@ -101,6 +102,9 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"sale re-addressing", "sale re-addressing sent", reAddressing.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendSaleReAddressing(ctx, reAddressing)
+		}},
+		{"follow digest", "follow digest sent", digest.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendFollowDigest(ctx, digest)
 		}},
 	}
 	for _, tc := range cases {

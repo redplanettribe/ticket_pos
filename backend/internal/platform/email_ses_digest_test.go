@@ -43,8 +43,8 @@ func sesTestDigest() FollowDigest {
 }
 
 // One Digest, one SES request: the Digest identity's From, the recipient
-// alone, the shared copy as plain UTF-8 text, through the configuration set
-// both identities share, with no attachments.
+// alone, the shared copy as UTF-8 text beside its HTML part (#880), through
+// the configuration set both identities share, with no attachments.
 func TestSESSendsTheFollowDigestFromTheDigestIdentity(t *testing.T) {
 	sender, fake := newTestSESSenderFrom(t, sesTestDigestFrom, noopLogger{})
 	digest := sesTestDigest()
@@ -84,8 +84,8 @@ func TestSESSendsTheFollowDigestFromTheDigestIdentity(t *testing.T) {
 	if !strings.Contains(simple.Body.Text.Data, "Noche de Jazz") {
 		t.Fatalf("Text %q does not carry the Digest's Events", simple.Body.Text.Data)
 	}
-	if simple.Body.Html != nil {
-		t.Fatalf("the Digest carries HTML; SES mail is plain text only: %+v", simple.Body.Html)
+	if simple.Body.Html == nil || simple.Body.Html.Data != testHTML(digest.HTML) || simple.Body.Html.Charset != "UTF-8" {
+		t.Fatalf("the Digest's HTML part is not its rendered HTML in UTF-8: %+v", simple.Body.Html)
 	}
 	if len(simple.Attachments) != 0 {
 		t.Fatalf("the Digest carries %d attachments, want none", len(simple.Attachments))

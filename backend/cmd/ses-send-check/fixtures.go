@@ -37,8 +37,9 @@ const (
 // The images the fixtures' Event rows and Cover Image blocks show. The check
 // reads no database, so it has no Event's renditions to point at: these stand
 // in for them with the production Storefront's own icons, which load in any
-// inbox, so the operator sees the square Thumbnail cell, the Logo tile (#878)
-// and the full-bleed Cover Image (#879) filled. The Storefront publishes no
+// inbox, so the operator sees the square Thumbnail cell, the Logo tile (#878,
+// and the Follow Digest's first entry, #880) and the full-bleed Cover Image
+// (#879) filled. The Storefront publishes no
 // wide image, so the 512px icon stands in for the wide rendition too; the
 // block sets its width, so it fills the card as a real one does.
 const (
@@ -209,6 +210,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 					Name: event, StartsAt: eventStartsAt, Timezone: guayaquil,
 					OrganizationName: organization, Venue: "Teatro Nacional Sucre",
 					URL: fixtureStorefront + "/e/noche-de-jazz", MatchedOrganization: true,
+					SquareURL: fixtureSquareURL, LogoURL: fixtureLogoURL,
 				}},
 				Happening: []platform.FollowDigestEvent{{
 					Name: "Feria del Libro de Quito", StartsAt: now.AddDate(0, 0, 3), Timezone: guayaquil,
@@ -216,7 +218,11 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 					URL: fixtureStorefront + "/e/feria-del-libro", MatchedTagNames: []string{"Literatura"},
 					Attending: true, TicketSaleURL: fixtureStorefront + "/tickets#sale-fixture",
 				}},
+				// The second entry has no renditions, so the inbox check sees an
+				// Event row with its image cell dropped beside a full one.
+				NewOverflow:    platform.FollowDigestOverflow{Count: 4, URL: fixtureStorefront + "/?tags=jazz"},
 				UnsubscribeURL: fixtureStorefront + "/u/fixture-unsubscribe",
+				ExploreURL:     fixtureStorefront + "/",
 			})
 		}},
 	}, nil

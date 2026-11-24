@@ -17,6 +17,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"sort"
@@ -63,12 +64,20 @@ type UnsubscribeLinkMinter interface {
 	UnsubscribeLinkURL(customerID string) (string, error)
 }
 
+// MediaURLs builds the public URL of a stored object, which is how an email
+// rendition's key becomes the address a mail shows (#880). Satisfied by the
+// platform's object storage, which builds every image URL the platform serves.
+type MediaURLs interface {
+	PublicURL(key string) string
+}
+
 // Service composes and delivers Follow Digests.
 type Service struct {
 	repo              *repository.Repository
 	email             platform.EmailSender
 	tags              TagNameResolver
 	unsubscribe       UnsubscribeLinkMinter
+	media             MediaURLs
 	storefrontBaseURL string
 	logger            platform.Logger
 	now               func() time.Time
@@ -121,6 +130,15 @@ func (s *Service) WithLogger(logger platform.Logger) *Service {
 // attribution is worth less than a Digest nobody gets.
 func (s *Service) WithTags(resolver TagNameResolver) *Service {
 	s.tags = resolver
+	return s
+}
+
+// WithMediaURLs attaches what turns an email rendition's key into its public
+// URL (#880), so each entry's compact row shows its square rendition and its
+// Organization's Logo. A service without it sends Digests with no images,
+// which is what a mail sent before the rendition fill shows anyway.
+func (s *Service) WithMediaURLs(media MediaURLs) *Service {
+	s.media = media
 	return s
 }
 
@@ -707,6 +725,9 @@ func (s *Service) compose(
 		// a credential whose entire content is "this person, until they say
 		// otherwise".
 		UnsubscribeURL: s.unsubscribeURL(customerID),
+		// The one button (#880): every upcoming Event, on the explorer the
+		// overflow links already point into.
+		ExploreURL: s.storefrontExplorerHomeURL(),
 	}, nil
 }
 
@@ -736,6 +757,11 @@ func (s *Service) composeEvents(
 			// knows — and the message chooses its own sentences from them.
 			Attending:            candidate.Attending,
 			ExternallyRegistered: candidate.ExternallyRegistered,
+			// The compact row's images (#880). The square rendition is already
+			// the Thumbnail's, or the Cover Image's centre when there is no
+			// Thumbnail; a null key is no image.
+			SquareURL: s.mediaURL(candidate.EmailSquareKey),
+			LogoURL:   s.mediaURL(candidate.EmailLogoKey),
 		}
 		// Read only when the reader is attending, and minted rather than stored:
 		// it is one fixed address per deployment, not a per-sale one. See
@@ -856,6 +882,25 @@ func (s *Service) storefrontExplorerURL(canonicalKeys []string) string {
 		escaped = append(escaped, url.QueryEscape(key))
 	}
 	return s.storefrontBaseURL + "/?tags=" + strings.Join(escaped, ",")
+}
+
+// storefrontExplorerHomeURL is the global explorer with no filter: every
+// upcoming Event on the platform, the Digest's "See all upcoming events"
+// (#880). No Locale segment, for the reason storefrontEventURL carries none.
+func (s *Service) storefrontExplorerHomeURL() string {
+	if s.storefrontBaseURL == "" {
+		return ""
+	}
+	return s.storefrontBaseURL + "/"
+}
+
+// mediaURL is a rendition's public URL, or "" when it is not rendered yet or
+// no media URLs are wired.
+func (s *Service) mediaURL(key sql.NullString) string {
+	if !key.Valid || key.String == "" || s.media == nil {
+		return ""
+	}
+	return s.media.PublicURL(key.String)
 }
 
 // storefrontOrganizationURL is an Organization's public page, which already

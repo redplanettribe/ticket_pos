@@ -601,6 +601,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// digest module can ask for a link and can do nothing else, so no amount of
 	// change in here can reach a Follow.
 	digestService = digestService.WithUnsubscribe(customersService)
+	// The rendition keys the Digest reads become URLs the way every image the
+	// platform serves does (#880).
+	digestService = digestService.WithMediaURLs(objectStorage)
 	digestHandler := digesthandler.New(digestService)
 
 	// The Operator Dashboard is composed from the modules that own its data:

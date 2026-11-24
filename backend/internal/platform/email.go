@@ -902,6 +902,11 @@ type FollowDigest struct {
 	// footer degrades to the closing line alone rather than the Digest failing to
 	// send — see digest/service.unsubscribeURL.
 	UnsubscribeURL string
+	// ExploreURL is the Storefront's explorer, every upcoming Event on the
+	// platform: the HTML part's one button, "See all upcoming events", and the
+	// text's line of the same name (#880). Empty only when the platform has no
+	// Storefront origin configured, which drops the button and the line.
+	ExploreURL string
 }
 
 // FollowDigestEvent is one Event as a Follow Digest lists it.
@@ -1014,6 +1019,14 @@ type FollowDigestEvent struct {
 	// Empty when the platform knows no Storefront origin, in which case the entry
 	// still says the reader is going and simply offers nowhere to press.
 	TicketSaleURL string
+	// SquareURL and LogoURL are the HTML part's images in the Event's compact
+	// row (#880): the Event's square email rendition (from its Thumbnail, or
+	// cropped from its Cover Image when it has none) and its Organization's
+	// Logo rendition. AN EMPTY URL MEANS "NO IMAGE", exactly as on MailEvent:
+	// a rendition not made yet drops the image's cell rather than leaving an
+	// empty box.
+	SquareURL string
+	LogoURL   string
 }
 
 // EmailAttachment is one file carried by a message: the bytes exactly as
@@ -1566,8 +1579,10 @@ func (s *LoggingEmailSender) SendCertificateExpiryWarning(ctx context.Context, w
 // Event count and the Locale are logged rather than the Events themselves: what
 // a local developer needs from this line is that a Digest went out, to whom, in
 // which language, and that it was not empty.
-func (s *LoggingEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
-	s.Logger.Info("follow digest sent", "email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening))
+func (s *LoggingEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
+	attrs := []any{"email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "follow digest", d.HTML)...)
+	s.Logger.Info("follow digest sent", attrs...)
 	return nil
 }
 

@@ -179,12 +179,12 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 	}
 }
 
-// The passcode, the Consent Withdrawal Confirmation, the two fiscal kinds,
-// the nine staff and operator kinds, the five compact Event row kinds and the
-// three Cover Image kinds go out with their HTML part beside the text,
-// rendered with the check's chrome (ADR 0082); kinds not yet converted carry
-// text alone. The Event row kinds show their images, and the Cover Image
-// kinds theirs.
+// Every kind goes out with its HTML part beside the text, rendered with the
+// check's chrome (ADR 0082): the passcode, the Consent Withdrawal
+// Confirmation, the two fiscal kinds, the nine staff and operator kinds, the
+// five compact Event row kinds, the three Cover Image kinds and the Follow
+// Digest (#880). The Event row kinds and the Digest show their images, and
+// the Cover Image kinds theirs.
 func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 	fake, load := checkSetup(t)
 	var stdout, stderr bytes.Buffer
@@ -199,6 +199,7 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
 		"assignment reminder": true, "no longer holding": true,
 		"sale confirmation": true, "ticket assignment": true, "sale re-addressing": true,
+		"follow digest": true,
 	}
 	withImages := map[string][]string{
 		"sale voided": {fixtureSquareURL, fixtureLogoURL}, "sale reversal refused": {fixtureSquareURL, fixtureLogoURL},
@@ -207,6 +208,7 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		"sale confirmation":  {fixtureWideURL, fixtureLogoURL},
 		"ticket assignment":  {fixtureWideURL, fixtureLogoURL},
 		"sale re-addressing": {fixtureWideURL, fixtureLogoURL},
+		"follow digest":      {fixtureSquareURL, fixtureLogoURL},
 	}
 	all, err := messages(checkRecipient, fixedNow, nil, nil)
 	if err != nil {

@@ -140,8 +140,8 @@ func (s *SESEmailSender) send(ctx context.Context, messageType, to, subject, tex
 		},
 	}
 	// The HTML part goes beside the text in the same Simple message, which SES
-	// builds into multipart/alternative with the attachments alongside. A kind
-	// not yet converted passes none and stays plain text.
+	// builds into multipart/alternative with the attachments alongside. A
+	// message whose HTML failed to render passes none and goes as plain text.
 	if html != "" {
 		message.Body.Html = &sestypes.Content{Data: aws.String(html), Charset: aws.String("UTF-8")}
 	}
@@ -387,7 +387,7 @@ func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Cer
 // Its failure line is Warn rather than fail's Error (#848), as the Resend
 // sender's is: the drain's give-up is the one reported event per Digest.
 func (s *SESEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), ""); err != nil {
+	if err := s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "follow digest", d.HTML, s.chrome)); err != nil {
 		s.logger.Warn("ses send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}

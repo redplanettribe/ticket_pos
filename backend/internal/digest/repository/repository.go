@@ -160,6 +160,11 @@ type DigestCandidate struct {
 	VenueName        sql.NullString
 	OrganizationName string
 	OrganizationSlug string
+	// EmailSquareKey and EmailLogoKey are the Event's square email rendition
+	// and its Organization's Logo rendition (#880), the images its compact
+	// row shows; null is "not rendered yet", and the row shows none.
+	EmailSquareKey sql.NullString
+	EmailLogoKey   sql.NullString
 	// MatchedOrganization is true when the Customer Follows the Organization
 	// putting this Event on.
 	MatchedOrganization bool
@@ -449,6 +454,8 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		       e.venue_name,
 		       o.name,
 		       o.slug,
+		       e.email_square_key,
+		       o.email_logo_key,
 		       m.matched_organization,
 		       m.matched_tag_key,
 		       EXISTS (
@@ -548,6 +555,7 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		if err := rows.Scan(
 			&row.EventID, &row.Name, &row.Slug, &row.StartsAt, &row.Timezone, &row.VenueName,
 			&row.OrganizationName, &row.OrganizationSlug,
+			&row.EmailSquareKey, &row.EmailLogoKey,
 			&byOrg, &matchedTag, &alreadyShown, &row.Attending, &row.ExternallyRegistered,
 		); err != nil {
 			return DigestSections{}, err

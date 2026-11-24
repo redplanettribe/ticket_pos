@@ -1,0 +1,27 @@
+{{/* The Follow Digest's card (#880): the reader's week at a glance. The
+heading, the greeting's paragraphs, then each section that has Events under an
+18px bold heading over a 2px rule, its entries compact Event rows separated by
+hairlines, and a capped section's "+N more" after its last row (a link when
+there is somewhere to see the rest). Then the one button, to every upcoming
+Event. Takes a digestCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Intro}}{{template "lines" .}}
+{{end}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+{{- range .Sections}}
+<tr><td class="bd" style="padding:20px 0 2px;border-bottom:2px solid #121921;"><h2 class="t-fg" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:24px;font-weight:700;color:#121921;">{{.Heading}}</h2></td></tr>
+{{- range .Rows}}
+<tr><td class="bd" style="padding:14px 0;border-bottom:1px solid #dadee5;">
+{{template "eventRow" .}}
+</td></tr>
+{{- end}}
+{{- with .More}}
+<tr><td style="padding:12px 0 0;">
+{{- if .URL}}<a class="t-link" href="{{.URL}}" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#0d7bb3;text-decoration:none;">{{.Label}}&nbsp;&rarr;</a>
+{{- else}}<p class="t-muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#5c646f;">{{.Label}}</p>
+{{- end}}</td></tr>
+{{- end}}
+{{- end}}
+</table>
+{{with .Button}}{{template "button" .}}
+{{end}}{{template "cardClose"}}{{end}}

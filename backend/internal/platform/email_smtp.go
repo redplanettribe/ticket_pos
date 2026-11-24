@@ -405,7 +405,7 @@ func (s *SMTPEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Ce
 // the sender built with the Digest identity's From: the wiring routes the
 // Digest there through SplitEmailSender.
 func (s *SMTPEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	return s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), "")
+	return s.send(ctx, "follow digest", d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "follow digest", d.HTML, s.chrome))
 }
 
 var _ EmailSender = (*SMTPEmailSender)(nil)

@@ -99,8 +99,87 @@ func mailFixtures() []mailFixture {
 		fixtures = append(fixtures, staffMailFixtures(locale)...)
 		fixtures = append(fixtures, eventRowMailFixtures(locale)...)
 		fixtures = append(fixtures, coverMailFixtures(locale)...)
+		fixtures = append(fixtures, digestMailFixtures(locale)...)
 	}
 	return fixtures
+}
+
+// digestMailFixtures is the Follow Digest in one locale (#880): both sections
+// with an Event the reader holds, one that registers elsewhere and one with
+// no renditions beside the rendered ones; every section capped, with a link
+// and without ("-capped"); no renditions at all ("-noimages"); and only the
+// agenda, with no Storefront origin and no unsubscribe link ("-nolinks").
+func digestMailFixtures(locale Locale) []mailFixture {
+	suffix := "-" + string(locale)
+	var fixtures []mailFixture
+	add := func(name string, d FollowDigest) {
+		fixtures = append(fixtures, mailFixture{name + suffix, locale, d.HTML, d.Text()})
+	}
+	add("followdigest", goldenFollowDigest(locale))
+
+	capped := goldenFollowDigest(locale)
+	capped.NewOverflow = FollowDigestOverflow{Count: 4, URL: goldenAssetOrigin + "/?tags=jazz"}
+	capped.HappeningOverflow = FollowDigestOverflow{Count: 2}
+	add("followdigest-capped", capped)
+
+	noImages := goldenFollowDigest(locale)
+	for _, section := range [][]FollowDigestEvent{noImages.New, noImages.Happening} {
+		for i := range section {
+			section[i].SquareURL, section[i].LogoURL = "", ""
+		}
+	}
+	add("followdigest-noimages", noImages)
+
+	noLinks := goldenFollowDigest(locale)
+	noLinks.New = nil
+	noLinks.ExploreURL, noLinks.UnsubscribeURL = "", ""
+	for i := range noLinks.Happening {
+		noLinks.Happening[i].URL, noLinks.Happening[i].TicketSaleURL = "", ""
+	}
+	add("followdigest-nolinks", noLinks)
+	return fixtures
+}
+
+// goldenFollowDigest is an invented reader's week: two new Events (one
+// rendered, one registering elsewhere with no renditions yet) and two this
+// week (one the reader holds Tickets to, one matched by two Tags).
+func goldenFollowDigest(locale Locale) FollowDigest {
+	jazz := goldenMailEvent()
+	return FollowDigest{
+		To: "ana@example.com", CustomerName: "Ana", Locale: locale,
+		New: []FollowDigestEvent{
+			{
+				Name: "Noche de Jazz", StartsAt: jazz.StartsAt, Timezone: jazz.Timezone,
+				OrganizationName: jazz.OrganizationName, Venue: jazz.VenueName,
+				URL: goldenAssetOrigin + "/club-de-jazz/events/noche-de-jazz", MatchedOrganization: true,
+				SquareURL: jazz.SquareURL, LogoURL: jazz.LogoURL,
+			},
+			{
+				Name: "Feria del Libro", StartsAt: jazz.StartsAt.AddDate(0, 0, 7), Timezone: jazz.Timezone,
+				OrganizationName: "Libros EC", Venue: "Casa de la Cultura",
+				URL: goldenAssetOrigin + "/libros-ec/events/feria-del-libro", ExternallyRegistered: true,
+				MatchedTagNames: []string{"Literatura"},
+			},
+		},
+		Happening: []FollowDigestEvent{
+			{
+				Name: "Cine de Barrio", StartsAt: jazz.StartsAt.AddDate(0, 0, -3), Timezone: jazz.Timezone,
+				OrganizationName: jazz.OrganizationName, Venue: "Ochoymedio",
+				URL: goldenAssetOrigin + "/club-de-jazz/events/cine-de-barrio", MatchedOrganization: true,
+				MatchedTagNames: []string{"Cine"}, Attending: true, TicketSaleURL: goldenAssetOrigin + "/tickets",
+				SquareURL: goldenMediaOrigin + "/email-square/org-1/event-3/square.jpg", LogoURL: jazz.LogoURL,
+			},
+			{
+				Name: "Rock al Parque", StartsAt: jazz.StartsAt.AddDate(0, 0, -2), Timezone: jazz.Timezone,
+				OrganizationName: "Ruido Colectivo",
+				URL:              goldenAssetOrigin + "/ruido/events/rock-al-parque",
+				MatchedTagNames:  []string{"Música", "Rock"},
+				SquareURL:        goldenMediaOrigin + "/email-square/org-2/event-4/square.jpg",
+			},
+		},
+		UnsubscribeURL: goldenAssetOrigin + "/unsubscribe?token=abc",
+		ExploreURL:     goldenAssetOrigin + "/",
+	}
 }
 
 // goldenMailEvent is an invented Event and Organization with every rendition;

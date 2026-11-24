@@ -273,7 +273,7 @@ func everyMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendOTP(ctx, "ana@example.com", otp.Code, otp.Locale)
 			}},
-		messageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), "", nil,
+		messageCase{"follow digest", digest.To, digest.Subject(), digest.Text(), testHTML(digest.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendFollowDigest(ctx, digest) }},
 	)
 }

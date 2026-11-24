@@ -1845,9 +1845,12 @@ var (
 	//
 	// digestGetTicketsCopy is the ordinary one: a ticketed Event this reader does
 	// not hold a ticket for.
+	//
+	// Each is the LABEL alone: the text prints it before its address ("Get
+	// tickets: https://..."), and the HTML part makes it the link's words.
 	digestGetTicketsCopy = translated(
-		"Get tickets: %s",
-		"Consiga entradas: %s",
+		"Get tickets",
+		"Consiga entradas",
 	)
 	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
 	// no Ticket Types to sell and whose only way in is to sign up. It still
@@ -1856,15 +1859,15 @@ var (
 	// a Digest that jumped straight to the third-party site would spend the
 	// Organization's traffic without ever recording it.
 	digestRegisterCopy = translated(
-		"Register: %s",
-		"Regístrese: %s",
+		"Register",
+		"Regístrese",
 	)
 	// digestYourTicketsCopy replaces the purchase line for a reader who already
 	// holds one, sending them to what they own instead of to a checkout they have
 	// already been through.
 	digestYourTicketsCopy = translated(
-		"Your tickets: %s",
-		"Sus entradas: %s",
+		"Your tickets",
+		"Sus entradas",
 	)
 	// digestAttendingCopy is the mark itself, printed directly under the Event's
 	// name so it is read before the date rather than after the address. It is the
@@ -1881,7 +1884,8 @@ var (
 		"Because you follow: %s",
 		"Porque usted sigue: %s",
 	)
-	// The overflow line of a capped section (#222), in its two forms.
+	// The overflow line of a capped section (#222), in its two forms. The bare
+	// form is also the HTML part's link label, its address behind it.
 	//
 	// It says the NUMBER and then where to see them, in that order, because the
 	// number is the part that changes what the reader believes about the section
@@ -1908,9 +1912,38 @@ var (
 	// Unfollowing removes a Follow. A reader who wanted fewer emails and feared
 	// losing what they follow would otherwise have no way to tell, and the
 	// safest-looking answer available to them is to stop opening the mail.
-	digestUnsubscribeCopy = translated(
-		"Don't want these? Turn off the digest — you'll keep everything you follow: %s",
-		"¿No quiere recibirlos? Desactive el resumen y conservará todo lo que sigue: %s",
+	//
+	// It is three sentences (#880): the question, the act (the link's words in
+	// the HTML part's footer) and what the act keeps. They were one sentence
+	// joined by an em dash, split in two so no em dash reaches either part.
+	digestUnsubscribeQuestionCopy = translated(
+		"Don't want these?",
+		"¿No quiere recibirlos?",
+	)
+	digestUnsubscribeLinkCopy = translated(
+		"Turn off the digest",
+		"Desactive el resumen",
+	)
+	digestUnsubscribeKeepCopy = translated(
+		"You'll keep everything you follow.",
+		"Conservará todo lo que sigue.",
+	)
+	// The Digest's one button (#880), to every upcoming Event on the
+	// Storefront's explorer: the way further than the Digest goes.
+	digestExploreCopy = translated(
+		"See all upcoming events",
+		"Ver todos los próximos eventos",
+	)
+	// The preheader names the first Event the Digest lists, the one the reader
+	// reads first, and admits to the rest when there is more than one. A
+	// public Event name, safe in an inbox preview.
+	digestPreheaderOneCopy = translated(
+		"%s, from the things you follow.",
+		"%s, de lo que usted sigue.",
+	)
+	digestPreheaderManyCopy = translated(
+		"%s and more from the things you follow.",
+		"%s y más de lo que usted sigue.",
 	)
 )
 
@@ -1964,17 +1997,37 @@ func (d FollowDigest) Subject() string {
 // nobody gets, and the deployment fault is visible in the logs of whatever
 // refused to mint it.
 //
+// Below the sections, the explorer's line ("See all upcoming events: ...")
+// is the HTML part's one button, so the text carries the same way further
+// (#880); it is absent with no Storefront origin.
+//
 // An empty Digest cannot be rendered here because it is never composed: the
 // caller sends nothing at all when nothing matched (digest/service.deliverDigest).
 func (d FollowDigest) Text() string {
 	text := fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName)
 	text += digestSection(digestNewHeadingCopy.in(d.Locale), d.New, d.NewOverflow, d.Locale)
 	text += digestSection(digestHappeningHeadingCopy.in(d.Locale), d.Happening, d.HappeningOverflow, d.Locale)
+	if d.ExploreURL != "" {
+		text += "\n\n" + labelledLink(digestExploreCopy.in(d.Locale), d.ExploreURL)
+	}
 	text += "\n\n" + digestClosingCopy.in(d.Locale)
 	if d.UnsubscribeURL != "" {
-		text += "\n" + fmt.Sprintf(digestUnsubscribeCopy.in(d.Locale), d.UnsubscribeURL)
+		text += "\n" + d.unsubscribeLine()
 	}
 	return text
+}
+
+// unsubscribeLine is the text's unsubscribe line: the question, what the act
+// keeps, then the act with its address, so the address ends the line.
+func (d FollowDigest) unsubscribeLine() string {
+	return digestUnsubscribeQuestionCopy.in(d.Locale) + " " + digestUnsubscribeKeepCopy.in(d.Locale) + " " +
+		labelledLink(digestUnsubscribeLinkCopy.in(d.Locale), d.UnsubscribeURL)
+}
+
+// labelledLink is a link as the Digest's text prints it: its label, a colon,
+// its address.
+func labelledLink(label, url string) string {
+	return label + ": " + url
 }
 
 // digestSection renders one heading and everything under it, or NOTHING AT ALL
@@ -2037,8 +2090,8 @@ func (e FollowDigestEvent) render(locale Locale) string {
 	if cta := e.callToAction(locale); cta != "" {
 		block += "\n" + cta
 	}
-	if reasons := e.reasons(); len(reasons) > 0 {
-		block += "\n" + fmt.Sprintf(digestBecauseCopy.in(locale), strings.Join(reasons, ", "))
+	if because := e.because(locale); because != "" {
+		block += "\n" + because
 	}
 	return block
 }
@@ -2059,19 +2112,34 @@ func (e FollowDigestEvent) render(locale Locale) string {
 // with nowhere to press is a small loss, and telling somebody to buy the ticket
 // they are holding is the exact failure this whole function exists to prevent.
 func (e FollowDigestEvent) callToAction(locale Locale) string {
+	label, url := e.action(locale)
+	if url == "" {
+		return ""
+	}
+	return labelledLink(label, url)
+}
+
+// action is the call to action's label and address, which the text prints as
+// one line and the HTML part as a link; an empty address is no call to action.
+func (e FollowDigestEvent) action(locale Locale) (label, url string) {
 	switch {
 	case e.Attending:
-		if e.TicketSaleURL == "" {
-			return ""
-		}
-		return fmt.Sprintf(digestYourTicketsCopy.in(locale), e.TicketSaleURL)
-	case e.URL == "":
-		return ""
+		return digestYourTicketsCopy.in(locale), e.TicketSaleURL
 	case e.ExternallyRegistered:
-		return fmt.Sprintf(digestRegisterCopy.in(locale), e.URL)
+		return digestRegisterCopy.in(locale), e.URL
 	default:
-		return fmt.Sprintf(digestGetTicketsCopy.in(locale), e.URL)
+		return digestGetTicketsCopy.in(locale), e.URL
 	}
+}
+
+// because is the attribution line, or "" when the Event matched no Follow
+// the reader can be told about.
+func (e FollowDigestEvent) because(locale Locale) string {
+	reasons := e.reasons()
+	if len(reasons) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(digestBecauseCopy.in(locale), strings.Join(reasons, ", "))
 }
 
 // reasons is the Follows this Event matched, as the reader would name them: the

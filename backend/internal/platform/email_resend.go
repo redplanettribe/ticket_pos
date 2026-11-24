@@ -542,7 +542,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // event per Digest (ADR 0079). Reporting every attempt here as well made one
 // misconfiguration six Sentry events per Digest.
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
-	if err := s.send(ctx, d.To, d.Subject(), d.Text(), ""); err != nil {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text(), renderedHTML(ctx, s.logger, "follow digest", d.HTML, s.chrome)); err != nil {
 		s.logger.Warn("resend send follow digest failed", "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}

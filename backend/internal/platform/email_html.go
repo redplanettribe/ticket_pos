@@ -93,6 +93,19 @@ type mailFooter struct {
 	SupportLead  string
 	SupportEmail string
 	Legal        string
+	// Unsubscribe is the Follow Digest's unsubscribe line, and nil on every
+	// other kind: the Digest is the only mail a Customer can turn off (ADR
+	// 0034), so it is the only footer with the link.
+	Unsubscribe *mailUnsubscribe
+}
+
+// mailUnsubscribe is the unsubscribe line: the question, the link that turns
+// the Digest off, and what doing so keeps.
+type mailUnsubscribe struct {
+	Question string
+	Label    string
+	URL      string
+	Keep     string
 }
 
 // mailButton is the primary button and its raw-link fallback. A kind builds
@@ -127,7 +140,21 @@ const (
 	// good-news kinds, the Sale Confirmation, the Ticket Assignment and the
 	// Sale Re-addressing.
 	mailKindCover mailKind = "cover"
+	// mailKindDigest is the Follow Digest's card: its two sections of compact
+	// Event rows.
+	mailKindDigest mailKind = "digest"
 )
+
+// dryRunEventRow is a compact Event row with every optional branch filled.
+var dryRunEventRow = eventRowView{
+	SquareURL: "#", Meta: "-", Detail: "-", Going: "-",
+	Organization: &orgRowView{LogoURL: "#"},
+	Action:       &rowActionView{Label: "-", URL: "#", Because: "-"},
+}
+
+// dryRunFooter is a footer with every optional line, so the boot dry run
+// executes the legal and unsubscribe branches under every kind.
+var dryRunFooter = mailFooter{Legal: "-", Unsubscribe: &mailUnsubscribe{URL: "#"}}
 
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
 // and the card value it is executed with. That value (the zero value, unless a
@@ -141,9 +168,18 @@ var mailKinds = map[mailKind]any{
 	// Every optional branch filled, so the dry run executes each one.
 	mailKindEventRow: eventRowCard{
 		Intro:  [][]string{{""}},
-		Rows:   []eventRowView{{SquareURL: "#", Meta: "-", Detail: "-", Organization: &orgRowView{LogoURL: "#"}}},
+		Rows:   []eventRowView{dryRunEventRow},
 		Button: &mailButton{},
 		After:  [][]string{{""}},
+	},
+	// Every optional branch filled, so the dry run executes each one.
+	mailKindDigest: digestCard{
+		Intro: [][]string{{""}},
+		Sections: []digestSectionView{
+			{Rows: []eventRowView{dryRunEventRow}, More: &digestMoreView{URL: "#"}},
+			{More: &digestMoreView{}},
+		},
+		Button: &mailButton{},
 	},
 	// Every optional branch filled, so the dry run executes each one.
 	mailKindCover: coverCard{
@@ -228,7 +264,7 @@ func parseMailTemplates(fsys fs.FS, kinds map[mailKind]any) (map[mailKind]*templ
 		if kind.Lookup("card") == nil {
 			return nil, fmt.Errorf("%s: defines no card", file)
 		}
-		if err := kind.ExecuteTemplate(io.Discard, "layout", mailPage{Card: card}); err != nil {
+		if err := kind.ExecuteTemplate(io.Discard, "layout", mailPage{Footer: dryRunFooter, Card: card}); err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
 		templates[name] = kind
@@ -244,10 +280,12 @@ func parseMailTemplates(fsys fs.FS, kinds map[mailKind]any) (map[mailKind]*templ
 // renderMail renders one kind's card inside the chrome. subject is the
 // <title>; preheader and reason are the kind's own copy, already in locale.
 func renderMail(kind mailKind, locale Locale, chrome MailChrome, subject, preheader, reason string, card any) (string, error) {
-	tpl, ok := mailTemplates[kind]
-	if !ok {
-		return "", fmt.Errorf("no mail template for %q", kind)
-	}
+	return renderMailPage(kind, locale, chrome, subject, preheader, newMailFooter(locale, chrome, reason), card)
+}
+
+// newMailFooter is the footer every kind carries: its reason, the support
+// contact, and the legal line when an Issuer is configured.
+func newMailFooter(locale Locale, chrome MailChrome, reason string) mailFooter {
 	footer := mailFooter{
 		Reason:       reason,
 		SupportLead:  mailSupportLeadCopy.in(locale),
@@ -255,6 +293,16 @@ func renderMail(kind mailKind, locale Locale, chrome MailChrome, subject, prehea
 	}
 	if strings.TrimSpace(chrome.OperatorName) != "" && strings.TrimSpace(chrome.OperatorCountry) != "" {
 		footer.Legal = fmt.Sprintf(mailLegalLineCopy.in(locale), chrome.OperatorName, chrome.OperatorCountry)
+	}
+	return footer
+}
+
+// renderMailPage is renderMail with the footer already built, for the one
+// kind whose footer carries more than the reason (the Follow Digest).
+func renderMailPage(kind mailKind, locale Locale, chrome MailChrome, subject, preheader string, footer mailFooter, card any) (string, error) {
+	tpl, ok := mailTemplates[kind]
+	if !ok {
+		return "", fmt.Errorf("no mail template for %q", kind)
 	}
 	page := mailPage{
 		Lang:      mailLang(locale),
@@ -484,14 +532,26 @@ func newOrgRow(event MailEvent, tile int) *orgRowView {
 }
 
 // eventRowView is one compact Event row: the square rendition (none when
-// empty), the Event's name, the date and venue line, an optional detail line
-// and the Organization row.
+// empty), the Event's name, the Follow Digest's "You're going" mark when the
+// reader holds Tickets to it, the date and venue line, an optional detail
+// line, the Organization row, and the Digest's call to action line (nil on
+// every other kind).
 type eventRowView struct {
 	Name         string
 	SquareURL    string
+	Going        string
 	Meta         string
 	Detail       string
 	Organization *orgRowView
+	Action       *rowActionView
+}
+
+// rowActionView is a Digest entry's last line: its call to action as a link
+// (none when URL is empty) and, on the same line, why the entry is there.
+type rowActionView struct {
+	Label   string
+	URL     string
+	Because string
 }
 
 func newEventRow(locale Locale, name, detail string, event MailEvent) eventRowView {
@@ -807,4 +867,122 @@ func (r SaleReAddressing) HTML(chrome MailChrome) (string, error) {
 		preheader: fmt.Sprintf(saleReAddressingPreheaderCopy.in(r.Locale), r.Reference),
 		reason:    fmt.Sprintf(saleReAddressingFooterReasonCopy.in(r.Locale), r.EventName),
 	})
+}
+
+// The Follow Digest (#880): the reader's week at a glance. Its two sections
+// sit under headings over a heavy rule, each entry a compact Event row with
+// its call to action and "Because you follow ..." on one line, a capped
+// section ends with its "+N more" link, and the one button opens every
+// upcoming Event. The footer carries the unsubscribe line, on this kind only.
+
+// digestCard is the Follow Digest's card: a heading, the greeting's
+// paragraphs, the sections that have Events, and the one button (nil when the
+// platform has no Storefront origin).
+type digestCard struct {
+	Heading  string
+	Intro    [][]string
+	Sections []digestSectionView
+	Button   *mailButton
+}
+
+// digestSectionView is one section: its heading, its rows, and the overflow
+// line when the section was capped.
+type digestSectionView struct {
+	Heading string
+	Rows    []eventRowView
+	More    *digestMoreView
+}
+
+// digestMoreView is a capped section's "+N more", a link when there is
+// somewhere to see the rest.
+type digestMoreView struct {
+	Label string
+	URL   string
+}
+
+// HTML is the Follow Digest's HTML part, from the same fields Text() reads:
+// New first, a section with no Events printing nothing, every entry's one
+// call to action, and the unsubscribe line in the footer whenever the text
+// carries it.
+func (d FollowDigest) HTML(chrome MailChrome) (string, error) {
+	card := digestCard{
+		Heading: d.Subject(),
+		Intro:   splitLines(paragraphs(fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName))),
+	}
+	for _, section := range []struct {
+		heading  mailCopy
+		events   []FollowDigestEvent
+		overflow FollowDigestOverflow
+	}{
+		{digestNewHeadingCopy, d.New, d.NewOverflow},
+		{digestHappeningHeadingCopy, d.Happening, d.HappeningOverflow},
+	} {
+		if len(section.events) == 0 {
+			continue
+		}
+		view := digestSectionView{Heading: section.heading.in(d.Locale)}
+		for _, event := range section.events {
+			view.Rows = append(view.Rows, event.row(d.Locale))
+		}
+		if section.overflow.Count > 0 {
+			view.More = &digestMoreView{
+				Label: fmt.Sprintf(digestMoreWithoutLinkCopy.in(d.Locale), section.overflow.Count),
+				URL:   section.overflow.URL,
+			}
+		}
+		card.Sections = append(card.Sections, view)
+	}
+	if d.ExploreURL != "" {
+		button := newMailButton(d.Locale, digestExploreCopy.in(d.Locale), d.ExploreURL)
+		card.Button = &button
+	}
+
+	footer := newMailFooter(d.Locale, chrome, digestClosingCopy.in(d.Locale))
+	if d.UnsubscribeURL != "" {
+		footer.Unsubscribe = &mailUnsubscribe{
+			Question: digestUnsubscribeQuestionCopy.in(d.Locale),
+			Label:    digestUnsubscribeLinkCopy.in(d.Locale),
+			URL:      d.UnsubscribeURL,
+			Keep:     digestUnsubscribeKeepCopy.in(d.Locale),
+		}
+	}
+	return renderMailPage(mailKindDigest, d.Locale, chrome, d.Subject(), d.preheader(), footer, card)
+}
+
+// preheader names the first Event the Digest lists, and says there is more
+// when there is.
+func (d FollowDigest) preheader() string {
+	events := append(append([]FollowDigestEvent{}, d.New...), d.Happening...)
+	if len(events) == 0 {
+		return digestSubjectCopy.in(d.Locale)
+	}
+	if len(events) == 1 && d.NewOverflow.Count == 0 && d.HappeningOverflow.Count == 0 {
+		return fmt.Sprintf(digestPreheaderOneCopy.in(d.Locale), events[0].Name)
+	}
+	return fmt.Sprintf(digestPreheaderManyCopy.in(d.Locale), events[0].Name)
+}
+
+// row is one Digest entry as a compact Event row: the "You're going" mark
+// under the name where the text prints it, then the date, venue and
+// Organization, then the call to action with the attribution beside it.
+func (e FollowDigestEvent) row(locale Locale) eventRowView {
+	row := newEventRow(locale, e.Name, "", MailEvent{
+		OrganizationName: e.OrganizationName,
+		LogoURL:          e.LogoURL,
+		SquareURL:        e.SquareURL,
+		StartsAt:         e.StartsAt,
+		Timezone:         e.Timezone,
+		VenueName:        e.Venue,
+	})
+	if e.Attending {
+		row.Going = digestAttendingCopy.in(locale)
+	}
+	label, url := e.action(locale)
+	if because := e.because(locale); url != "" || because != "" {
+		row.Action = &rowActionView{Because: because}
+		if url != "" {
+			row.Action.Label, row.Action.URL = label, url
+		}
+	}
+	return row
 }
