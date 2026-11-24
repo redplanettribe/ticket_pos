@@ -44,3 +44,35 @@ func (r *Repository) OrganizationPageViewsByDay(ctx context.Context, orgID strin
 	}
 	return out, rows.Err()
 }
+
+// OrganizationPageViewsByEvent totals the Page Views of each of one
+// Organization's Events over the hourly buckets in [from, until), for the
+// breakdown of Organization Trends (#864). It sums the whole-page rows alone,
+// as OrganizationPageViewsByDay does, so the Events of a window add up to what
+// that read states for its days. An Event nobody loaded in the window is not
+// returned.
+func (r *Repository) OrganizationPageViewsByEvent(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT e.id, e.name, SUM(v.view_count)::bigint
+		FROM events e
+		JOIN event_page_views v ON v.event_id = e.id
+		WHERE e.organization_id = $1
+		  AND v.affiliate_link_id IS NULL AND v.hour >= $2 AND v.hour < $3
+		GROUP BY e.id
+		ORDER BY e.id
+	`, orgID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.EventCount
+	for rows.Next() {
+		event := platform.EventCount{OrganizationID: orgID}
+		if err := rows.Scan(&event.EventID, &event.EventName, &event.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}

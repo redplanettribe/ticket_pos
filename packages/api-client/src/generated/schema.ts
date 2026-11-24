@@ -14520,6 +14520,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/trends/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the Events a bucket of an Organization Trends figure was made of
+         * @description Returns the breakdown of one figure of Organization Trends for one bucket, for the Active Member's Organization: the Events that contributed, ranked largest first, then by name, each with the id its page is linked on, and the bucket's total, which they add up to and which is what the Organization Trends reading states for the bucket, every Sales Channel summed. figure is the figure's name in the reading: takings, tickets_sold, ticket_sales, page_views or events_held. A bucket is named by its days on the platform clock (America/Guayaquil), as the reading states them: first_day alone (or with an equal last_day) names a day, which may be today, answered with partial true, and never a day after today; first_day and last_day name a month bucket, the whole calendar month or the part of it a span cuts, both in the same month and ending before today, as every month bucket of a reading does. Every figure is read by the day rules of the reading: a sale on the platform day of the instant it was made, a reversed Ticket Sale in no figure, Takings computed exactly as Sales Trends computes it in the Organization's minor units, Page Views from the whole-page hourly buckets with each hour on its platform day, and Events held as the published Events whose start falls in the bucket, each counting one and listed earliest start first. An Event with nothing for the figure is left out, so a bucket nothing happened in has a zero total and no Events. takings is refused to Event Staff with 403: they are handed no money through this route, as the reading hands them none. Any Member.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Figure */
+                    figure: "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held";
+                    /** @description First day of the bucket (YYYY-MM-DD) */
+                    first_day: string;
+                    /** @description Last day of a month bucket (YYYY-MM-DD), in the month of first_day */
+                    last_day?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOrganizationTrendBreakdown"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organizations": {
         parameters: {
             query?: never;
@@ -16363,6 +16436,11 @@ export interface components {
         };
         "openapi.EnvelopeOperatorTicketQuestions": {
             data?: components["schemas"]["service.TicketQuestion"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOrganizationTrendBreakdown": {
+            data?: components["schemas"]["service.OrganizationTrendBreakdown"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -19757,6 +19835,42 @@ export interface components {
              */
             withdrawable_balance_cents?: number;
         };
+        "service.OrganizationTrendBreakdown": {
+            /**
+             * @description Events is the Events that contributed, largest first, then by name.
+             *     An Event with nothing for the figure is left out. For Events held each
+             *     counts one and they come earliest start first.
+             */
+            events?: components["schemas"]["service.OrganizationTrendBreakdownEvent"][];
+            figure?: components["schemas"]["service.OrganizationTrendFigureName"];
+            /**
+             * @description FirstDay and LastDay are the days the bucket covers, both included.
+             * @example 2026-07-01
+             */
+            first_day?: string;
+            granularity?: components["schemas"]["service.OrganizationTrendGranularity"];
+            /** @example 2026-07-06 */
+            last_day?: string;
+            /** @description Partial is true when the bucket is today, a day still running. */
+            partial?: boolean;
+            /**
+             * @description Timezone names the platform clock the bucket's days are read on.
+             * @example America/Guayaquil
+             */
+            timezone?: string;
+            /**
+             * @description Total is what the reading states for the bucket, every Sales Channel
+             *     summed: the Events add up to it. Takings is in the Organization's
+             *     minor units.
+             */
+            total?: number;
+        };
+        "service.OrganizationTrendBreakdownEvent": {
+            /** @description EventID is what the Event's page is linked on. */
+            event_id?: string;
+            name?: string;
+            value?: number;
+        };
         /**
          * @description Today is today alone, flagged partial and in no total, when the span
          *     runs up to it; null otherwise.
@@ -19804,6 +19918,11 @@ export interface components {
             series?: components["schemas"]["service.OrganizationTrendSeries"][];
             total?: number;
         };
+        /**
+         * @description Figure is the figure broken down.
+         * @enum {string}
+         */
+        "service.OrganizationTrendFigureName": "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held" | "takings" | "tickets_sold" | "ticket_sales" | "page_views" | "events_held";
         /** @description Figures carries one entry per figure. */
         "service.OrganizationTrendFigures": {
             events_held?: components["schemas"]["service.OrganizationTrendFigure"];
@@ -19813,7 +19932,8 @@ export interface components {
             tickets_sold?: components["schemas"]["service.OrganizationTrendFigure"];
         };
         /**
-         * @description Granularity is the length of every bucket.
+         * @description Granularity is the length of a bucket: a day, or a calendar month,
+         *     whole or cut.
          * @enum {string}
          */
         "service.OrganizationTrendGranularity": "day" | "month" | "day" | "month";

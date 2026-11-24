@@ -43,3 +43,11 @@ func (s *Service) OrganizationNextEvent(ctx context.Context, orgID string, now t
 func (s *Service) OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error) {
 	return s.repo.OrganizationEventsHeldByDay(ctx, orgID, from, until, timezone)
 }
+
+// OrganizationEventsHeld is every Event of one Organization held over the
+// starts in [from, until), each counting one, earliest start first, read for
+// the breakdown of Organization Trends (#864): the Events
+// OrganizationEventsHeldByDay counts over the same window.
+func (s *Service) OrganizationEventsHeld(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error) {
+	return s.repo.OrganizationEventsHeld(ctx, orgID, from, until)
+}

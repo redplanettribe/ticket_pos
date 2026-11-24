@@ -79,3 +79,30 @@ func (s *Service) OrganizationOrigin(ctx context.Context, orgID string) (Organiz
 	}
 	return OrganizationOrigin{Currency: row.Currency, CreatedAt: row.CreatedAt, FirstSoldAt: row.FirstSoldAt}, nil
 }
+
+// OrganizationEventSales is what one Event of an Organization sold over a
+// window: Tickets Sold, how many Ticket Sales, and Takings (ADR 0040) in the
+// Organization's minor units.
+type OrganizationEventSales struct {
+	EventID      string
+	EventName    string
+	TicketsSold  int
+	TicketSales  int
+	TakingsCents int
+}
+
+// OrganizationSalesByEvent is what each of one Organization's Events sold
+// over the active Ticket Sales sold in [from, until), read for the breakdown
+// of Organization Trends (#864) by OrganizationSalesByDay's rules, so the
+// Events add up to its days. An Event that sold nothing is not returned.
+func (s *Service) OrganizationSalesByEvent(ctx context.Context, orgID string, from, until time.Time) ([]OrganizationEventSales, error) {
+	rows, err := s.repo.OrganizationSalesByEvent(ctx, orgID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OrganizationEventSales, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, OrganizationEventSales(row))
+	}
+	return out, nil
+}

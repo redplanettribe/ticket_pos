@@ -2856,6 +2856,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOrganizationTrendBreakdown": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendBreakdown"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeOrganizationTrends": {
                 "properties": {
                     "data": {
@@ -7644,6 +7658,62 @@
                 },
                 "type": "object"
             },
+            "service.OrganizationTrendBreakdown": {
+                "properties": {
+                    "events": {
+                        "description": "Events is the Events that contributed, largest first, then by name.\nAn Event with nothing for the figure is left out. For Events held each\ncounts one and they come earliest start first.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationTrendBreakdownEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "figure": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendFigureName"
+                    },
+                    "first_day": {
+                        "description": "FirstDay and LastDay are the days the bucket covers, both included.",
+                        "example": "2026-07-01",
+                        "type": "string"
+                    },
+                    "granularity": {
+                        "$ref": "#/components/schemas/service.OrganizationTrendGranularity"
+                    },
+                    "last_day": {
+                        "example": "2026-07-06",
+                        "type": "string"
+                    },
+                    "partial": {
+                        "description": "Partial is true when the bucket is today, a day still running.",
+                        "type": "boolean"
+                    },
+                    "timezone": {
+                        "description": "Timezone names the platform clock the bucket's days are read on.",
+                        "example": "America/Guayaquil",
+                        "type": "string"
+                    },
+                    "total": {
+                        "description": "Total is what the reading states for the bucket, every Sales Channel\nsummed: the Events add up to it. Takings is in the Organization's\nminor units.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationTrendBreakdownEvent": {
+                "properties": {
+                    "event_id": {
+                        "description": "EventID is what the Event's page is linked on.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.OrganizationTrendBucket": {
                 "description": "Today is today alone, flagged partial and in no total, when the span\nruns up to it; null otherwise.",
                 "properties": {
@@ -7734,6 +7804,29 @@
                 },
                 "type": "object"
             },
+            "service.OrganizationTrendFigureName": {
+                "description": "Figure is the figure broken down.",
+                "enum": [
+                    "takings",
+                    "tickets_sold",
+                    "ticket_sales",
+                    "page_views",
+                    "events_held",
+                    "takings",
+                    "tickets_sold",
+                    "ticket_sales",
+                    "page_views",
+                    "events_held"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "FigureTakings",
+                    "FigureTicketsSold",
+                    "FigureTicketSales",
+                    "FigurePageViews",
+                    "FigureEventsHeld"
+                ]
+            },
             "service.OrganizationTrendFigures": {
                 "description": "Figures carries one entry per figure.",
                 "properties": {
@@ -7756,7 +7849,7 @@
                 "type": "object"
             },
             "service.OrganizationTrendGranularity": {
-                "description": "Granularity is the length of every bucket.",
+                "description": "Granularity is the length of a bucket: a day, or a calendar month,\nwhole or cut.",
                 "enum": [
                     "day",
                     "month",
@@ -26765,6 +26858,97 @@
                     }
                 ],
                 "summary": "Get Organization Trends for a span",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/organization/trends/breakdown": {
+            "get": {
+                "description": "Returns the breakdown of one figure of Organization Trends for one bucket, for the Active Member's Organization: the Events that contributed, ranked largest first, then by name, each with the id its page is linked on, and the bucket's total, which they add up to and which is what the Organization Trends reading states for the bucket, every Sales Channel summed. figure is the figure's name in the reading: takings, tickets_sold, ticket_sales, page_views or events_held. A bucket is named by its days on the platform clock (America/Guayaquil), as the reading states them: first_day alone (or with an equal last_day) names a day, which may be today, answered with partial true, and never a day after today; first_day and last_day name a month bucket, the whole calendar month or the part of it a span cuts, both in the same month and ending before today, as every month bucket of a reading does. Every figure is read by the day rules of the reading: a sale on the platform day of the instant it was made, a reversed Ticket Sale in no figure, Takings computed exactly as Sales Trends computes it in the Organization's minor units, Page Views from the whole-page hourly buckets with each hour on its platform day, and Events held as the published Events whose start falls in the bucket, each counting one and listed earliest start first. An Event with nothing for the figure is left out, so a bucket nothing happened in has a zero total and no Events. takings is refused to Event Staff with 403: they are handed no money through this route, as the reading hands them none. Any Member.",
+                "parameters": [
+                    {
+                        "description": "Figure",
+                        "in": "query",
+                        "name": "figure",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "takings",
+                                "tickets_sold",
+                                "ticket_sales",
+                                "page_views",
+                                "events_held"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "First day of the bucket (YYYY-MM-DD)",
+                        "in": "query",
+                        "name": "first_day",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Last day of a month bucket (YYYY-MM-DD), in the month of first_day",
+                        "in": "query",
+                        "name": "last_day",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOrganizationTrendBreakdown"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get the Events a bucket of an Organization Trends figure was made of",
                 "tags": [
                     "staff"
                 ]

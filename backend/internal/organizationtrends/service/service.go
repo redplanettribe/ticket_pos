@@ -36,9 +36,11 @@ const (
 // and Takings over a window, one Event's Tickets Sold so far, and the
 // Organization's balances as the Payouts page reads them; and, for
 // Organization Trends, its Tickets Sold, Ticket Sales and Takings per day and
-// Sales Channel and where its history begins, which all time starts from.
+// Sales Channel and where its history begins, which all time starts from;
+// and, for its breakdown, the same per Event.
 type TicketSales interface {
 	OrganizationSalesByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]salessvc.OrganizationSalesDay, error)
+	OrganizationSalesByEvent(ctx context.Context, orgID string, from, until time.Time) ([]salessvc.OrganizationEventSales, error)
 	OrganizationOrigin(ctx context.Context, orgID string) (salessvc.OrganizationOrigin, error)
 	OrganizationSalesBetween(ctx context.Context, orgID string, from, until time.Time) (salessvc.OrganizationSales, error)
 	EventTicketsSold(ctx context.Context, orgID, eventID string) (int, error)
@@ -47,17 +49,20 @@ type TicketSales interface {
 
 // Events is what Home needs from catalog: how many Events and Active Events
 // an Organization has, which Event is next, and, for Organization Trends, its
-// Events held per day.
+// Events held per day, and the Events held in a window for its breakdown.
 type Events interface {
 	OrganizationEventCounts(ctx context.Context, orgID string, now time.Time) (catalogsvc.OrganizationEventCounts, error)
 	OrganizationNextEvent(ctx context.Context, orgID string, now time.Time) (catalogsvc.NextEvent, bool, error)
 	OrganizationEventsHeldByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	OrganizationEventsHeld(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error)
 }
 
 // PageViews is what Organization Trends needs from affiliates, which keeps
-// the hourly Page View buckets: an Organization's Page Views per day.
+// the hourly Page View buckets: an Organization's Page Views per day, and
+// per Event for the breakdown.
 type PageViews interface {
 	OrganizationPageViewsByDay(ctx context.Context, orgID string, from, until time.Time, timezone string) ([]platform.DayCount, error)
+	OrganizationPageViewsByEvent(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error)
 }
 
 // Reader is who is reading Home: the Active Member's Organization and role.

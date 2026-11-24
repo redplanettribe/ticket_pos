@@ -23,3 +23,11 @@ type EnvelopeOrganizationTrends struct {
 	Error     *platform.APIError         `json:"error"`
 	RequestID string                     `json:"request_id"`
 }
+
+// EnvelopeOrganizationTrendBreakdown documents GET
+// /staff/organization/trends/breakdown success responses.
+type EnvelopeOrganizationTrendBreakdown struct {
+	Data      service.OrganizationTrendBreakdown `json:"data"`
+	Error     *platform.APIError                 `json:"error"`
+	RequestID string                             `json:"request_id"`
+}

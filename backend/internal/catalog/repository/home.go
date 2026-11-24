@@ -112,3 +112,32 @@ func (r *Repository) OrganizationEventsHeldByDay(ctx context.Context, orgID stri
 	}
 	return out, rows.Err()
 }
+
+// OrganizationEventsHeld is every Event of one Organization held in [from,
+// until), for the breakdown of Organization Trends (#864): the Events
+// OrganizationEventsHeldByDay counts, each once, earliest start first. A draft
+// and a cancelled Event are never held; an External Registration Event is.
+func (r *Repository) OrganizationEventsHeld(ctx context.Context, orgID string, from, until time.Time) ([]platform.EventCount, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT e.id, e.name
+		FROM events e
+		WHERE e.organization_id = $1
+		  AND e.status = 'published'
+		  AND e.starts_at >= $2 AND e.starts_at < $3
+		ORDER BY e.starts_at, e.id
+	`, orgID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []platform.EventCount
+	for rows.Next() {
+		event := platform.EventCount{OrganizationID: orgID, Count: 1}
+		if err := rows.Scan(&event.EventID, &event.EventName); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}

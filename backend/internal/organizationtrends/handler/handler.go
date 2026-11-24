@@ -129,3 +129,77 @@ func parseSpanQuery(values url.Values) (service.TrendSpanQuery, []platform.Field
 	}
 	return service.TrendSpanQuery{Preset: preset, From: from, To: to, Compare: compare}, nil
 }
+
+// GetOrganizationTrendBreakdown returns the Events one bucket of one figure
+// of Organization Trends was made of.
+//
+// @Summary      Get the Events a bucket of an Organization Trends figure was made of
+// @Description  Returns the breakdown of one figure of Organization Trends for one bucket, for the Active Member's Organization: the Events that contributed, ranked largest first, then by name, each with the id its page is linked on, and the bucket's total, which they add up to and which is what the Organization Trends reading states for the bucket, every Sales Channel summed. figure is the figure's name in the reading: takings, tickets_sold, ticket_sales, page_views or events_held. A bucket is named by its days on the platform clock (America/Guayaquil), as the reading states them: first_day alone (or with an equal last_day) names a day, which may be today, answered with partial true, and never a day after today; first_day and last_day name a month bucket, the whole calendar month or the part of it a span cuts, both in the same month and ending before today, as every month bucket of a reading does. Every figure is read by the day rules of the reading: a sale on the platform day of the instant it was made, a reversed Ticket Sale in no figure, Takings computed exactly as Sales Trends computes it in the Organization's minor units, Page Views from the whole-page hourly buckets with each hour on its platform day, and Events held as the published Events whose start falls in the bucket, each counting one and listed earliest start first. An Event with nothing for the figure is left out, so a bucket nothing happened in has a zero total and no Events. takings is refused to Event Staff with 403: they are handed no money through this route, as the reading hands them none. Any Member.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        figure     query  string  true   "Figure"  Enums(takings, tickets_sold, ticket_sales, page_views, events_held)
+// @Param        first_day  query  string  true   "First day of the bucket (YYYY-MM-DD)"
+// @Param        last_day   query  string  false  "Last day of a month bucket (YYYY-MM-DD), in the month of first_day"
+// @Success      200  {object}  openapi.EnvelopeOrganizationTrendBreakdown
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/staff/organization/trends/breakdown [get]
+func (h *Handler) GetOrganizationTrendBreakdown(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	figure, query, fields := parseBreakdownQuery(r.URL.Query())
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	bucket, ok := h.svc.ResolveBucket(query)
+	if !ok {
+		// The refusal names the day that put the bucket past today.
+		refusal := platform.FieldError{Field: "first_day", Code: platform.CodeStartAfterEnd, Message: "must not be after today"}
+		if query.LastDay != nil {
+			refusal = platform.FieldError{Field: "last_day", Code: platform.CodeStartAfterEnd, Message: "a month bucket must end before today: a span ends at the close of yesterday"}
+		}
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{refusal})
+		return
+	}
+	breakdown, err := h.svc.Breakdown(r.Context(), readerFromRequest(r), figure, bucket)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, breakdown)
+}
+
+// parseBreakdownQuery checks the shape of a breakdown request: a known
+// figure, a well-formed first day and, when given, a last day no earlier than
+// it and in the same calendar month. Every field error is returned at once.
+// Where the bucket falls against today is the service's to resolve.
+func parseBreakdownQuery(values url.Values) (service.OrganizationTrendFigureName, service.BucketQuery, []platform.FieldError) {
+	var fields []platform.FieldError
+
+	figure := service.OrganizationTrendFigureName(strings.TrimSpace(values.Get("figure")))
+	switch {
+	case figure == "":
+		fields = append(fields, platform.FieldError{Field: "figure", Code: platform.CodeRequired, Message: "is required"})
+	case !slices.Contains(service.OrganizationTrendFigureNames, figure):
+		fields = append(fields, trendspan.InvalidEnum("figure", service.OrganizationTrendFigureNames))
+	}
+
+	firstDay, firstOK := trendspan.ParseDay("first_day", values.Get("first_day"), "is required", &fields)
+	query := service.BucketQuery{FirstDay: firstDay}
+	if strings.TrimSpace(values.Get("last_day")) != "" {
+		lastDay, lastOK := trendspan.ParseDay("last_day", values.Get("last_day"), "is required", &fields)
+		switch {
+		case !firstOK || !lastOK:
+		case lastDay.Before(firstDay):
+			fields = append(fields, platform.FieldError{Field: "last_day", Code: platform.CodeEndBeforeStart, Message: "must be on or after first_day"})
+		case lastDay.Year() != firstDay.Year() || lastDay.Month() != firstDay.Month():
+			fields = append(fields, platform.FieldError{Field: "last_day", Code: platform.CodeTooManyItems, Message: "a bucket covers at most one calendar month"})
+		default:
+			query.LastDay = &lastDay
+		}
+	}
+	return figure, query, fields
+}
