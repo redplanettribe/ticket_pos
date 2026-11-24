@@ -379,11 +379,8 @@ func TestResendSendsEveryMessageWithBothParts(t *testing.T) {
 			if payload.Subject != tc.subject || payload.Text != tc.text {
 				t.Fatalf("subject or text is not the shared copy: %q / %q", payload.Subject, payload.Text)
 			}
-			if payload.HTML != tc.html {
+			if tc.html == "" || payload.HTML != tc.html {
 				t.Fatalf("html (%d bytes) is not the message's HTML part (%d bytes)", len(payload.HTML), len(tc.html))
-			}
-			if tc.html == "" && bytes.Contains(gotBody, []byte(`"html"`)) {
-				t.Fatalf("a kind with no HTML part yet sent an html key")
 			}
 			if len(payload.Attachments) != len(tc.attachments) {
 				t.Fatalf("request carries %d attachments, want %d", len(payload.Attachments), len(tc.attachments))

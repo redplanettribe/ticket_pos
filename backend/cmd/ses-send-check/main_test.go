@@ -180,26 +180,14 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 }
 
 // Every kind goes out with its HTML part beside the text, rendered with the
-// check's chrome (ADR 0082): the passcode, the Consent Withdrawal
-// Confirmation, the two fiscal kinds, the nine staff and operator kinds, the
-// five compact Event row kinds, the three Cover Image kinds and the Follow
-// Digest (#880). The Event row kinds and the Digest show their images, and
-// the Cover Image kinds theirs.
-func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
+// check's chrome (ADR 0082, #881), so the human inbox check sees the whole
+// set. The Event row kinds and the Digest show their images, and the Cover
+// Image kinds theirs.
+func TestSendCheckSendsEveryKindWithHTML(t *testing.T) {
 	fake, load := checkSetup(t)
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"-to", checkRecipient, "-pace", "0"}, &stdout, &stderr, load); code != 0 {
 		t.Fatalf("exit code %d\n%s", code, stderr.String())
-	}
-	withHTML := map[string]bool{
-		"otp": true, "consent withdrawal confirmation": true, "tax document delivery": true, "annulment notice": true,
-		"certificate expiry warning": true, "payout request submitted": true, "payout request paid": true,
-		"payout request declined": true, "payout request transfer sent": true, "payout request transfer failed": true,
-		"question review submitted": true, "question review answered": true, "ticket question revoked": true,
-		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
-		"assignment reminder": true, "no longer holding": true,
-		"sale confirmation": true, "ticket assignment": true, "sale re-addressing": true,
-		"follow digest": true,
 	}
 	withImages := map[string][]string{
 		"sale voided": {fixtureSquareURL, fixtureLogoURL}, "sale reversal refused": {fixtureSquareURL, fixtureLogoURL},
@@ -215,19 +203,14 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		t.Fatalf("messages: %v", err)
 	}
 	sent := fake.sent()
-	seen := 0
+	if len(sent) != len(all) || len(all) != messageTypes() {
+		t.Fatalf("fake SES saw %d requests for %d fixtures, want one per kind (%d)", len(sent), len(all), messageTypes())
+	}
 	for i, m := range all {
 		body := sent[i].Content.Simple.Body
 		if body.Text == nil || body.Text.Data == "" {
 			t.Errorf("%s: no text part", m.name)
 		}
-		if !withHTML[m.name] {
-			if body.Html != nil {
-				t.Errorf("%s: a kind not yet converted carries HTML", m.name)
-			}
-			continue
-		}
-		seen++
 		if body.Html == nil || !strings.Contains(body.Html.Data, "<!doctype html>") {
 			t.Errorf("%s: no HTML part", m.name)
 			continue
@@ -241,8 +224,62 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 			}
 		}
 	}
-	if seen != len(withHTML) {
-		t.Fatalf("saw %d converted kinds, want %d", seen, len(withHTML))
+}
+
+// The fixtures send every kind, each once: every method on
+// platform.EmailSender is called by exactly one fixture, read off a capture
+// sender by the message value the method sends (the passcode's is its
+// OTPMessage), and that message renders an HTML part. With the test above,
+// which sees an HTML part on every request, the check sends every kind with
+// HTML.
+func TestSendCheckSendsEveryEmailSenderKind(t *testing.T) {
+	capture := &platform.CaptureEmailSender{}
+	all, err := messages(checkRecipient, fixedNow, capture, capture)
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	for _, m := range all {
+		if err := m.send(context.Background()); err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+	}
+
+	// What the capture holds, by message type.
+	captured := map[reflect.Type]reflect.Value{}
+	held := reflect.ValueOf(capture).Elem()
+	for i := range held.NumField() {
+		if field := held.Type().Field(i); field.IsExported() && field.Type.Kind() == reflect.Slice {
+			captured[field.Type.Elem()] = held.Field(i)
+		}
+	}
+
+	type rendering interface {
+		HTML(platform.MailChrome) (string, error)
+	}
+	sender := reflect.TypeOf((*platform.EmailSender)(nil)).Elem()
+	for i := range sender.NumMethod() {
+		method := sender.Method(i)
+		kind := reflect.TypeOf(platform.OTPMessage{})
+		if method.Name != "SendOTP" {
+			kind = method.Type.In(1)
+		}
+		sends, ok := captured[kind]
+		if !ok {
+			t.Errorf("%s: the capture sender keeps no %s; say here where it does", method.Name, kind)
+			continue
+		}
+		if sends.Len() != 1 {
+			t.Errorf("%s: the fixtures sent %d, want 1", method.Name, sends.Len())
+			continue
+		}
+		message, ok := sends.Index(0).Interface().(rendering)
+		if !ok {
+			t.Errorf("%s: %s has no HTML rendering", method.Name, kind)
+			continue
+		}
+		if html, err := message.HTML(sendCheckChrome); err != nil || !strings.Contains(html, "<!doctype html>") {
+			t.Errorf("%s: the fixture renders no HTML part (err %v)", method.Name, err)
+		}
 	}
 }
 

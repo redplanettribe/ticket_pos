@@ -578,7 +578,7 @@ The Organization and the account are created by hand, never in Terraform.
 
 - an email identity per sending subdomain with Easy DKIM, each defaulting to the configuration set;
 - a custom MAIL FROM per identity on `bounce.<domain>` (`ses_mail_from_label`);
-- the configuration set `prod-ticket-pos`, with no event destination and engagement tracking disabled, so open and click tracking stay off;
+- the configuration set `prod-ticket-pos`, with no event destination and engagement tracking disabled, so open and click tracking stay off (`modules/ticket-pos/tests/ses.tftest.hcl` plans the module against mocked providers and fails if engagement metrics are enabled, a custom redirect domain is set, or any SES event destination is declared; run it with `terraform test` in that directory);
 - account-level suppression for `BOUNCE` and `COMPLAINT`;
 - the role `prod-ticket-pos-api-ses`, which the API assumes with a Google-signed ID token, so no AWS key is stored anywhere;
 - a monthly AWS Budget on the member account (`aws_budget_limit_usd`, 10 USD by default) that emails `TF_VAR_aws_budget_alert_email` at 80% spent and at a forecast over 100%.

@@ -130,8 +130,9 @@ resource "aws_sesv2_email_identity_mail_from_attributes" "sending" {
 # through an event destination tracking OPEN or CLICK, or through Virtual
 # Deliverability Manager's engagement tracking; there is no event destination
 # here, and engagement metrics are disabled on the set so turning VDM on at
-# the account level does not switch tracking on behind this file's back. The
-# mail is plain text anyway.
+# the account level does not switch tracking on behind this file's back. Every
+# kind carries an HTML part (ADR 0082) that SES could add a pixel to or whose
+# links it could rewrite, so tests/ses.tftest.hcl holds this set to it.
 resource "aws_sesv2_configuration_set" "main" {
   configuration_set_name = local.ses_configuration_set_name
 

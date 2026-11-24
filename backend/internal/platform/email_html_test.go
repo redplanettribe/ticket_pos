@@ -38,12 +38,24 @@ var goldenChrome = MailChrome{
 }
 
 // mailFixture is one rendered mail: a golden file name, the locale it was
-// written in, and both parts.
+// written in, the message it renders, and both parts.
 type mailFixture struct {
-	name   string
-	locale Locale
-	html   func(MailChrome) (string, error)
-	text   string
+	name    string
+	locale  Locale
+	message mailMessage
+	html    func(MailChrome) (string, error)
+	text    string
+}
+
+// mailMessage is what every message value an EmailSender sends offers its
+// providers: both parts, built from the same fields.
+type mailMessage interface {
+	HTML(MailChrome) (string, error)
+	Text() string
+}
+
+func newMailFixture(name string, locale Locale, message mailMessage) mailFixture {
+	return mailFixture{name: name, locale: locale, message: message, html: message.HTML, text: message.Text()}
 }
 
 // mailFixtures is every kind with an HTML part, in both languages. A kind that
@@ -52,7 +64,7 @@ func mailFixtures() []mailFixture {
 	var fixtures []mailFixture
 	for _, locale := range []Locale{LocaleEN, LocaleES} {
 		otp := OTPMessage{Code: "482913", Locale: locale}
-		fixtures = append(fixtures, mailFixture{"otp-" + string(locale), locale, otp.HTML, otp.Text()})
+		fixtures = append(fixtures, newMailFixture("otp-"+string(locale), locale, otp))
 
 		for _, variant := range []struct {
 			name                  string
@@ -63,7 +75,7 @@ func mailFixtures() []mailFixture {
 			{"both", true, true},
 		} {
 			c := ConsentWithdrawalConfirmation{To: "ana@example.com", Locale: locale, MarketingConsent: variant.marketing, NetworkingConsent: variant.networking}
-			fixtures = append(fixtures, mailFixture{"consentwithdrawal-" + variant.name + "-" + string(locale), locale, c.HTML, c.Text()})
+			fixtures = append(fixtures, newMailFixture("consentwithdrawal-"+variant.name+"-"+string(locale), locale, c))
 		}
 
 		for _, variant := range []struct {
@@ -81,7 +93,7 @@ func mailFixtures() []mailFixture {
 		} {
 			d := goldenTaxDocumentDelivery(locale)
 			variant.edit(&d)
-			fixtures = append(fixtures, mailFixture{"taxdocument-" + variant.name + "-" + string(locale), locale, d.HTML, d.Text()})
+			fixtures = append(fixtures, newMailFixture("taxdocument-"+variant.name+"-"+string(locale), locale, d))
 		}
 
 		for _, variant := range []struct {
@@ -93,7 +105,7 @@ func mailFixtures() []mailFixture {
 		} {
 			n := goldenAnnulmentNotice(locale)
 			n.SaleReversed = variant.reversed
-			fixtures = append(fixtures, mailFixture{"annulmentnotice-" + variant.name + "-" + string(locale), locale, n.HTML, n.Text()})
+			fixtures = append(fixtures, newMailFixture("annulmentnotice-"+variant.name+"-"+string(locale), locale, n))
 		}
 
 		fixtures = append(fixtures, staffMailFixtures(locale)...)
@@ -113,7 +125,7 @@ func digestMailFixtures(locale Locale) []mailFixture {
 	suffix := "-" + string(locale)
 	var fixtures []mailFixture
 	add := func(name string, d FollowDigest) {
-		fixtures = append(fixtures, mailFixture{name + suffix, locale, d.HTML, d.Text()})
+		fixtures = append(fixtures, newMailFixture(name+suffix, locale, d))
 	}
 	add("followdigest", goldenFollowDigest(locale))
 
@@ -211,8 +223,8 @@ func goldenMailEventNoImages() MailEvent {
 func eventRowMailFixtures(locale Locale) []mailFixture {
 	suffix := "-" + string(locale)
 	var fixtures []mailFixture
-	add := func(name string, html func(MailChrome) (string, error), text string) {
-		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	add := func(name string, message mailMessage) {
+		fixtures = append(fixtures, newMailFixture(name+suffix, locale, message))
 	}
 	for _, images := range []struct {
 		suffix string
@@ -222,19 +234,19 @@ func eventRowMailFixtures(locale Locale) []mailFixture {
 		{"-noimages", goldenMailEventNoImages()},
 	} {
 		answer := goldenHolderAnswerReminder(locale, images.event)
-		add("answerreminder"+images.suffix, answer.HTML, answer.Text())
+		add("answerreminder"+images.suffix, answer)
 
 		assign := goldenAssignmentReminder(locale, images.event)
-		add("assignmentreminder"+images.suffix, assign.HTML, assign.Text())
+		add("assignmentreminder"+images.suffix, assign)
 
 		voided := goldenSaleVoided(locale, images.event)
-		add("salevoided"+images.suffix, voided.HTML, voided.Text())
+		add("salevoided"+images.suffix, voided)
 
 		refused := goldenSaleReversalRefused(locale, images.event)
-		add("salereversalrefused"+images.suffix, refused.HTML, refused.Text())
+		add("salereversalrefused"+images.suffix, refused)
 
 		gone := goldenNoLongerHolding(locale, images.event)
-		add("nolongerholding"+images.suffix, gone.HTML, gone.Text())
+		add("nolongerholding"+images.suffix, gone)
 	}
 
 	// A Holder of Tickets for two Events: one row each, and the plural copy.
@@ -242,13 +254,13 @@ func eventRowMailFixtures(locale Locale) []mailFixture {
 	other := goldenMailEventNoImages()
 	other.OrganizationName, other.VenueName = "Teatro Abierto", "Casa de la Cultura"
 	plural.Tickets = append(plural.Tickets, HolderAnswerReminderTicket{EventName: "Feria del Libro", TicketTypeName: "VIP", Event: other})
-	add("answerreminder-plural", plural.HTML, plural.Text())
+	add("answerreminder-plural", plural)
 
 	// A Sale older than the go-live, which says assigning is new.
 	golive := goldenAssignmentReminder(locale, goldenMailEvent())
 	golive.SaleCreatedAt = TicketAssignmentWentLiveAt.Add(-time.Hour)
 	golive.UnassignedTickets = 1
-	add("assignmentreminder-golive", golive.HTML, golive.Text())
+	add("assignmentreminder-golive", golive)
 	return fixtures
 }
 
@@ -290,8 +302,8 @@ func goldenNoLongerHolding(locale Locale, event MailEvent) NoLongerHolding {
 func coverMailFixtures(locale Locale) []mailFixture {
 	suffix := "-" + string(locale)
 	var fixtures []mailFixture
-	add := func(name string, html func(MailChrome) (string, error), text string) {
-		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	add := func(name string, message mailMessage) {
+		fixtures = append(fixtures, newMailFixture(name+suffix, locale, message))
 	}
 	for _, images := range []struct {
 		suffix string
@@ -301,13 +313,13 @@ func coverMailFixtures(locale Locale) []mailFixture {
 		{"-noimages", goldenMailEventNoImages()},
 	} {
 		confirmation := goldenSaleConfirmation(locale, images.event)
-		add("saleconfirmation"+images.suffix, confirmation.HTML, confirmation.Text())
+		add("saleconfirmation"+images.suffix, confirmation)
 
 		assignment := goldenTicketAssignment(locale, images.event)
-		add("ticketassignment"+images.suffix, assignment.HTML, assignment.Text())
+		add("ticketassignment"+images.suffix, assignment)
 
 		reAddressing := goldenSaleReAddressing(locale, images.event)
-		add("salereaddressing"+images.suffix, reAddressing.HTML, reAddressing.Text())
+		add("salereaddressing"+images.suffix, reAddressing)
 	}
 
 	full := goldenSaleConfirmation(locale, goldenMailEvent())
@@ -315,7 +327,7 @@ func coverMailFixtures(locale Locale) []mailFixture {
 	full.SaleInvoiceFollows = true
 	full.HasOutstandingAnswers = true
 	full.ConsentConfirmationLink = goldenAssetOrigin + "/" + string(locale) + "/consent/confirm?token=def"
-	add("saleconfirmation-full", full.HTML, full.Text())
+	add("saleconfirmation-full", full)
 	return fixtures
 }
 
@@ -347,8 +359,8 @@ func goldenSaleReAddressing(locale Locale, event MailEvent) SaleReAddressing {
 func staffMailFixtures(locale Locale) []mailFixture {
 	suffix := "-" + string(locale)
 	var fixtures []mailFixture
-	add := func(name string, html func(MailChrome) (string, error), text string) {
-		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	add := func(name string, message mailMessage) {
+		fixtures = append(fixtures, newMailFixture(name+suffix, locale, message))
 	}
 
 	for _, variant := range []struct {
@@ -360,34 +372,34 @@ func staffMailFixtures(locale Locale) []mailFixture {
 	} {
 		w := goldenCertificateExpiryWarning(locale)
 		w.Threshold = variant.threshold
-		add("certificateexpiry-"+variant.name, w.HTML, w.Text())
+		add("certificateexpiry-"+variant.name, w)
 	}
 
 	submitted := goldenPayoutRequestSubmitted(locale)
-	add("payoutrequest-submitted", submitted.HTML, submitted.Text())
+	add("payoutrequest-submitted", submitted)
 
 	paid := goldenPayoutRequestPaid(locale)
-	add("payoutrequest-paid", paid.HTML, paid.Text())
+	add("payoutrequest-paid", paid)
 	paid.AmountCents = 100000
-	add("payoutrequest-paid-shortfall", paid.HTML, paid.Text())
+	add("payoutrequest-paid-shortfall", paid)
 
 	declined := goldenPayoutRequestDeclined(locale)
-	add("payoutrequest-declined", declined.HTML, declined.Text())
+	add("payoutrequest-declined", declined)
 
 	sent := goldenPayoutRequestTransferSent(locale)
-	add("payoutrequest-transfersent", sent.HTML, sent.Text())
+	add("payoutrequest-transfersent", sent)
 
 	failed := goldenPayoutRequestTransferFailed(locale)
-	add("payoutrequest-transferfailed", failed.HTML, failed.Text())
+	add("payoutrequest-transferfailed", failed)
 
 	reviewSubmitted := goldenQuestionReviewSubmitted(locale)
-	add("questionreview-submitted", reviewSubmitted.HTML, reviewSubmitted.Text())
+	add("questionreview-submitted", reviewSubmitted)
 
 	answered := goldenQuestionReviewAnswered(locale)
-	add("questionreview-answered", answered.HTML, answered.Text())
+	add("questionreview-answered", answered)
 
 	revoked := goldenTicketQuestionRevoked(locale)
-	add("ticketquestionrevoked", revoked.HTML, revoked.Text())
+	add("ticketquestionrevoked", revoked)
 	return fixtures
 }
 

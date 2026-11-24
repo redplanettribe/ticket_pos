@@ -23,8 +23,8 @@ type messageCase struct {
 	to      string
 	subject string
 	text    string
-	// html is the HTML part the message must carry beside the text, or empty
-	// for a kind not yet converted, which must carry none (ADR 0082).
+	// html is the HTML part the message must carry beside the text; every
+	// kind has one (ADR 0082).
 	html        string
 	attachments []EmailAttachment
 	send        func(ctx context.Context, s EmailSender) error
@@ -173,8 +173,8 @@ func transactionalMessageCases() []messageCase {
 }
 
 // One message, one SES request: the transactional From, the recipient alone,
-// the shared copy as UTF-8 text with the HTML part beside it where the kind
-// has one, the configured configuration set, and
+// the shared copy as UTF-8 text with the HTML part beside it, the configured
+// configuration set, and
 // attachments on the Tax Document delivery and nowhere else.
 func TestSESSendsEveryTransactionalMessageWithTheSharedCopy(t *testing.T) {
 	for _, tc := range transactionalMessageCases() {
@@ -220,10 +220,9 @@ func TestSESSendsEveryTransactionalMessageWithTheSharedCopy(t *testing.T) {
 				t.Fatalf("Text = %+v, want %q in UTF-8", simple.Body.Text, tc.text)
 			}
 			if tc.html == "" {
-				if simple.Body.Html != nil {
-					t.Fatalf("a kind with no HTML part yet carries HTML: %+v", simple.Body.Html)
-				}
-			} else if simple.Body.Html == nil || simple.Body.Html.Data != tc.html || simple.Body.Html.Charset != "UTF-8" {
+				t.Fatal("the fixture has no HTML part")
+			}
+			if simple.Body.Html == nil || simple.Body.Html.Data != tc.html || simple.Body.Html.Charset != "UTF-8" {
 				t.Fatalf("Html is not the message's HTML part in UTF-8 (%d bytes want)", len(tc.html))
 			}
 

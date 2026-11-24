@@ -79,9 +79,9 @@ func (s *ResendEmailSender) WithChrome(chrome MailChrome) *ResendEmailSender {
 func (s *ResendEmailSender) Chrome() MailChrome { return s.chrome }
 
 // resendRequest is the subset of Resend's send payload this system uses: the
-// text always, and the HTML beside it for a kind that has an HTML part (ADR
-// 0082, which retired the plain-text-only choice made here). A kind not yet
-// converted omits the html key, so its payload is what it was.
+// text always, and the HTML beside it (ADR 0082, which retired the
+// plain-text-only choice made here). A message whose HTML failed to render
+// omits the html key and goes as plain text.
 //
 // Attachments arrived with the Tax Document delivery (#475): Resend takes
 // them inline on the same POST, the content base64-encoded, and omits the
