@@ -175,6 +175,8 @@ that gets reported as a bug.
 - **Go `text/template` files per locale** — clean separation of copy from code. Rejected as
   machinery for its own sake: these are plain-text messages assembled with `fmt.Sprintf`, there is
   no templating anywhere in the mail path, and six messages do not justify introducing one.
+  **Retired by ADR 0082**: every mail now carries an HTML part rendered with `html/template`.
+  The copy stays in the per-sentence translated struct; only the markup moved into templates.
 - **Standardize Spanish on tú and rewrite the Storefront catalog** — tú is the ordinary register
   for events and ticketing in Ecuador and reads warmer. Rejected on cost and blast radius: it means
   rewriting ~361 lines of catalog on a surface this work otherwise does not touch, to make the
