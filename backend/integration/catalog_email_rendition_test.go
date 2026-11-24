@@ -204,9 +204,11 @@ func TestSettingACoverImageProducesBothRenditions(t *testing.T) {
 	assertRenditionPrefix(t, "square", keys.square, "email-square/", eventID)
 
 	wide := renditionImage(t, keys.wide)
-	assertSize(t, wide, 1200, 400)
-	assertColourNear(t, wide, 100, 200, bandRed)
-	assertColourNear(t, wide, 1100, 200, bandBlue)
+	// The centre 16:9 of a 3:1 banner, the frame the Storefront shows it in.
+	assertSize(t, wide, 1200, 675)
+	assertColourNear(t, wide, 100, 337, bandRed)
+	assertColourNear(t, wide, 600, 337, bandGreen)
+	assertColourNear(t, wide, 1100, 337, bandBlue)
 
 	// No Thumbnail: the square is the Cover Image cropped to its centre.
 	assertSquareIs(t, keys.square, bandGreen)
@@ -244,7 +246,7 @@ func TestReplacingTheCoverImageReplacesItsRenditionsAndDeletesTheOldOnes(t *test
 		t.Fatalf("square rendition = %q after replacing, was %q", after.square, before.square)
 	}
 	wide := renditionImage(t, after.wide)
-	assertSize(t, wide, 600, 300)
+	assertSize(t, wide, 533, 300)
 	assertColourNear(t, wide, 300, 150, coverOlive)
 	assertSquareIs(t, after.square, coverOlive)
 
@@ -367,8 +369,9 @@ func TestAWebPCoverImageRendersToJPEG(t *testing.T) {
 
 	keys := readRenditionKeys(t, eventID)
 	wide := renditionImage(t, keys.wide)
-	assertSize(t, wide, 300, 100)
-	assertColourNear(t, wide, 50, 50, bandRed)
+	assertSize(t, wide, 178, 100)
+	assertColourNear(t, wide, 20, 50, bandRed)
+	assertColourNear(t, wide, 89, 50, bandGreen)
 	assertSquareIs(t, keys.square, bandGreen)
 }
 
@@ -476,7 +479,7 @@ func TestTheRenditionFillRendersOnlyWhatIsNullAndASecondRunRendersNothing(t *tes
 	}
 
 	coverOnlyKeys := readRenditionKeys(t, coverOnly)
-	assertSize(t, renditionImage(t, coverOnlyKeys.wide), 1200, 400)
+	assertSize(t, renditionImage(t, coverOnlyKeys.wide), 1200, 675)
 	assertSquareIs(t, coverOnlyKeys.square, bandGreen)
 	bothKeys := readRenditionKeys(t, both)
 	assertColourNear(t, renditionImage(t, bothKeys.wide), 300, 150, coverOlive)
