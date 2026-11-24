@@ -73,6 +73,8 @@ function reading(overrides: Partial<OrganizationTrends> = {}): OrganizationTrend
     figures: {
       tickets_sold: figure({ online: [2, 0, 3], in_person: [0, 0, 0], import: [5, 0, 0] }, { online: 4 }, 5),
       ticket_sales: figure({ all: [2, 0, 1] }, { all: 1 }, 3),
+      page_views: figure({ all: [40, 0, 25] }, { all: 7 }, 130),
+      events_held: figure({ all: [1, 0, 1] }, { all: 1 }, 1),
     },
     ...overrides,
   };
@@ -133,6 +135,8 @@ test("month buckets are read by month, and all time states no change", () => {
     figures: {
       tickets_sold: figure({ online: [1, 2, 3] }, {}, null),
       ticket_sales: figure({ all: [1, 1, 1] }, {}, null),
+      page_views: figure({ all: [10, 20, 30] }, {}, null),
+      events_held: figure({ all: [0, 1, 0] }, {}, null),
     },
   });
   const markup = renderReading(months);
@@ -149,6 +153,8 @@ test("a span with no sales reads as zeros, and says nothing was sold", () => {
     figures: {
       tickets_sold: figure({ online: [0, 0, 0], in_person: [0, 0, 0], import: [0, 0, 0] }, {}, 0),
       ticket_sales: figure({ all: [0, 0, 0] }, {}, 0),
+      page_views: figure({ all: [0, 0, 0] }, {}, 0),
+      events_held: figure({ all: [0, 0, 0] }, {}, 0),
     },
   });
   const words = text(renderReading(empty));
@@ -157,6 +163,12 @@ test("a span with no sales reads as zeros, and says nothing was sold", () => {
   assert.match(words, /None in the span compared/);
   assert.match(words, /Nothing was sold in this span\./);
   assert.doesNotMatch(text(renderReading(reading())), /Nothing was sold/);
+  // Page Views and Events held read zero too, never missing.
+  assert.match(words, /Page views 0 /);
+  assert.match(words, /Events held 0 /);
+  assert.match(words, /No Event page was loaded in this span\./);
+  assert.match(words, /No Event was held in this span\./);
+  assert.doesNotMatch(text(renderReading(reading())), /No Event page was loaded|No Event was held/);
 });
 
 test("the reading is in Ecuadorian Spanish under the Spanish locale", () => {
@@ -239,4 +251,48 @@ test("Takings reads in Ecuadorian Spanish, in the Organization's currency", () =
   const words = text(renderReading(handedTo.orgAdmin(), "es"));
   assert.match(words, /Recaudación \$125,00 /);
   assert.match(words, /en todos los canales de venta/);
+});
+
+// Page Views and Events held (#863): counts, so every Member is handed them
+// and every Member sees both tiles and both charts.
+
+for (const role of ["orgAdmin", "eventOwner", "eventStaffNull", "eventStaffOmitted"] as const) {
+  test(`Page Views and Events held are drawn as tiles and charts (${role})`, () => {
+    const markup = renderReading(handedTo[role]());
+    const words = text(markup);
+    // Today's 7 loads and 1 Event are in no total.
+    assert.match(words, /Page views 65 /);
+    assert.match(words, /-50%/);
+    assert.match(words, /Events held 2 /);
+    assert.match(words, /\+100%/);
+    assert.match(markup, /aria-label="Page views, day by day"/);
+    assert.match(markup, /aria-label="Events held, day by day"/);
+    const cumulative = renderReading(handedTo[role](), "en", "cumulative");
+    assert.match(cumulative, /aria-label="Page views since the start of the span, day by day"/);
+    assert.match(cumulative, /aria-label="Events held since the start of the span, day by day"/);
+  });
+}
+
+test("Page Views are called loads, and no rate is built on them", () => {
+  for (const view of ["daily", "cumulative"] as const) {
+    const words = text(renderReading(handedTo.orgAdmin(), "en", view));
+    assert.match(words, /It counts loads, not people\./);
+    assert.doesNotMatch(words, /visitor|unique|session|conversion|per ticket|\brate\b/i);
+    const palabras = text(renderReading(handedTo.orgAdmin(), "es", view));
+    assert.match(palabras, /Cuenta cargas, no personas\./);
+    assert.doesNotMatch(palabras, /visitante|conversión|por entrada|tasa/i);
+  }
+});
+
+test("Events held says which Events are held", () => {
+  const words = text(renderReading(reading()));
+  assert.match(words, /Published Events by the day each one starts/);
+  assert.match(words, /Drafts and cancelled Events are never held/);
+});
+
+test("Page Views and Events held read in Ecuadorian Spanish", () => {
+  const words = text(renderReading(reading(), "es"));
+  assert.match(words, /Vistas de página 65 /);
+  assert.match(words, /Eventos realizados 2 /);
+  assert.match(words, /Los borradores y los eventos cancelados nunca cuentan/);
 });

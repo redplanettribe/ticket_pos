@@ -1,4 +1,4 @@
-// Organization Trends (#861, #862, spec #858, ADR 0081): the Organization's figures
+// Organization Trends (#861, #862, #863, spec #858, ADR 0081): the Organization's figures
 // over a chosen span, beneath what stands now on Home.
 //
 // The backend answers everything drawn: the buckets, which are partial, the
@@ -76,6 +76,12 @@ export type OrganizationTrends = {
   figures: {
     tickets_sold: OrganizationTrendFigure;
     ticket_sales: OrganizationTrendFigure;
+    /** Loads of the Organization's Event pages, one series keyed all. Loads,
+     * never people: nothing on Home is divided by it. */
+    page_views: OrganizationTrendFigure;
+    /** Published Events by the platform day each starts, one series keyed
+     * all. */
+    events_held: OrganizationTrendFigure;
     /**
      * Takings by Sales Channel, in the Organization's minor units, as Sales
      * Trends computes it (ADR 0040). The API withholds it from Event Staff
@@ -359,8 +365,8 @@ export function organizationTrendsScrollAnchor(trends: OrganizationTrends, view:
   ].join("|");
 }
 
-/** Whether nothing at all sold over the span or today, which the section
- * says in words beside the zeros. */
-export function soldNothing(figure: OrganizationTrendFigure): boolean {
+/** Whether a figure counted nothing at all over the span or today (nothing
+ * sold, loaded or held), which the section says in words beside the zeros. */
+export function countedNothing(figure: OrganizationTrendFigure): boolean {
   return figure.total === 0 && figure.series.every((entry) => (entry.today?.value ?? 0) === 0);
 }

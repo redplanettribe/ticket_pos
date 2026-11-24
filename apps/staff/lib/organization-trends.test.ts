@@ -14,7 +14,7 @@ import {
   organizationTrendsViewAfterRangeChange,
   organizationTrendsViewAfterSpanChange,
   parseOrganizationTrendsParams,
-  soldNothing,
+  countedNothing,
   type OrganizationTrendDays,
   type OrganizationTrendFigure,
   type OrganizationTrendSeries,
@@ -175,10 +175,10 @@ test("a span with no sales is drawn as zeros, never as gaps", () => {
   const daily = dailyStackData(nothing, span, label);
   assert.ok(daily.every((datum) => datum.total === 0));
   assert.ok(cumulativeStackData(nothing, span, label).every((datum) => datum.total === 0));
-  assert.equal(soldNothing(nothing), true);
-  assert.equal(soldNothing(figure), false);
+  assert.equal(countedNothing(nothing), true);
+  assert.equal(countedNothing(figure), false);
   // Today alone selling is not nothing.
-  assert.equal(soldNothing({ ...nothing, series: [series("online", [0, 0, 0], [], 2)] }), false);
+  assert.equal(countedNothing({ ...nothing, series: [series("online", [0, 0, 0], [], 2)] }), false);
 });
 
 // ---------------------------------------------------------------------------

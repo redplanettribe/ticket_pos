@@ -19,6 +19,7 @@ import {
   ChartViewToggle,
   Input,
   Label,
+  MultiSeriesLineChart,
   Skeleton,
   StackedAreaChart,
   StackedBarChart,
@@ -36,6 +37,7 @@ import { PLATFORM_TIME_ZONE, formatCalendarDay, formatMoney, formatNumber } from
 import {
   ORGANIZATION_TREND_COMPARISONS,
   ORGANIZATION_TREND_SPANS,
+  countedNothing,
   cumulativeStackData,
   dailyStackData,
   fetchOrganizationTrends,
@@ -46,7 +48,6 @@ import {
   organizationTrendsViewAfterComparisonChange,
   organizationTrendsViewAfterRangeChange,
   organizationTrendsViewAfterSpanChange,
-  soldNothing,
   type OrganizationTrendComparison,
   type OrganizationTrendDays,
   type OrganizationTrendFigure,
@@ -96,7 +97,7 @@ const STACK_COMPARISON_COLOR = "var(--foreground)";
 const CHART_HEIGHT = 240;
 
 /**
- * Organization Trends (#861, #862, spec #858, ADR 0081), beneath what stands
+ * Organization Trends (#861, #862, #863, spec #858, ADR 0081), beneath what stands
  * now on Home.
  *
  * The reading on screen is named by the page's address (`view`, parsed from
@@ -309,6 +310,9 @@ function CustomRangeForm({
  * Takings is drawn only when the reading carries it. The API withholds it
  * from Event Staff (#862), so the section decides nothing about money: what
  * it is not handed, it does not draw, and never as a zero.
+ *
+ * Page Views (#863) are loads, never people, and are drawn and said as such:
+ * nothing here divides anything by them.
  */
 export function OrganizationTrendsReading({
   trends,
@@ -356,6 +360,8 @@ export function OrganizationTrendsReading({
     ...(takings === null ? [] : [tile("takings", t("takings"), takings, money)]),
     tile("tickets_sold", t("ticketsSold"), figures.tickets_sold, count),
     tile("ticket_sales", t("ticketSales"), figures.ticket_sales, count),
+    tile("page_views", t("pageViews"), figures.page_views, count),
+    tile("events_held", t("eventsHeld"), figures.events_held, count),
   ];
 
   const viewOptions: ChartViewOption<TrendsView>[] = useMemo(
@@ -433,8 +439,42 @@ export function OrganizationTrendsReading({
             locale={locale}
             channelName={channelName}
           />
-          {soldNothing(figures.tickets_sold) ? (
+          {countedNothing(figures.tickets_sold) ? (
             <p className="text-sm text-muted-foreground">{t("nothingSold")}</p>
+          ) : null}
+        </FigureCard>
+        <FigureCard
+          title={t("pageViews")}
+          description={chartView === "cumulative" ? t("pageViewsDescriptionCumulative") : t("pageViewsDescription")}
+        >
+          <LineFigureChart
+            trends={trends}
+            source={figures.page_views}
+            title={t("pageViews")}
+            formatValue={count}
+            view={chartView}
+            locale={locale}
+          />
+          {countedNothing(figures.page_views) ? (
+            <p className="text-sm text-muted-foreground">{t("nothingLoaded")}</p>
+          ) : null}
+        </FigureCard>
+        <FigureCard
+          title={t("eventsHeld")}
+          description={chartView === "cumulative" ? t("eventsHeldDescriptionCumulative") : t("eventsHeldDescription")}
+        >
+          <StackedFigureChart
+            trends={trends}
+            source={figures.events_held}
+            title={t("eventsHeld")}
+            totalLabel={t("eventsHeldTotal")}
+            formatValue={count}
+            view={chartView}
+            locale={locale}
+            channelName={() => t("eventsHeld")}
+          />
+          {countedNothing(figures.events_held) ? (
+            <p className="text-sm text-muted-foreground">{t("nothingHeld")}</p>
           ) : null}
         </FigureCard>
       </div>
@@ -455,8 +495,8 @@ function FigureCard({ title, description, children }: { title: string; descripti
 }
 
 /**
- * A figure stacked by Sales Channel (Tickets Sold, Takings) in Platform
- * Trends' channel colours.
+ * A figure drawn as bars: Takings and Tickets Sold, stacked by Sales Channel
+ * in Platform Trends' channel colours, and Events held, one series.
  * The Daily view draws a bar per bucket, the comparison span's stack height
  * as the faint line and today, and any month the span cuts, as a faint bar.
  * The Cumulative view draws each channel's running sum from zero at the
@@ -507,68 +547,174 @@ function StackedFigureChart({
   }));
   const yMax = useMemo(() => trendChartYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
-  const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
-  const availableWidth = useElementWidth(scrollArea);
-  const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
   const ariaLabel = cumulative
     ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
     : t("chartLabel", { figure: figureName, granularity: trends.granularity });
 
   return (
     <>
-      <ul aria-label={t("channelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {series.map((entry) => (
-          <li key={entry.id} className="flex items-center gap-1.5">
-            <span aria-hidden className="size-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
-            {entry.name}
-          </li>
-        ))}
-      </ul>
-      <ChartScrollArea
-        ref={setScrollArea}
-        ariaLabel={t("scrollLabel", { figure: figureName })}
-        openAtNewestEnd={{ key: organizationTrendsScrollAnchor(trends, view), contentWidth: plotWidth }}
-      >
-        {cumulative ? (
-          <StackedAreaChart
-            data={data}
-            series={series}
-            yMax={yMax}
-            yTicks={yTicks}
-            plotWidth={plotWidth}
-            height={CHART_HEIGHT}
-            formatValue={format}
-            formatTickValue={formatTickValue}
-            totalLabel={totalLabel}
-            ariaLabel={ariaLabel}
-          />
-        ) : (
-          <StackedBarChart
-            data={data}
-            series={series}
-            comparisonSeries={
-              trends.comparison === null
-                ? undefined
-                : [
-                    {
-                      id: STACK_COMPARISON_ID,
-                      name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
-                      color: STACK_COMPARISON_COLOR,
-                    },
-                  ]
-            }
-            yMax={yMax}
-            yTicks={yTicks}
-            plotWidth={plotWidth}
-            height={CHART_HEIGHT}
-            formatValue={format}
-            formatTickValue={formatTickValue}
-            totalLabel={totalLabel}
-            partialLabel={t("partial")}
-            ariaLabel={ariaLabel}
-          />
-        )}
-      </ChartScrollArea>
+      {/* A figure of one series is named by its card, and has no key. */}
+      {series.length > 1 ? (
+        <ul aria-label={t("channelsLabel")} className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {series.map((entry) => (
+            <li key={entry.id} className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
+              {entry.name}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <FigureChartWindow trends={trends} figureName={figureName} view={view}>
+        {(plotWidth) =>
+          cumulative ? (
+            <StackedAreaChart
+              data={data}
+              series={series}
+              yMax={yMax}
+              yTicks={yTicks}
+              plotWidth={plotWidth}
+              height={CHART_HEIGHT}
+              formatValue={format}
+              formatTickValue={formatTickValue}
+              totalLabel={totalLabel}
+              ariaLabel={ariaLabel}
+            />
+          ) : (
+            <StackedBarChart
+              data={data}
+              series={series}
+              comparisonSeries={
+                trends.comparison === null
+                  ? undefined
+                  : [
+                      {
+                        id: STACK_COMPARISON_ID,
+                        name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
+                        color: STACK_COMPARISON_COLOR,
+                      },
+                    ]
+              }
+              yMax={yMax}
+              yTicks={yTicks}
+              plotWidth={plotWidth}
+              height={CHART_HEIGHT}
+              formatValue={format}
+              formatTickValue={formatTickValue}
+              totalLabel={totalLabel}
+              partialLabel={t("partial")}
+              ariaLabel={ariaLabel}
+            />
+          )
+        }
+      </FigureChartWindow>
     </>
+  );
+}
+
+/**
+ * The window a chart is drawn in, at its card's width, scrolling sideways
+ * when the card is narrower than the floor and opening on its newest end once
+ * per reading and view.
+ */
+function FigureChartWindow({
+  trends,
+  figureName,
+  view,
+  children,
+}: {
+  trends: OrganizationTrends;
+  figureName: string;
+  view: TrendsView;
+  children: (plotWidth: number) => ReactNode;
+}) {
+  const t = useTranslations("organizationTrends");
+  const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
+  const availableWidth = useElementWidth(scrollArea);
+  const plotWidth = cumulativePlotWidth(availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0);
+  return (
+    <ChartScrollArea
+      ref={setScrollArea}
+      ariaLabel={t("scrollLabel", { figure: figureName })}
+      openAtNewestEnd={{ key: organizationTrendsScrollAnchor(trends, view), contentWidth: plotWidth }}
+    >
+      {children(plotWidth)}
+    </ChartScrollArea>
+  );
+}
+
+/**
+ * A figure of one series drawn as a line (Page Views). The Daily view draws
+ * each bucket's value, the comparison span's as the faint line, and today,
+ * and any month the span cuts, as the dashed stretch; the Cumulative view
+ * draws the running sum from zero at the span's start, ending at the span's
+ * total, with no comparison. It reads the buckets the stacked charts read: a
+ * stack of one series is that series' value.
+ */
+function LineFigureChart({
+  trends,
+  source,
+  title: figureName,
+  formatValue: format,
+  view,
+  locale,
+}: {
+  trends: OrganizationTrends;
+  source: OrganizationTrendFigure;
+  /** The figure's name, which the chart's labels carry. */
+  title: string;
+  formatValue: (value: number) => string;
+  view: TrendsView;
+  locale: AppLocale;
+}) {
+  const t = useTranslations("organizationTrends");
+  const label = useCallback(
+    (bucket: OrganizationTrendDays) => formatOrganizationTrendBucket(bucket, trends.granularity, locale),
+    [trends.granularity, locale],
+  );
+  const cumulative = view === "cumulative";
+  const data = useMemo(
+    () =>
+      cumulative
+        ? cumulativeStackData(source, trends.span.buckets, label)
+        : dailyStackData(source, trends.span.buckets, label),
+    [cumulative, source, trends.span.buckets, label],
+  );
+  const series: StackedSeries[] = [{ id: source.series[0]?.key ?? "all", name: figureName, color: chartSeriesColor(0) }];
+  const yMax = useMemo(() => trendChartYMax(data), [data]);
+  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+  const ariaLabel = cumulative
+    ? t("chartLabelCumulative", { figure: figureName, granularity: trends.granularity })
+    : t("chartLabel", { figure: figureName, granularity: trends.granularity });
+
+  return (
+    <FigureChartWindow trends={trends} figureName={figureName} view={view}>
+      {(plotWidth) => (
+        <MultiSeriesLineChart
+          data={data}
+          series={series}
+          comparisonSeries={
+            cumulative || trends.comparison === null
+              ? undefined
+              : [
+                  {
+                    id: STACK_COMPARISON_ID,
+                    name: t(COMPARISON_KEYS[trends.comparison.kind] ?? "comparePrevious"),
+                    color: chartSeriesColor(0),
+                  },
+                ]
+          }
+          yMax={yMax}
+          yTicks={yTicks}
+          plotWidth={plotWidth}
+          height={CHART_HEIGHT}
+          formatValue={format}
+          // A bucket nobody loaded is a zero the hover card names.
+          zeroIsMeasured
+          nothingCountedLabel={t("nothingCounted")}
+          partialLabel={t("partial")}
+          ariaLabel={ariaLabel}
+        />
+      )}
+    </FigureChartWindow>
   );
 }
