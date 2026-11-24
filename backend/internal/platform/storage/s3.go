@@ -145,6 +145,19 @@ func (s *S3Storage) Put(ctx context.Context, key, contentType string, body io.Re
 	return nil
 }
 
+// Get reads an object over the internal endpoint, the same reachable host Put
+// writes through. The caller closes the body.
+func (s *S3Storage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.cfg.Bucket),
+		Key:    aws.String(strings.TrimPrefix(strings.TrimSpace(key), "/")),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get object: %w", err)
+	}
+	return out.Body, nil
+}
+
 // Delete removes an object over the internal endpoint, the same reachable host
 // Put writes through. S3 delete is idempotent: removing a key that is already
 // gone succeeds, which is what a best-effort caller wants — a retry or a double

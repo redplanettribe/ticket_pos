@@ -511,6 +511,30 @@ reconciler has — the backend's drain budget expires first, Scheduler's deadlin
 `backend/internal/digest/service/service.go` beside `digestDrainBudget`, where a backend test reads
 the Terraform defaults and fails if the three stop agreeing.
 
+## The email rendition fill
+
+Mail shows an Event's imagery through its email renditions (spec #870): the Cover Image as a JPEG 1200px wide, and a 128px square JPEG from the Thumbnail, or from the Cover Image cropped to its centre.
+The API renders them itself whenever an Organizer sets or replaces an image, so only Events saved before renditions existed are missing them.
+Until they are filled, mail about those Events simply shows no images.
+
+**Run the fill once after the deploy that adds renditions (#876, migration 144).**
+It is an internal route with no schedule and no Terraform behind it, authenticated by Cloud Run IAM like the scheduled ones, so your own identity token is the credential:
+
+```bash
+API_URL=$(gcloud run services describe prod-ticket-pos-api \
+  --region us-east1 --format='value(status.url)')
+
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$API_URL/api/v1/internal/email-renditions/fill"
+# {"data":{"rendered":N,"failed":N,"remaining":N,"complete":true},...}
+```
+
+It renders every original whose rendition is null and skips everything already rendered, so it is safe to run again at any time.
+`complete: false` means the run stopped at its four-minute budget, inside the request timeout; run it again until it says `true`.
+`remaining` counts the Events still missing a rendition afterwards.
+Anything left in it failed to render (a missing or unreadable original), each failure is in the logs as `email rendition: the rendition could not be produced and stays empty` with its Event and object key, and the next run tries it again.
+A failure never affects anything but that Event's mail imagery.
+
 ## Email
 
 Two providers, two sending identities (ADR [0009](../docs/adr/0009-transactional-email-via-resend.md), [0030](../docs/adr/0030-follows-notify-as-a-weekly-digest.md), [0077](../docs/adr/0077-ses-stands-beside-resend-dormant-behind-an-explicit-provider-switch.md)).

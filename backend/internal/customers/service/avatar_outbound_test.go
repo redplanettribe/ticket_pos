@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,9 @@ func (discardStorage) PresignPut(context.Context, string, string, time.Duration)
 func (discardStorage) Put(_ context.Context, _, _ string, body io.Reader) error {
 	_, err := io.Copy(io.Discard, body)
 	return err
+}
+func (discardStorage) Get(context.Context, string) (io.ReadCloser, error) {
+	return nil, errors.New("discardStorage keeps nothing")
 }
 func (discardStorage) Delete(context.Context, string) error { return nil }
 func (discardStorage) PublicURL(key string) string          { return key }

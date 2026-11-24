@@ -772,6 +772,10 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	s.deleteReplacedObject(ctx, event.CoverImageKey, params.CoverImageKey, "cover image", eventID)
 	s.deleteReplacedObject(ctx, event.CoverVideoKey, params.CoverVideoKey, "cover video", eventID)
 	s.deleteReplacedObject(ctx, event.ThumbnailKey, params.ThumbnailKey, "thumbnail", eventID)
+	// The email renditions follow their originals, after the commit and
+	// best-effort like the deletes above: a failure leaves a rendition null,
+	// never this save failed (spec #870).
+	s.refreshEmailRenditions(ctx, event, updated)
 
 	detail := s.toEventDetail(updated)
 	return &detail, nil
