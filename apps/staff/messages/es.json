@@ -137,7 +137,18 @@
     "breakdownEmpty": "Ningún evento aportó a esta cifra aquí.",
     "breakdownPartial": "En lo que va de hoy: el día sigue en curso, así que esto todavía puede crecer.",
     "breakdownTotal": "Total",
-    "breakdownEvents": "Eventos"
+    "breakdownEvents": "Eventos",
+    "eventsTableTitle": "Eventos del periodo",
+    "eventsTableDescriptionTakings": "Cada evento realizado, cargado o vendido en el periodo, sin contar hoy, ordenado por recaudación. Las filas suman los totales de arriba.",
+    "eventsTableDescriptionTickets": "Cada evento realizado, cargado o vendido en el periodo, sin contar hoy, ordenado por entradas vendidas. Las filas suman los totales de arriba.",
+    "eventsTableEmpty": "Ningún evento se realizó, cargó ni vendió en este periodo.",
+    "eventsTableEvent": "Evento",
+    "eventsTableStart": "Inicio",
+    "eventsTableNoStart": "Sin fecha",
+    "eventsTableSalesTrends": "Tendencias de ventas",
+    "eventsTableSalesTrendsFor": "Tendencias de ventas de {event}",
+    "eventsTableReach": "Alcance",
+    "eventsTableReachFor": "Alcance de {event}"
   },
   "login": {
     "title": "Iniciar sesión",

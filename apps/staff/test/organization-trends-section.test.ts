@@ -76,6 +76,7 @@ function reading(overrides: Partial<OrganizationTrends> = {}): OrganizationTrend
       page_views: figure({ all: [40, 0, 25] }, { all: 7 }, 130),
       events_held: figure({ all: [1, 0, 1] }, { all: 1 }, 1),
     },
+    events: [],
     ...overrides,
   };
 }
@@ -168,7 +169,7 @@ test("a span with no sales reads as zeros, and says nothing was sold", () => {
   assert.match(words, /Events held 0 /);
   assert.match(words, /No Event page was loaded in this span\./);
   assert.match(words, /No Event was held in this span\./);
-  assert.doesNotMatch(text(renderReading(reading())), /No Event page was loaded|No Event was held/);
+  assert.doesNotMatch(text(renderReading(reading())), /No Event page was loaded|No Event was held in this span/);
 });
 
 test("the reading is in Ecuadorian Spanish under the Spanish locale", () => {

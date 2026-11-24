@@ -137,7 +137,18 @@
     "breakdownEmpty": "No Event contributed to this figure here.",
     "breakdownPartial": "Today so far: the day is still running, so this can still grow.",
     "breakdownTotal": "Total",
-    "breakdownEvents": "Events"
+    "breakdownEvents": "Events",
+    "eventsTableTitle": "Events in the span",
+    "eventsTableDescriptionTakings": "Every Event held, loaded or sold in the span, today left out, ranked by takings. The rows add up to the totals above.",
+    "eventsTableDescriptionTickets": "Every Event held, loaded or sold in the span, today left out, ranked by tickets sold. The rows add up to the totals above.",
+    "eventsTableEmpty": "No Event was held, loaded or sold in this span.",
+    "eventsTableEvent": "Event",
+    "eventsTableStart": "Starts",
+    "eventsTableNoStart": "No date set",
+    "eventsTableSalesTrends": "Sales Trends",
+    "eventsTableSalesTrendsFor": "Sales Trends of {event}",
+    "eventsTableReach": "Reach",
+    "eventsTableReachFor": "Reach of {event}"
   },
   "login": {
     "title": "Sign in",

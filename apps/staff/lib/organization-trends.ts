@@ -1,4 +1,4 @@
-// Organization Trends (#861, #862, #863, spec #858, ADR 0081): the Organization's figures
+// Organization Trends (#861, #862, #863, #865, spec #858, ADR 0081): the Organization's figures
 // over a chosen span, beneath what stands now on Home.
 //
 // The backend answers everything drawn: the buckets, which are partial, the
@@ -90,6 +90,25 @@ export type OrganizationTrends = {
      */
     takings?: OrganizationTrendFigure | null;
   };
+  /**
+   * The Event table (#865): every Event held, loaded or sold in the span,
+   * today left out, ranked by the API. Its rows add up to the span's totals.
+   */
+  events: OrganizationTrendEvent[];
+};
+
+/** One row of the Event table: one Event's part of the span. */
+export type OrganizationTrendEvent = {
+  event_id: string;
+  name: string;
+  /** Null for an Event that names no start. */
+  starts_at: string | null;
+  /** The Event's own, its start printed in; "" where it names none. */
+  timezone: string;
+  tickets_sold: number;
+  /** Minor units; withheld from Event Staff (null or absent), never zero. */
+  takings_cents?: number | null;
+  page_views: number;
 };
 
 // ---------------------------------------------------------------------------

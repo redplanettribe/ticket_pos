@@ -71,6 +71,7 @@ import { cumulativePlotWidth, formatTakingsTick, trendsYTicks, type TrendsView }
 import { useElementWidth } from "@/lib/use-element-width";
 
 import { OrganizationTrendBreakdownPanel } from "./organization-trends-breakdown";
+import { OrganizationEventTableCard } from "./organization-trends-events";
 
 /** Home's own path: the reading's address is this plus its query. */
 const HOME_PATH = "/";
@@ -342,6 +343,9 @@ function CustomRangeForm({
  * Any bucket of a Daily chart opens into the Events that made it (#864),
  * beneath that chart, as on Platform Trends. The Cumulative view draws
  * running sums, which no Event made alone, so its buckets open nothing.
+ *
+ * Beneath the charts sits the Event table (#865): every Event of the span,
+ * ranked, linking into its Sales Trends and Reach.
  */
 export function OrganizationTrendsReading({
   trends,
@@ -552,6 +556,8 @@ export function OrganizationTrendsReading({
           ) : null}
         </FigureCard>
       </div>
+
+      <OrganizationEventTableCard trends={trends} locale={locale} />
     </>
   );
 }

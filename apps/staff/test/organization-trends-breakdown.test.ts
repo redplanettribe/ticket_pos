@@ -73,6 +73,7 @@ function reading(overrides: Partial<OrganizationTrends["figures"]> = {}): Organi
       takings: figure({ online: [1000, 0, 500], in_person: [0, 0, 0], import: [0, 0, 0] }),
       ...overrides,
     },
+    events: [],
   };
 }
 
