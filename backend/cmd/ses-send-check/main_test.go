@@ -180,10 +180,11 @@ func TestSendCheckSendsOneRequestPerMessageType(t *testing.T) {
 }
 
 // The passcode, the Consent Withdrawal Confirmation, the two fiscal kinds,
-// the nine staff and operator kinds and the five compact Event row kinds go
-// out with their HTML part beside the text, rendered with the check's chrome
-// (ADR 0082); kinds not yet converted carry text alone. The Event row kinds
-// show their images.
+// the nine staff and operator kinds, the five compact Event row kinds and the
+// three Cover Image kinds go out with their HTML part beside the text,
+// rendered with the check's chrome (ADR 0082); kinds not yet converted carry
+// text alone. The Event row kinds show their images, and the Cover Image
+// kinds theirs.
 func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 	fake, load := checkSetup(t)
 	var stdout, stderr bytes.Buffer
@@ -197,10 +198,15 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		"question review submitted": true, "question review answered": true, "ticket question revoked": true,
 		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
 		"assignment reminder": true, "no longer holding": true,
+		"sale confirmation": true, "ticket assignment": true, "sale re-addressing": true,
 	}
-	withImages := map[string]bool{
-		"sale voided": true, "sale reversal refused": true, "holder answer reminder": true,
-		"assignment reminder": true, "no longer holding": true,
+	withImages := map[string][]string{
+		"sale voided": {fixtureSquareURL, fixtureLogoURL}, "sale reversal refused": {fixtureSquareURL, fixtureLogoURL},
+		"holder answer reminder": {fixtureSquareURL, fixtureLogoURL}, "assignment reminder": {fixtureSquareURL, fixtureLogoURL},
+		"no longer holding":  {fixtureSquareURL, fixtureLogoURL},
+		"sale confirmation":  {fixtureWideURL, fixtureLogoURL},
+		"ticket assignment":  {fixtureWideURL, fixtureLogoURL},
+		"sale re-addressing": {fixtureWideURL, fixtureLogoURL},
 	}
 	all, err := messages(checkRecipient, fixedNow, nil, nil)
 	if err != nil {
@@ -227,11 +233,9 @@ func TestSendCheckSendsTheConvertedKindsWithHTML(t *testing.T) {
 		if !strings.Contains(body.Html.Data, "operated by FUNDACION REDPLANETTRIBE, Ecuador.") && !strings.Contains(body.Html.Data, "operado por FUNDACION REDPLANETTRIBE, Ecuador.") {
 			t.Errorf("%s: the HTML part is not rendered with the check's chrome", m.name)
 		}
-		if withImages[m.name] {
-			for _, src := range []string{fixtureSquareURL, fixtureLogoURL} {
-				if !strings.Contains(body.Html.Data, `src="`+src+`"`) {
-					t.Errorf("%s: the HTML part does not show %s", m.name, src)
-				}
+		for _, src := range withImages[m.name] {
+			if !strings.Contains(body.Html.Data, `src="`+src+`"`) {
+				t.Errorf("%s: the HTML part does not show %s", m.name, src)
 			}
 		}
 	}

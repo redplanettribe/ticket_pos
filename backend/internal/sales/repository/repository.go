@@ -266,6 +266,9 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 // EventImportContext is the Event metadata a Sale Import needs: its name, the
 // timezone (nullable) used to interpret naive sold_at values, and its schedule.
 type EventImportContext struct {
+	// ID is the Event's own id, the one it was read by: what the Sale
+	// Confirmation shows of the Event is read by it (#879).
+	ID   string
 	Name string
 	// Slug is the Event's URL-safe name, already unique within the Organization.
 	// It rides along because a file leaving the platform is named after the
@@ -325,6 +328,7 @@ func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID s
 	if err != nil {
 		return nil, false, err
 	}
+	out.ID = eventID
 	out.Timezone = tz.String
 	return &out, true, nil
 }

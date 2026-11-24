@@ -106,6 +106,11 @@ type SaleConfirmation struct {
 	// on the Tax Authority's timetable, and a receipt that named a delay
 	// would be wrong one way or the other.
 	SaleInvoiceFollows bool
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): the wide rendition, the date, the venue and the Organization row.
+	// Its OrganizationName is also the plain-text part's "Organizer:" line, so
+	// the receipt names who the buyer paid; with none, that line is absent.
+	Event MailEvent
 	// Locale is the language this receipt is written in, ALREADY RESOLVED by the
 	// caller through platform.ResolveMailLocale (#245, ADR 0033): the Sale
 	// Locale, then the Customer's Mail Locale, then English.
@@ -138,8 +143,8 @@ type MailEvent struct {
 	OrganizationName string
 	// LogoURL is the Organization's Logo email rendition (a PNG within 96px).
 	LogoURL string
-	// WideURL is the Cover Image's email rendition (a JPEG 1200px wide), for the
-	// kinds that open with the Cover Image; the compact Event row does not show it.
+	// WideURL is the Cover Image's email rendition (a JPEG 1200px wide), which
+	// the Cover Image kinds open with; the compact Event row does not show it.
 	WideURL string
 	// SquareURL is the 128px square rendition the compact Event row shows at
 	// 64px: from the Thumbnail, or from the Cover Image cropped to its centre.
@@ -425,6 +430,10 @@ type TicketAssignment struct {
 	// there too would mean the click proves nothing and the Verified Customer
 	// minted from it is a fiction (ADR 0046). Mail is the only carrier.
 	AcceptURL string
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): public facts about the Event and its Organization, never the
+	// purchase.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033).
 	//
@@ -469,6 +478,9 @@ type SaleReAddressing struct {
 	// completing the acceptance themself (ADR 0058). The caller refuses to
 	// compose a linkless message rather than send one.
 	AcceptURL string
+	// Event is what the HTML part's Cover Image block shows beside EventName
+	// (#879): public facts, so a stranger reading it learns nothing more.
+	Event MailEvent
 	// Locale is the language this is written in, ALREADY RESOLVED by the
 	// caller: the Sale's own locale first (ADR 0058: "mail follows the Sale's
 	// own locale, as the original Sale Confirmation did"), then the recipient's
@@ -1353,8 +1365,10 @@ func (s *LoggingEmailSender) SendOTP(ctx context.Context, to string, code string
 // The Confirmation Link is logged alongside the reference for the same reason
 // the OTP code is: locally there is no mailbox, and the link is the whole point
 // of the email.
-func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfirmation) error {
-	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName, "amount_cents", c.AmountCents, "confirmation_link", c.ConfirmationLink)
+func (s *LoggingEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
+	attrs := []any{"email", c.To, "reference", c.Reference, "event", c.EventName, "amount_cents", c.AmountCents, "confirmation_link", c.ConfirmationLink}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale confirmation", c.HTML)...)
+	s.Logger.Info("sale confirmation sent", attrs...)
 	return nil
 }
 
@@ -1436,8 +1450,10 @@ func (s *LoggingEmailSender) SendAssignmentReminder(ctx context.Context, r Assig
 // link is the whole point of the message — the same reason the OTP code is
 // logged. Nothing about the buyer is logged, because nothing about the buyer is
 // in the message.
-func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
-	s.Logger.Info("ticket assignment sent", "email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale))
+func (s *LoggingEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
+	attrs := []any{"email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "ticket assignment", a.HTML)...)
+	s.Logger.Info("ticket assignment sent", attrs...)
 	return nil
 }
 
@@ -1454,8 +1470,10 @@ func (s *LoggingEmailSender) SendNoLongerHolding(ctx context.Context, n NoLonger
 // SendSaleReAddressing logs the Re-addressing mail for local development. The
 // address and the link are logged, as the Assignment mail's are, because locally
 // there is no mailbox and the link is the whole point of the message.
-func (s *LoggingEmailSender) SendSaleReAddressing(_ context.Context, r SaleReAddressing) error {
-	s.Logger.Info("sale re-addressing sent", "email", r.To, "event", r.EventName, "reference", r.Reference, "accept_url", r.AcceptURL, "locale", string(r.Locale))
+func (s *LoggingEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
+	attrs := []any{"email", r.To, "event", r.EventName, "reference", r.Reference, "accept_url", r.AcceptURL, "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "sale re-addressing", r.HTML)...)
+	s.Logger.Info("sale re-addressing sent", attrs...)
 	return nil
 }
 

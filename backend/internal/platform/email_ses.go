@@ -195,7 +195,7 @@ func (s *SESEmailSender) SendOTP(ctx context.Context, to string, code string, lo
 // SendSaleConfirmation delivers a Customer's receipt. Best-effort for its caller, which logs and
 // discards the error: a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *SESEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	if err := s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), ""); err != nil {
+	if err := s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "sale confirmation", c.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale confirmation", err, "reference", c.Reference)
 	}
 	return nil
@@ -272,7 +272,7 @@ func (s *SESEmailSender) SendAssignmentReminder(ctx context.Context, r Assignmen
 // Link (#325). Neither the link, a credential that mints an identity, nor the
 // Event is logged.
 func (s *SESEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	if err := s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), ""); err != nil {
+	if err := s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), renderedHTML(ctx, s.logger, "ticket assignment", a.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "ticket assignment", err)
 	}
 	return nil
@@ -290,7 +290,7 @@ func (s *SESEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHold
 // SendSaleReAddressing delivers the mail carrying a Re-addressing Link
 // (#420). Neither the link nor the Event is logged.
 func (s *SESEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	if err := s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale re-addressing", r.HTML, s.chrome)); err != nil {
 		return s.fail(ctx, "sale re-addressing", err)
 	}
 	return nil

@@ -295,7 +295,7 @@ func (s *SMTPEmailSender) SendOTP(ctx context.Context, to string, code string, l
 
 // SendSaleConfirmation delivers a Customer's receipt.
 func (s *SMTPEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	return s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), "")
+	return s.send(ctx, "sale confirmation", c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "sale confirmation", c.HTML, s.chrome))
 }
 
 // SendSaleVoided delivers a cancellation notice.
@@ -339,7 +339,7 @@ func (s *SMTPEmailSender) SendAssignmentReminder(ctx context.Context, r Assignme
 // SendTicketAssignment delivers the Assignment mail carrying an Assignment
 // Link.
 func (s *SMTPEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	return s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), "")
+	return s.send(ctx, "ticket assignment", a.To, a.Subject(), a.Text(), renderedHTML(ctx, s.logger, "ticket assignment", a.HTML, s.chrome))
 }
 
 // SendNoLongerHolding delivers the notice that a Ticket is no longer the
@@ -350,7 +350,7 @@ func (s *SMTPEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHol
 
 // SendSaleReAddressing delivers the mail carrying a Re-addressing Link.
 func (s *SMTPEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	return s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), "")
+	return s.send(ctx, "sale re-addressing", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale re-addressing", r.HTML, s.chrome))
 }
 
 // SendTicketQuestionRevoked delivers an Org Admin's revocation notice.

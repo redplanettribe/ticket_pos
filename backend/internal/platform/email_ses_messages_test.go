@@ -60,6 +60,7 @@ func transactionalMessageCases() []messageCase {
 		OrganizationName: "Jazz Club", LogoURL: "https://media.example.com/email-logo/o/l.png",
 		SquareURL: "https://media.example.com/email-square/o/e/s.jpg", StartsAt: startsAt, Timezone: "America/Guayaquil", VenueName: "Teatro",
 	}
+	saleConfirmation.Event = event
 	saleVoided := SaleVoided{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1002", Event: event, Locale: LocaleEN}
 	reversalRefused := SaleReversalRefused{To: "ana@example.com", CustomerName: "Ana", EventName: "Noche de Jazz", Reference: "TS-1003", Event: event, Locale: LocaleES}
 	taxDocument := TaxDocumentDelivery{
@@ -87,9 +88,9 @@ func transactionalMessageCases() []messageCase {
 		UnassignedTickets: 2, TotalTickets: 3, ConfirmationLink: "https://shop.example.com/c/abc",
 		SaleCreatedAt: startsAt.AddDate(0, -1, 0), Locale: LocaleEN,
 	}
-	assignment := TicketAssignment{To: "ana@example.com", EventName: "Noche de Jazz", TicketTypeName: "General", AcceptURL: "https://shop.example.com/a/xyz", Locale: LocaleES}
+	assignment := TicketAssignment{To: "ana@example.com", EventName: "Noche de Jazz", TicketTypeName: "General", AcceptURL: "https://shop.example.com/a/xyz", Event: event, Locale: LocaleES}
 	noLongerHolding := NoLongerHolding{To: "ana@example.com", EventName: "Noche de Jazz", Event: event, Locale: LocaleEN}
-	reAddressing := SaleReAddressing{To: "ana@example.com", EventName: "Noche de Jazz", Reference: "TS-1005", AcceptURL: "https://shop.example.com/r/xyz", Locale: LocaleES}
+	reAddressing := SaleReAddressing{To: "ana@example.com", EventName: "Noche de Jazz", Reference: "TS-1005", AcceptURL: "https://shop.example.com/r/xyz", Event: event, Locale: LocaleES}
 	questionRevoked := TicketQuestionRevoked{To: "admin@example.com", Locale: LocaleEN, OrganizationName: "Jazz Club", EventName: "Noche de Jazz", QuestionLabel: "Talla", Reason: "No longer needed"}
 	payoutSubmitted := PayoutRequestSubmitted{To: "ops@example.com", Locale: LocaleES, OrganizationName: "Jazz Club", AmountCents: 120000, Currency: "USD", RequestedBy: "Luis"}
 	reviewSubmitted := QuestionReviewSubmitted{To: "ops@example.com", Locale: LocaleEN, OrganizationName: "Jazz Club", EventName: "Noche de Jazz", SubmittedBy: "Luis", QuestionCount: 2}
@@ -104,7 +105,7 @@ func transactionalMessageCases() []messageCase {
 	expiry := CertificateExpiryWarning{To: "ops@example.com", Locale: LocaleEN, Threshold: 7, NotAfter: startsAt, RUC: "1790012345001", IssuerURL: "https://staff.example.com/issuer"}
 
 	return []messageCase{
-		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), "", nil,
+		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), testHTML(saleConfirmation.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendSaleConfirmation(ctx, saleConfirmation)
 			}},
@@ -130,11 +131,11 @@ func transactionalMessageCases() []messageCase {
 			func(ctx context.Context, s EmailSender) error {
 				return s.SendAssignmentReminder(ctx, assignmentReminder)
 			}},
-		{"ticket assignment", assignment.To, assignment.Subject(), assignment.Text(), "", nil,
+		{"ticket assignment", assignment.To, assignment.Subject(), assignment.Text(), testHTML(assignment.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendTicketAssignment(ctx, assignment) }},
 		{"no longer holding", noLongerHolding.To, noLongerHolding.Subject(), noLongerHolding.Text(), testHTML(noLongerHolding.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendNoLongerHolding(ctx, noLongerHolding) }},
-		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), "", nil,
+		{"sale re-addressing", reAddressing.To, reAddressing.Subject(), reAddressing.Text(), testHTML(reAddressing.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendSaleReAddressing(ctx, reAddressing) }},
 		{"ticket question revoked", questionRevoked.To, questionRevoked.Subject(), questionRevoked.Text(), testHTML(questionRevoked.HTML), nil,
 			func(ctx context.Context, s EmailSender) error {

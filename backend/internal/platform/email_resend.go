@@ -202,7 +202,7 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string,
 // best-effort, so a returned error is logged here for visibility and then
 // discarded upstream — a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	if err := s.send(ctx, c.To, c.Subject(), c.Text(), ""); err != nil {
+	if err := s.send(ctx, c.To, c.Subject(), c.Text(), renderedHTML(ctx, s.logger, "sale confirmation", c.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale confirmation failed", "reference", c.Reference, "error", err)
 		return err
 	}
@@ -356,7 +356,7 @@ func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r Assign
 // error. The link is a credential that mints an identity, and a log aggregator
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
-	if err := s.send(ctx, a.To, a.Subject(), a.Text(), ""); err != nil {
+	if err := s.send(ctx, a.To, a.Subject(), a.Text(), renderedHTML(ctx, s.logger, "ticket assignment", a.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send ticket assignment failed", "error", err)
 		return err
 	}
@@ -407,7 +407,7 @@ func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerH
 // error. The link is a credential that mints an identity, and a log aggregator
 // is a wider audience than an inbox.
 func (s *ResendEmailSender) SendSaleReAddressing(ctx context.Context, r SaleReAddressing) error {
-	if err := s.send(ctx, r.To, r.Subject(), r.Text(), ""); err != nil {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "sale re-addressing", r.HTML, s.chrome)); err != nil {
 		s.logger.Error(ctx, "resend send sale re-addressing failed", "error", err)
 		return err
 	}

@@ -98,6 +98,7 @@ func mailFixtures() []mailFixture {
 
 		fixtures = append(fixtures, staffMailFixtures(locale)...)
 		fixtures = append(fixtures, eventRowMailFixtures(locale)...)
+		fixtures = append(fixtures, coverMailFixtures(locale)...)
 	}
 	return fixtures
 }
@@ -198,6 +199,64 @@ func goldenSaleReversalRefused(locale Locale, event MailEvent) SaleReversalRefus
 
 func goldenNoLongerHolding(locale Locale, event MailEvent) NoLongerHolding {
 	return NoLongerHolding{To: "ana@example.com", EventName: "Noche de Jazz", Event: event, Locale: locale}
+}
+
+// coverMailFixtures is the Cover Image kinds in one locale (#879), each with
+// every rendition and again with none ("-noimages"), plus a Sale Confirmation
+// carrying every optional part, the consent block among them ("-full").
+func coverMailFixtures(locale Locale) []mailFixture {
+	suffix := "-" + string(locale)
+	var fixtures []mailFixture
+	add := func(name string, html func(MailChrome) (string, error), text string) {
+		fixtures = append(fixtures, mailFixture{name + suffix, locale, html, text})
+	}
+	for _, images := range []struct {
+		suffix string
+		event  MailEvent
+	}{
+		{"", goldenMailEvent()},
+		{"-noimages", goldenMailEventNoImages()},
+	} {
+		confirmation := goldenSaleConfirmation(locale, images.event)
+		add("saleconfirmation"+images.suffix, confirmation.HTML, confirmation.Text())
+
+		assignment := goldenTicketAssignment(locale, images.event)
+		add("ticketassignment"+images.suffix, assignment.HTML, assignment.Text())
+
+		reAddressing := goldenSaleReAddressing(locale, images.event)
+		add("salereaddressing"+images.suffix, reAddressing.HTML, reAddressing.Text())
+	}
+
+	full := goldenSaleConfirmation(locale, goldenMailEvent())
+	full.TaxID = SaleTaxID{Type: TaxIDTypeCedula, Number: "1712345675"}
+	full.SaleInvoiceFollows = true
+	full.HasOutstandingAnswers = true
+	full.ConsentConfirmationLink = goldenAssetOrigin + "/" + string(locale) + "/consent/confirm?token=def"
+	add("saleconfirmation-full", full.HTML, full.Text())
+	return fixtures
+}
+
+func goldenSaleConfirmation(locale Locale, event MailEvent) SaleConfirmation {
+	return SaleConfirmation{
+		To: "ana@example.com", CustomerName: "Ana Lopez", EventName: "Noche de Jazz", Reference: "ABC123",
+		AmountCents: 2500, Currency: "USD",
+		ConfirmationLink: goldenAssetOrigin + "/" + string(locale) + "/c/sale-1?token=abc",
+		Event:            event, Locale: locale,
+	}
+}
+
+func goldenTicketAssignment(locale Locale, event MailEvent) TicketAssignment {
+	return TicketAssignment{
+		To: "luis@example.com", EventName: "Noche de Jazz", TicketTypeName: "General",
+		AcceptURL: goldenAssetOrigin + "/" + string(locale) + "/a?token=abc", Event: event, Locale: locale,
+	}
+}
+
+func goldenSaleReAddressing(locale Locale, event MailEvent) SaleReAddressing {
+	return SaleReAddressing{
+		To: "ana@example.com", EventName: "Noche de Jazz", Reference: "ABC123",
+		AcceptURL: goldenAssetOrigin + "/" + string(locale) + "/r?token=abc", Event: event, Locale: locale,
+	}
 }
 
 // staffMailFixtures is the staff and operator kinds in one locale (#875):

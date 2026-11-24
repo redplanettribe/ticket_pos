@@ -30,6 +30,9 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	voided := goldenSaleVoided(LocaleES, goldenMailEvent())
 	refused := goldenSaleReversalRefused(LocaleEN, goldenMailEventNoImages())
 	gone := goldenNoLongerHolding(LocaleES, goldenMailEvent())
+	confirmation := goldenSaleConfirmation(LocaleEN, goldenMailEvent())
+	assignment := goldenTicketAssignment(LocaleES, goldenMailEvent())
+	reAddressing := goldenSaleReAddressing(LocaleEN, goldenMailEventNoImages())
 	cases := []struct {
 		name   string
 		msg    string
@@ -89,6 +92,15 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"no longer holding", "no longer holding notice sent", gone.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendNoLongerHolding(ctx, gone)
+		}},
+		{"sale confirmation", "sale confirmation sent", confirmation.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendSaleConfirmation(ctx, confirmation)
+		}},
+		{"ticket assignment", "ticket assignment sent", assignment.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendTicketAssignment(ctx, assignment)
+		}},
+		{"sale re-addressing", "sale re-addressing sent", reAddressing.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendSaleReAddressing(ctx, reAddressing)
 		}},
 	}
 	for _, tc := range cases {

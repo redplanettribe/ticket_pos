@@ -959,8 +959,10 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 	// because a Confirmation Link names a Ticket Sale by its database id and
 	// that id does not exist until the batch commits.
 	if !batch.Replayed {
+		// One read of what the mail shows of the Event serves the whole batch.
+		shown := s.mailEvent(ctx, event.ID)
 		for _, rs := range batch.Recorded {
-			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs))
+			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, shown, rs))
 		}
 	}
 
@@ -969,9 +971,12 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 
 // importedSaleConfirmation builds the Sale Confirmation for a Ticket Sale
 // recorded on the import channel — by a Sale Import batch or as a Sale
-// Correction's replacement — so both paths mail one and the same thing.
-func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, rs repository.RecordedSale) platform.SaleConfirmation {
+// Correction's replacement — so both paths mail one and the same thing. shown
+// is what the mail shows of the Event (s.mailEvent), read by the caller so a
+// batch reads it once.
+func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, shown platform.MailEvent, rs repository.RecordedSale) platform.SaleConfirmation {
 	return platform.SaleConfirmation{
+		Event:            shown,
 		To:               rs.CustomerEmail,
 		CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
 		EventName:        event.Name,

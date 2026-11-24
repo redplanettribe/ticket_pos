@@ -74,3 +74,48 @@ its neighbours (spec #870). Takes a []eventRowView. */}}
 </td></tr></table>
 </td></tr>
 {{end}}</table>{{end}}
+
+{{/* The Cover Image block's text (#879): the eyebrow, the Event's name as the
+mail's only <h1>, its date and venue on muted lines (each dropped when the
+mail does not know it), and the Organization row. The Sale Confirmation's
+eyebrow is the success green with a check; the others are muted, because a
+stranger may be reading them. Takes a coverCard. */}}
+{{define "coverEvent"}}{{if .Confirmed}}<p class="t-success" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#1f7a2c;">&#10003;&nbsp;{{.Eyebrow}}</p>
+{{- else}}<p class="t-muted" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;font-weight:600;color:#5c646f;">{{.Eyebrow}}</p>
+{{- end}}
+<h1 class="t-fg h1" style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.4px;color:#121921;">{{.EventName}}</h1>
+{{- with .When}}
+<p class="t-muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.}}</p>
+{{- end}}
+{{- with .Venue}}
+<p class="t-muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.}}</p>
+{{- end}}
+{{- with .Organization}}
+<div style="margin-top:14px;">{{template "orgRow" .}}</div>
+{{- end}}{{end}}
+
+{{/* The details box (#879): the Reference large and monospace, and under it
+the other facts side by side, each a muted label over its value, in the soft
+box. Takes a detailsView. */}}
+{{define "details"}}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-soft" style="background-color:#eef2f7;border-radius:10px;margin:0 0 16px;">
+<tr><td style="padding:18px 20px;">
+<p class="t-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#5c646f;">{{.Reference.Label}}</p>
+<p class="t-fg ref" style="margin:0 0 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:26px;line-height:32px;font-weight:700;letter-spacing:2px;color:#121921;">{{.Reference.Value}}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+{{- range .Facts}}
+<td valign="top" width="{{$.FactWidth}}%" style="padding-right:8px;">
+<p class="t-muted" style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#5c646f;">{{.Label}}</p>
+<p class="t-fg" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:600;color:#121921;">{{.Value}}</p></td>
+{{- end}}
+</tr></table>
+</td></tr></table>{{end}}
+
+{{/* The consent block (#879): the Sale Confirmation's double opt-in, in its
+own section at the bottom of the card behind a hairline, so it never reads as
+part of the purchase. Its link is a plain link, not a second button: a mail
+has one primary button. Takes a consentView. */}}
+{{define "consent"}}<tr><td class="px bd" style="padding:20px 32px 12px;border-top:1px solid #dadee5;">
+<p class="t-fg" style="margin:0 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:22px;font-weight:600;color:#121921;">{{.Heading}}</p>
+<p class="t-muted" style="margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#5c646f;">{{.Body}}</p>
+<p style="margin:0 0 12px;"><a class="t-link" href="{{.URL}}" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#0d7bb3;text-decoration:none;">{{.Label}}&nbsp;&rarr;</a></p>
+</td></tr>{{end}}

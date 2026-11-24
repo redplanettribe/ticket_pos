@@ -34,12 +34,16 @@ const (
 	fixtureStaff      = "https://staff.example.com"
 )
 
-// The images the fixtures' Event rows show. The check reads no database, so
-// it has no Event's renditions to point at: these stand in for them with the
-// production Storefront's own icons, which load in any inbox, so the operator
-// sees the square Thumbnail cell and the Logo tile filled (#878).
+// The images the fixtures' Event rows and Cover Image blocks show. The check
+// reads no database, so it has no Event's renditions to point at: these stand
+// in for them with the production Storefront's own icons, which load in any
+// inbox, so the operator sees the square Thumbnail cell, the Logo tile (#878)
+// and the full-bleed Cover Image (#879) filled. The Storefront publishes no
+// wide image, so the 512px icon stands in for the wide rendition too; the
+// block sets its width, so it fills the card as a real one does.
 const (
 	fixtureSquareURL = "https://discover.multiticketing.com/icon-512.png"
+	fixtureWideURL   = "https://discover.multiticketing.com/icon-512.png"
 	fixtureLogoURL   = "https://discover.multiticketing.com/icon-192.png"
 )
 
@@ -60,7 +64,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 	const organization = "Jazz Club Quito"
 	// What the Event rows show of the Event beside its name.
 	eventRow := platform.MailEvent{
-		OrganizationName: organization, LogoURL: fixtureLogoURL, SquareURL: fixtureSquareURL,
+		OrganizationName: organization, LogoURL: fixtureLogoURL, SquareURL: fixtureSquareURL, WideURL: fixtureWideURL,
 		StartsAt: eventStartsAt, Timezone: guayaquil, VenueName: "Teatro Nacional Sucre",
 	}
 
@@ -80,8 +84,10 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 			return transactional.SendSaleConfirmation(ctx, platform.SaleConfirmation{
 				To: to, CustomerName: "Ana", EventName: event, Reference: "TS-2026-0042",
 				AmountCents: 5000, Currency: "USD",
-				ConfirmationLink:   fixtureStorefront + "/c/fixture-confirmation",
-				SaleInvoiceFollows: true, Locale: en,
+				ConfirmationLink:        fixtureStorefront + "/c/fixture-confirmation",
+				ConsentConfirmationLink: fixtureStorefront + "/consent/fixture-confirmation",
+				TaxID:                   platform.SaleTaxID{Type: platform.TaxIDTypeCedula, Number: "1712345675"},
+				SaleInvoiceFollows:      true, Event: eventRow, Locale: en,
 			})
 		}),
 		transactionalMessage("sale voided", es, func(ctx context.Context) error {
@@ -131,7 +137,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		transactionalMessage("ticket assignment", es, func(ctx context.Context) error {
 			return transactional.SendTicketAssignment(ctx, platform.TicketAssignment{
 				To: to, EventName: event, TicketTypeName: "General",
-				AcceptURL: fixtureStorefront + "/a/fixture-assignment", Locale: es,
+				AcceptURL: fixtureStorefront + "/a/fixture-assignment", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("no longer holding", en, func(ctx context.Context) error {
@@ -140,7 +146,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		transactionalMessage("sale re-addressing", es, func(ctx context.Context) error {
 			return transactional.SendSaleReAddressing(ctx, platform.SaleReAddressing{
 				To: to, EventName: event, Reference: "TS-2026-0045",
-				AcceptURL: fixtureStorefront + "/r/fixture-readdressing", Locale: es,
+				AcceptURL: fixtureStorefront + "/r/fixture-readdressing", Event: eventRow, Locale: es,
 			})
 		}),
 		transactionalMessage("ticket question revoked", en, func(ctx context.Context) error {

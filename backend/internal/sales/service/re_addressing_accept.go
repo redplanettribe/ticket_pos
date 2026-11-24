@@ -220,7 +220,7 @@ func (s *Service) sendReAddressedSaleConfirmation(ctx context.Context, record *r
 			"ticket_sale_id", record.TicketSaleID, "error", err)
 		return
 	}
-	if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, *sale)); err != nil {
+	if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, s.mailEvent(ctx, event.ID), *sale)); err != nil {
 		s.logger.Error(ctx, "re-addressed sale's Sale Confirmation could not be sent; the Sale has moved",
 			"ticket_sale_id", record.TicketSaleID, "error", err)
 	}

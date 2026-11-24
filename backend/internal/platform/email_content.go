@@ -567,14 +567,26 @@ var (
 		"Your tickets for %s",
 		"Sus entradas para %s",
 	)
-	// The opening is one sentence and the three facts under it, declared whole
-	// rather than line by line: the greeting, what is confirmed, the reference
-	// and the total are one block of prose in either language, and splitting
-	// them would let a translator reorder half of it without the other half.
-	saleConfirmationOpeningCopy = translated(
-		"Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s",
-		"Hola %s:\n\nSu compra de %s está confirmada.\nReferencia: %s\nTotal pagado: %s",
+	// The opening: the greeting, what is confirmed, then the facts under it.
+	// They were one block of prose until the HTML part (#879) needed each on
+	// its own: the greeting is its own paragraph there (a Spanish greeting ends
+	// in a colon), the sentence another, and the facts sit in the details box
+	// as label and value. Text() joins them back into the same bytes.
+	saleConfirmationGreetingCopy = translated(
+		"Hi %s,",
+		"Hola %s:",
 	)
+	saleConfirmationConfirmedCopy = translated(
+		"Your purchase for %s is confirmed.",
+		"Su compra de %s está confirmada.",
+	)
+	// The Organization the buyer paid (spec #870), on the line under the
+	// sentence. "Organizer" and "Organizador" are the public words for an
+	// Organization (CONTEXT.md).
+	saleConfirmationOrganizerLabelCopy = translated("Organizer", "Organizador")
+	saleConfirmationReferenceLabelCopy = translated("Reference", "Referencia")
+	saleConfirmationTotalLabelCopy     = translated("Total paid", "Total pagado")
+
 	saleConfirmationPresentCopy = translated(
 		"Present this reference at the event.",
 		"Presente esta referencia en el evento.",
@@ -594,9 +606,16 @@ var (
 		"A tax invoice (factura) for this purchase will follow in a separate email.",
 		"La factura de esta compra le llegará en un correo aparte.",
 	)
-	saleConfirmationLinkCopy = translated(
-		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
-		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
+	// The Confirmation Link's lead, then the link, then what the link is: the
+	// lead and the note are declared apart so the HTML part can put its button
+	// between them.
+	saleConfirmationLinkLeadCopy = translated(
+		"View your tickets:",
+		"Vea sus entradas:",
+	)
+	saleConfirmationLinkNoteCopy = translated(
+		"This link opens this purchase only, and stays valid until shortly after the event.",
+		"Este enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
 	)
 	// The Outstanding Answers line (#315, ADR 0044), carried only by receipts for
 	// a Sale whose Tickets still owe a required Ticket Question an Answer.
@@ -640,9 +659,42 @@ var (
 	// unconfirmed is the same as No for every purpose except the record, nothing
 	// expires and nothing chases. That sentence is what makes the whole non-
 	// expiring design honest to the person reading it.
-	saleConfirmationConsentCopy = translated(
-		"Confirm your optional preferences:\n%s\n\nYou, or someone using your address, ticked one or more optional boxes at checkout. We act on none of them until they are confirmed from this inbox. If that was not you, ignore this — nothing will be sent, and nothing else will be asked.",
-		"Confirme sus preferencias opcionales:\n%s\n\nUsted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No actuamos sobre ninguna hasta que se confirme desde este buzón. Si no fue usted, ignore este mensaje: no se enviará nada ni se le volverá a preguntar.",
+	//
+	// The heading (the text's lead, with its colon) and the body are declared
+	// apart so the HTML part can set the body above its link. The English's
+	// last sentence had an em dash, and is two sentences since #879 (spec
+	// #870); the Spanish already used a colon.
+	saleConfirmationConsentHeadingCopy = translated(
+		"Confirm your optional preferences",
+		"Confirme sus preferencias opcionales",
+	)
+	saleConfirmationConsentBodyCopy = translated(
+		"You, or someone using your address, ticked one or more optional boxes at checkout. We act on none of them until they are confirmed from this inbox. If that was not you, ignore this. Nothing will be sent, and nothing else will be asked.",
+		"Usted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No actuamos sobre ninguna hasta que se confirme desde este buzón. Si no fue usted, ignore este mensaje: no se enviará nada ni se le volverá a preguntar.",
+	)
+)
+
+// The Sale Confirmation's HTML part (#879): the Cover Image block, the
+// greeting and sentence, the details box, the Confirmation Link as the one
+// button, and the consent block in its own section at the bottom.
+var (
+	saleConfirmationEyebrowCopy = translated(
+		"Purchase confirmed",
+		"Compra confirmada",
+	)
+	// The text's own lead, "View your tickets:", without its colon: the
+	// button takes the lead's place, so the receipt asks one thing once.
+	saleConfirmationButtonCopy = translated(
+		"View your tickets",
+		"Vea sus entradas",
+	)
+	saleConfirmationConsentLinkCopy = translated(
+		"Confirm my preferences",
+		"Confirmar mis preferencias",
+	)
+	saleConfirmationPreheaderCopy = translated(
+		"Reference %s. Present it at the event, or open your tickets from this email.",
+		"Referencia %s. Preséntela en el evento, o abra sus entradas desde este correo.",
 	)
 )
 
@@ -655,20 +707,18 @@ func (c SaleConfirmation) Subject() string {
 // Text is the Sale Confirmation's plain-text body: what the Customer keeps as
 // their receipt.
 //
-// Four parts are conditional, and all are absent rather than blank when they
-// do not apply — an empty label on a receipt reads as a fault in the platform,
-// and there is nothing a Customer could do about it either way.
+// Its conditional parts (the Organizer, the Tax ID, the factura, the link,
+// the Outstanding Answers and the consent lines) are absent rather than blank
+// when they do not apply — an empty label on a receipt reads as a fault in the
+// platform, and there is nothing a Customer could do about it either way.
 func (c SaleConfirmation) Text() string {
-	// The total is the amount the Customer was charged, all in: the platform's
-	// fee is never itemized on a receipt (ADR 0014).
-	text := fmt.Sprintf(saleConfirmationOpeningCopy.in(c.Locale),
-		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
-
-	// The Tax ID sits with the reference and the total because it belongs to the
-	// same job those two do: this email is the document the buyer files for
-	// their own expense records (#99).
-	if taxID := c.TaxID.Display(); taxID != "" {
-		text += "\n" + taxID
+	text := strings.Join(c.opening(), "\n\n")
+	if org := c.organizer(); org != "" {
+		text += "\n" + saleConfirmationOrganizerLabelCopy.in(c.Locale) + ": " + org
+	}
+	details := c.details()
+	for _, fact := range append([]receiptFact{details.Reference}, details.Facts...) {
+		text += "\n" + fact.Label + ": " + fact.Value
 	}
 
 	// The factura promise, directly under the fiscal facts it belongs with
@@ -682,7 +732,8 @@ func (c SaleConfirmation) Text() string {
 	// The Confirmation Link is the reason this email is worth keeping: it opens
 	// this purchase months later, at the gate, with one tap and no typing.
 	if c.ConfirmationLink != "" {
-		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
+		text += "\n\n" + saleConfirmationLinkLeadCopy.in(c.Locale) + "\n" + c.ConfirmationLink +
+			"\n\n" + saleConfirmationLinkNoteCopy.in(c.Locale)
 	}
 
 	// The Outstanding Answers sentence sits DIRECTLY BELOW the Confirmation Link,
@@ -705,9 +756,44 @@ func (c SaleConfirmation) Text() string {
 	// the reference and the link, and a consent question above either would be
 	// the platform's business interrupting theirs.
 	if c.ConsentConfirmationLink != "" {
-		text += "\n\n" + fmt.Sprintf(saleConfirmationConsentCopy.in(c.Locale), c.ConsentConfirmationLink)
+		text += "\n\n" + saleConfirmationConsentHeadingCopy.in(c.Locale) + ":\n" + c.ConsentConfirmationLink +
+			"\n\n" + saleConfirmationConsentBodyCopy.in(c.Locale)
 	}
 	return text
+}
+
+// opening is the greeting and the confirmation sentence, two paragraphs.
+func (c SaleConfirmation) opening() []string {
+	return []string{
+		fmt.Sprintf(saleConfirmationGreetingCopy.in(c.Locale), c.CustomerName),
+		fmt.Sprintf(saleConfirmationConfirmedCopy.in(c.Locale), c.EventName),
+	}
+}
+
+// organizer is the Organization the buyer paid, or "" when the mail does not
+// know it, which drops its line.
+func (c SaleConfirmation) organizer() string {
+	return strings.TrimSpace(c.Event.OrganizationName)
+}
+
+// details are the facts under the confirmation sentence, which the text part
+// prints one "Label: value" line each and the HTML part sets in its details
+// box: the reference, the total, and the Tax ID when the sale carries one.
+//
+// The total is the amount the Customer was charged, all in: the platform's fee
+// is never itemized on a receipt (ADR 0014). The Tax ID sits with the
+// reference and the total because it belongs to the same job those two do:
+// this email is the document the buyer files for their own expense records
+// (#99). It keeps the label printed on the document in the buyer's hand.
+func (c SaleConfirmation) details() detailsView {
+	details := detailsView{
+		Reference: receiptFact{saleConfirmationReferenceLabelCopy.in(c.Locale), c.Reference},
+		Facts:     []receiptFact{{saleConfirmationTotalLabelCopy.in(c.Locale), formatMoney(c.AmountCents, c.Currency)}},
+	}
+	if c.TaxID.Set() {
+		details.Facts = append(details.Facts, receiptFact{TaxIDTypeLabel(c.TaxID.Type), c.TaxID.Number})
+	}
+	return details
 }
 
 // The Answer Reminder (#317, ADR 0044; #328, ADR 0046; #347, ADR 0049): the
@@ -1138,23 +1224,32 @@ var (
 		"You have a ticket for %s",
 		"Tiene una entrada para %s",
 	)
-	// Where the address came from and what the reader now holds, declared whole
-	// in both languages: one block of prose, so a translator cannot reorder half
-	// of it and lose the disclaimer.
+	// Where the address came from, then what the reader now holds.
 	//
 	// NO GREETING BY NAME. The platform does not know this person's name — that
 	// is what accepting is for — and "Hi there" reads worse than beginning with
 	// the fact.
+	//
+	// The sentence and the "Event: ...\nTicket: ..." lines were one block until
+	// the HTML part (#879), whose Cover Image block names the Event, needed the
+	// Ticket line on its own. Text() joins them into the same bytes.
 	ticketAssignmentOpeningCopy = translated(
-		"Someone who bought tickets for %s gave us your email address so that one of them could be yours.\n\nEvent: %s\nTicket: %s",
-		"Alguien que compró entradas para %s nos dio su dirección de correo para que una de ellas sea suya.\n\nEvento: %s\nEntrada: %s",
+		"Someone who bought tickets for %s gave us your email address so that one of them could be yours.",
+		"Alguien que compró entradas para %s nos dio su dirección de correo para que una de ellas sea suya.",
 	)
+	ticketAssignmentEventLineCopy  = translated("Event: %s", "Evento: %s")
+	ticketAssignmentTicketLineCopy = translated("Ticket: %s", "Entrada: %s")
 	// The disclosure and the link, in that order and never the other way round.
 	// A reader must be able to decide before they press, and a link above the
-	// sentence explaining it is a link some readers will press first.
-	ticketAssignmentActionCopy = translated(
-		"If you accept, your email address is shared with the organizer of this event, and you can give your name and answer any questions they ask about your ticket.\n\nAccept your ticket here:\n%s",
-		"Si la acepta, su dirección de correo se comparte con la organización de este evento, y podrá dar su nombre y responder las preguntas que hagan sobre su entrada.\n\nAcepte su entrada aquí:\n%s",
+	// sentence explaining it is a link some readers will press first. The lead
+	// is declared apart so the HTML part can put its button after it.
+	ticketAssignmentDisclosureCopy = translated(
+		"If you accept, your email address is shared with the organizer of this event, and you can give your name and answer any questions they ask about your ticket.",
+		"Si la acepta, su dirección de correo se comparte con la organización de este evento, y podrá dar su nombre y responder las preguntas que hagan sobre su entrada.",
+	)
+	ticketAssignmentActionLeadCopy = translated(
+		"Accept your ticket here:",
+		"Acepte su entrada aquí:",
 	)
 	// The closing, and the sentence that makes ignoring a real option rather than
 	// a silence the reader has to interpret. It promises three things the code
@@ -1190,11 +1285,41 @@ func (a TicketAssignment) Subject() string {
 // compose one at all rather than sending it linkless (see the catalog service's
 // mailTicketAssignment).
 func (a TicketAssignment) Text() string {
-	text := fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName, a.EventName, a.TicketTypeName)
-	text += "\n\n" + fmt.Sprintf(ticketAssignmentActionCopy.in(a.Locale), a.AcceptURL)
+	text := fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName)
+	text += "\n\n" + fmt.Sprintf(ticketAssignmentEventLineCopy.in(a.Locale), a.EventName)
+	text += "\n" + a.ticketLine()
+	text += "\n\n" + ticketAssignmentDisclosureCopy.in(a.Locale)
+	text += "\n\n" + ticketAssignmentActionLeadCopy.in(a.Locale) + "\n" + a.AcceptURL
 	text += "\n\n" + ticketAssignmentClosingCopy.in(a.Locale)
 	return text
 }
+
+// ticketLine is "Ticket: {Ticket Type}", which both parts print.
+func (a TicketAssignment) ticketLine() string {
+	return fmt.Sprintf(ticketAssignmentTicketLineCopy.in(a.Locale), a.TicketTypeName)
+}
+
+// The Assignment mail's HTML part (#879): the Cover Image block, and the
+// Assignment Link as the one button. The reason line says where the address
+// came from, as the body does, and names nobody.
+var (
+	ticketAssignmentEyebrowCopy = translated(
+		"A ticket for you",
+		"Una entrada para usted",
+	)
+	ticketAssignmentButtonCopy = translated(
+		"Accept your ticket",
+		"Aceptar su entrada",
+	)
+	ticketAssignmentPreheaderCopy = translated(
+		"Accepting is optional. If you ignore this message, the ticket still works.",
+		"Aceptarla es opcional. Si ignora este mensaje, la entrada sigue siendo válida.",
+	)
+	ticketAssignmentFooterReasonCopy = translated(
+		"You're getting this because someone who bought tickets for %s gave us this address.",
+		"Recibe este correo porque alguien que compró entradas para %s nos dio esta dirección.",
+	)
+)
 
 // The Re-addressing mail (#420, parent #419, ADR 0058): the message telling the
 // address a Sale Re-addressing names that a purchase is being re-addressed to
@@ -1229,15 +1354,26 @@ var (
 	// a platform the reader may never have heard of has to say why it is
 	// writing before it says anything else. The reference is stated as data,
 	// never explained: the buyer knows it and a stranger has no use for it.
+	//
+	// The three parts were one block until the HTML part (#879), whose Cover
+	// Image block names the Event, needed them apart. Text() joins them into
+	// the same bytes.
 	saleReAddressingOpeningCopy = translated(
-		"At the organizer's request, we are re-addressing a ticket purchase to this email address.\n\nEvent: %s\nReference: %s\n\nThe purchase was made under an email address that could not be reached, and the organizer has told us this is the address it was meant for.",
-		"A pedido de la organización, estamos redirigiendo una compra de entradas a esta dirección de correo.\n\nEvento: %s\nReferencia: %s\n\nLa compra se hizo con una dirección de correo a la que no se podía llegar, y la organización nos ha indicado que esta es la dirección a la que estaba destinada.",
+		"At the organizer's request, we are re-addressing a ticket purchase to this email address.",
+		"A pedido de la organización, estamos redirigiendo una compra de entradas a esta dirección de correo.",
+	)
+	saleReAddressingEventLineCopy     = translated("Event: %s", "Evento: %s")
+	saleReAddressingReferenceLineCopy = translated("Reference: %s", "Referencia: %s")
+	saleReAddressingWhyCopy           = translated(
+		"The purchase was made under an email address that could not be reached, and the organizer has told us this is the address it was meant for.",
+		"La compra se hizo con una dirección de correo a la que no se podía llegar, y la organización nos ha indicado que esta es la dirección a la que estaba destinada.",
 	)
 	// What accepting does, stated as taking the purchase ON — the sentence that
-	// makes a stranger stop. Then the link.
-	saleReAddressingActionCopy = translated(
-		"If this purchase is yours, accept it here and the tickets and every message about them will come to this address from now on. Accepting takes this purchase on as your own:\n%s",
-		"Si esta compra es suya, acéptela aquí y las entradas y todos los mensajes sobre ellas llegarán a esta dirección de ahora en adelante. Al aceptar, usted asume esta compra como propia:\n%s",
+	// makes a stranger stop. Then the link, which the HTML part makes its
+	// button.
+	saleReAddressingActionLeadCopy = translated(
+		"If this purchase is yours, accept it here and the tickets and every message about them will come to this address from now on. Accepting takes this purchase on as your own:",
+		"Si esta compra es suya, acéptela aquí y las entradas y todos los mensajes sobre ellas llegarán a esta dirección de ahora en adelante. Al aceptar, usted asume esta compra como propia:",
 	)
 	// The closing, and the sentence that makes ignoring a real option: nothing
 	// happens, nothing is theirs, and the link dies at the Event's start —
@@ -1260,11 +1396,41 @@ func (r SaleReAddressing) Subject() string {
 // it costs nothing. NOTHING HERE IS CONDITIONAL: a message with no link is not a
 // shorter message, so the caller refuses to compose one at all.
 func (r SaleReAddressing) Text() string {
-	text := fmt.Sprintf(saleReAddressingOpeningCopy.in(r.Locale), r.EventName, r.Reference)
-	text += "\n\n" + fmt.Sprintf(saleReAddressingActionCopy.in(r.Locale), r.AcceptURL)
+	text := saleReAddressingOpeningCopy.in(r.Locale)
+	text += "\n\n" + fmt.Sprintf(saleReAddressingEventLineCopy.in(r.Locale), r.EventName)
+	text += "\n" + r.referenceLine()
+	text += "\n\n" + saleReAddressingWhyCopy.in(r.Locale)
+	text += "\n\n" + saleReAddressingActionLeadCopy.in(r.Locale) + "\n" + r.AcceptURL
 	text += "\n\n" + saleReAddressingClosingCopy.in(r.Locale)
 	return text
 }
+
+// referenceLine is "Reference: {reference}", which both parts print.
+func (r SaleReAddressing) referenceLine() string {
+	return fmt.Sprintf(saleReAddressingReferenceLineCopy.in(r.Locale), r.Reference)
+}
+
+// The Re-addressing mail's HTML part (#879): the Cover Image block, and the
+// Re-addressing Link as the one button. Nothing here tells a stranger more
+// than the body does.
+var (
+	saleReAddressingEyebrowCopy = translated(
+		"A purchase re-addressed to you",
+		"Una compra redirigida a usted",
+	)
+	saleReAddressingButtonCopy = translated(
+		"Accept this purchase",
+		"Aceptar esta compra",
+	)
+	saleReAddressingPreheaderCopy = translated(
+		"Reference %s. Accept it only if this purchase is yours.",
+		"Referencia %s. Acéptela solo si esta compra es suya.",
+	)
+	saleReAddressingFooterReasonCopy = translated(
+		"You're getting this because the organizer of %s asked us to re-address a purchase to this address.",
+		"Recibe este correo porque la organización de %s nos pidió redirigir una compra a esta dirección.",
+	)
+)
 
 // The No Longer Holding mail (#327, parent #322, ADR 0046): the message telling
 // somebody who accepted a ticket that it is not theirs any more.

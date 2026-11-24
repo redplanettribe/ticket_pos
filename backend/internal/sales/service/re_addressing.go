@@ -272,6 +272,7 @@ func (s *Service) mailSaleReAddressing(ctx context.Context, sale *repository.Ope
 	err := s.email.SendSaleReAddressing(ctx, platform.SaleReAddressing{
 		To:        to,
 		EventName: sale.EventName,
+		Event:     s.mailEvent(ctx, sale.EventID),
 		Reference: sale.ConfirmationRef,
 		AcceptURL: s.storefrontBaseURL + reAddressingLinkPath + "?token=" + token,
 		Locale:    s.mailLocale(ctx, sale.ID, sale.Locale.String, to),

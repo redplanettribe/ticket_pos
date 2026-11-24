@@ -123,6 +123,10 @@ const (
 	// compact Event row: the Answer Reminder, the Assignment Reminder, Sale
 	// Voided, Sale Reversal Refused and No Longer Holding.
 	mailKindEventRow mailKind = "eventrow"
+	// mailKindCover is the card that opens with the Event's Cover Image: the
+	// good-news kinds, the Sale Confirmation, the Ticket Assignment and the
+	// Sale Re-addressing.
+	mailKindCover mailKind = "cover"
 )
 
 // mailKinds names every kind's template file (mailtemplates/kinds/<name>.html)
@@ -140,6 +144,21 @@ var mailKinds = map[mailKind]any{
 		Rows:   []eventRowView{{SquareURL: "#", Meta: "-", Detail: "-", Organization: &orgRowView{LogoURL: "#"}}},
 		Button: &mailButton{},
 		After:  [][]string{{""}},
+	},
+	// Every optional branch filled, so the dry run executes each one.
+	mailKindCover: coverCard{
+		WideURL:      "#",
+		Confirmed:    true,
+		When:         "-",
+		Venue:        "-",
+		Organization: &orgRowView{LogoURL: "#"},
+		Before:       [][]string{{""}},
+		Details:      &detailsView{Facts: []receiptFact{{}}},
+		Middle:       [][]string{{""}},
+		LinkLead:     "-",
+		Button:       &mailButton{},
+		After:        [][]string{{""}},
+		Consent:      &consentView{},
 	},
 }
 
@@ -606,4 +625,162 @@ func (n NoLongerHolding) HTML(chrome MailChrome) (string, error) {
 		noLongerHoldingPreheaderCopy.in(n.Locale),
 		fmt.Sprintf(noLongerHoldingFooterReasonCopy.in(n.Locale), n.EventName),
 		n.EventName, n.Event)
+}
+
+// The Cover Image kinds (#879): good news about an Event opens with its Cover
+// Image full-bleed across the top of the card, then an eyebrow, the Event's
+// name as the <h1>, its date and venue, and the Organization row, the way the
+// Storefront's Event page shows it.
+
+// coverOrgTile is the Logo tile's size in the Cover Image block.
+const coverOrgTile = 28
+
+// coverCard is the Cover Image card. WideURL is empty when the Event has no
+// wide rendition, which drops the image and starts the block at the eyebrow.
+// Confirmed sets the eyebrow in the success green with a check. Each
+// paragraph is split into the lines the text breaks it into; Details, Button
+// and Consent are nil when the mail has none.
+type coverCard struct {
+	WideURL      string
+	Eyebrow      string
+	Confirmed    bool
+	EventName    string
+	When         string
+	Venue        string
+	Organization *orgRowView
+	Before       [][]string
+	Details      *detailsView
+	Middle       [][]string
+	LinkLead     string
+	Button       *mailButton
+	After        [][]string
+	Consent      *consentView
+}
+
+// newCoverCard is the Cover Image block of an Event: its wide rendition, its
+// date (none without a zone, as in the Event row) and venue, and the
+// Organization row.
+func newCoverCard(locale Locale, eyebrow, eventName string, event MailEvent) coverCard {
+	card := coverCard{
+		WideURL:      event.WideURL,
+		Eyebrow:      eyebrow,
+		EventName:    eventName,
+		Venue:        strings.TrimSpace(event.VenueName),
+		Organization: newOrgRow(event, coverOrgTile),
+	}
+	if strings.TrimSpace(event.Timezone) != "" {
+		card.When = formatEventDate(event.StartsAt, event.Timezone, locale)
+	}
+	return card
+}
+
+// receiptFact is one fact a receipt states, a label and its value.
+type receiptFact struct {
+	Label, Value string
+}
+
+// detailsView is the details box: the Reference, then the other facts side by
+// side.
+type detailsView struct {
+	Reference receiptFact
+	Facts     []receiptFact
+}
+
+// FactWidth is each fact's share of the box's width, in percent.
+func (d detailsView) FactWidth() int {
+	if len(d.Facts) == 0 {
+		return 100
+	}
+	return 100 / len(d.Facts)
+}
+
+// consentView is the consent block: its heading, the sentences under it, and
+// the link that confirms.
+type consentView struct {
+	Heading string
+	Body    string
+	Label   string
+	URL     string
+}
+
+// HTML is the Sale Confirmation's HTML part: the Cover Image block with the
+// "Purchase confirmed" eyebrow, the greeting and the confirmation sentence,
+// the details box, the Confirmation Link as the one button, and the consent
+// block at the bottom of the card when something pends. Every paragraph is
+// the text part's own, under the same conditions.
+func (c SaleConfirmation) HTML(chrome MailChrome) (string, error) {
+	card := newCoverCard(c.Locale, saleConfirmationEyebrowCopy.in(c.Locale), c.EventName, c.Event)
+	card.Confirmed = true
+	card.Before = splitLines(c.opening())
+	// The text's Organizer line is the Organization row above.
+	details := c.details()
+	card.Details = &details
+
+	if c.SaleInvoiceFollows {
+		card.Middle = append(card.Middle, []string{saleConfirmationSaleInvoiceCopy.in(c.Locale)})
+	}
+	card.Middle = append(card.Middle, []string{saleConfirmationPresentCopy.in(c.Locale)})
+	if c.ConfirmationLink != "" {
+		button := newMailButton(c.Locale, saleConfirmationButtonCopy.in(c.Locale), c.ConfirmationLink)
+		card.Button = &button
+		card.After = append(card.After, []string{saleConfirmationLinkNoteCopy.in(c.Locale)})
+		if c.HasOutstandingAnswers {
+			card.After = append(card.After, []string{saleConfirmationOutstandingCopy.in(c.Locale)})
+		}
+	}
+	if c.ConsentConfirmationLink != "" {
+		card.Consent = &consentView{
+			Heading: saleConfirmationConsentHeadingCopy.in(c.Locale),
+			Body:    saleConfirmationConsentBodyCopy.in(c.Locale),
+			Label:   saleConfirmationConsentLinkCopy.in(c.Locale),
+			URL:     c.ConsentConfirmationLink,
+		}
+	}
+	return renderMail(mailKindCover, c.Locale, chrome, c.Subject(),
+		fmt.Sprintf(saleConfirmationPreheaderCopy.in(c.Locale), c.Reference),
+		fmt.Sprintf(buyerFooterReasonCopy.in(c.Locale), c.EventName),
+		card,
+	)
+}
+
+// HTML is the Assignment mail's HTML part: the Cover Image block in place of
+// the text's "Event:" line, where the address came from, the Ticket, what
+// accepting discloses, the Assignment Link as the one button, and that
+// ignoring it costs nothing.
+func (a TicketAssignment) HTML(chrome MailChrome) (string, error) {
+	card := newCoverCard(a.Locale, ticketAssignmentEyebrowCopy.in(a.Locale), a.EventName, a.Event)
+	card.Before = splitLines([]string{
+		fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName),
+		a.ticketLine(),
+		ticketAssignmentDisclosureCopy.in(a.Locale),
+	})
+	button := newMailButton(a.Locale, ticketAssignmentButtonCopy.in(a.Locale), a.AcceptURL)
+	card.LinkLead, card.Button = ticketAssignmentActionLeadCopy.in(a.Locale), &button
+	card.After = splitLines([]string{ticketAssignmentClosingCopy.in(a.Locale)})
+	return renderMail(mailKindCover, a.Locale, chrome, a.Subject(),
+		ticketAssignmentPreheaderCopy.in(a.Locale),
+		fmt.Sprintf(ticketAssignmentFooterReasonCopy.in(a.Locale), a.EventName),
+		card,
+	)
+}
+
+// HTML is the Re-addressing mail's HTML part: the Cover Image block in place
+// of the text's "Event:" line, who is writing and why, the reference, what
+// accepting does, the Re-addressing Link as the one button, and that ignoring
+// it costs nothing.
+func (r SaleReAddressing) HTML(chrome MailChrome) (string, error) {
+	card := newCoverCard(r.Locale, saleReAddressingEyebrowCopy.in(r.Locale), r.EventName, r.Event)
+	card.Before = splitLines([]string{
+		saleReAddressingOpeningCopy.in(r.Locale),
+		r.referenceLine(),
+		saleReAddressingWhyCopy.in(r.Locale),
+	})
+	button := newMailButton(r.Locale, saleReAddressingButtonCopy.in(r.Locale), r.AcceptURL)
+	card.LinkLead, card.Button = saleReAddressingActionLeadCopy.in(r.Locale), &button
+	card.After = splitLines([]string{saleReAddressingClosingCopy.in(r.Locale)})
+	return renderMail(mailKindCover, r.Locale, chrome, r.Subject(),
+		fmt.Sprintf(saleReAddressingPreheaderCopy.in(r.Locale), r.Reference),
+		fmt.Sprintf(saleReAddressingFooterReasonCopy.in(r.Locale), r.EventName),
+		card,
+	)
 }

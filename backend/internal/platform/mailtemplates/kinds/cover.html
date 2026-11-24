@@ -1,0 +1,24 @@
+{{/* The Cover Image card (#879): good news about an Event opens with its
+Cover Image, as the Storefront's Event page does. The Sale Confirmation, the
+Ticket Assignment and the Sale Re-addressing are written in it.
+
+The wide rendition full-bleed across the top of the card (dropped when there
+is none, so the block starts at the eyebrow), then the eyebrow, the Event's
+name as the mail's only <h1>, its date and venue, and the Organization row.
+A hairline, then the paragraphs before the details box, the box (the Sale
+Confirmation's Reference, total and Tax ID), the paragraphs after it, the
+mail's one link as the button (with the sentence leading to it, when the text
+has one), and the paragraphs after the button. Last, in its own bordered
+section, the consent block when it applies. Takes a coverCard. */}}
+{{define "card"}}{{with .WideURL}}<tr><td style="font-size:0;line-height:0;"><img src="{{.}}" width="600" alt="" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:12px 12px 0 0;"></td></tr>
+{{end}}<tr><td class="px" style="padding:{{if .WideURL}}28px{{else}}32px{{end}} 32px 16px;">
+{{template "coverEvent" .}}
+<div class="bd" style="height:0;border-top:1px solid #dadee5;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div>
+{{range .Before}}{{template "lines" .}}
+{{end}}{{with .Details}}{{template "details" .}}
+{{end}}{{range .Middle}}{{template "lines" .}}
+{{end}}{{with .Button}}{{if $.LinkLead}}{{template "paragraph" $.LinkLead}}
+{{end}}{{template "button" .}}
+{{end}}{{range .After}}{{template "lines" .}}
+{{end}}{{template "cardClose"}}{{with .Consent}}
+{{template "consent" .}}{{end}}{{end}}

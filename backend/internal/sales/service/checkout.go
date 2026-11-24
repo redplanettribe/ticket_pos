@@ -1132,6 +1132,7 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		To:               sale.CustomerEmail,
 		CustomerName:     displayName(sale.CustomerFirstName, sale.CustomerLastName),
 		EventName:        event.Name,
+		Event:            s.mailEvent(ctx, eventID),
 		Reference:        sale.ConfirmationRef,
 		AmountCents:      sale.AmountCents,
 		Currency:         event.Currency,

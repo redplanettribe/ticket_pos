@@ -139,7 +139,7 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	rs := corrected.Replacement
 	sent := false
 	if in.SendConfirmation {
-		if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs)); err == nil {
+		if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, s.mailEvent(ctx, event.ID), rs)); err == nil {
 			sent = true
 		}
 	}
