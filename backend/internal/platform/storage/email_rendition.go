@@ -47,9 +47,13 @@ const (
 	emailRenditionQuality = 82
 	// maxOriginalBytes and maxOriginalPixels bound what a rendition will read
 	// and decode, so a hostile or accidental original cannot exhaust memory.
-	// Both are far above any Cover Image the staff form produces.
+	// Both are far above any Cover Image the staff form produces (5 MB, which a
+	// phone photo only fits under well below 25 megapixels). The pixel cap is
+	// the one that binds: a PNG or WebP decodes to 4 bytes a pixel, so 25
+	// megapixels is about 100 MB, which a 512Mi API instance absorbs alongside
+	// a concurrent save or fill.
 	maxOriginalBytes  = 40 << 20
-	maxOriginalPixels = 50_000_000
+	maxOriginalPixels = 25_000_000
 )
 
 // BuildEmailWideObjectKey returns a unique object key for an Event's wide

@@ -19,12 +19,12 @@ import (
 //
 // BEST-EFFORT, ALWAYS. A rendition is produced after the save that changed its
 // original has committed, and a failure is logged and leaves it null, which
-// mail reads as "no image". Nothing here can fail an Organizer's save: mail
+// mail reads as "no image". Nothing here can fail an Event Owner's save: mail
 // imagery is never on the critical path. The rendition fill picks up whatever
 // is still null.
 
 // emailRenditionTimeout bounds the renders after one save. They run inside the
-// save's request, after its commit and before its answer, so the Organizer
+// save's request, after its commit and before its answer, so the Event Owner
 // waits for them (a read, a decode and an encode per rendition, well under a
 // second for a Cover Image the staff form produces). They are detached from
 // the request's cancellation, so a client hanging up does not abandon a

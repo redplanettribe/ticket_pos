@@ -17,7 +17,7 @@ import (
 // a crop shows which part of the original it kept.
 func bands(w, h int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for x := 0; x < w; x++ {
+	for x := range w {
 		c := color.RGBA{R: 220, G: 30, B: 30, A: 255}
 		switch {
 		case x >= 2*w/3:
@@ -25,7 +25,7 @@ func bands(w, h int) *image.RGBA {
 		case x >= w/3:
 			c = color.RGBA{R: 30, G: 200, B: 30, A: 255}
 		}
-		for y := 0; y < h; y++ {
+		for y := range h {
 			img.Set(x, y, c)
 		}
 	}
@@ -142,7 +142,7 @@ func TestTheSquareRenditionIsTheCentreOfTheImageAt128Px(t *testing.T) {
 func TestTheSquareRenditionCropsATallImageToItsCentreToo(t *testing.T) {
 	// A portrait original: the bands rotated, so rows rather than columns.
 	tall := image.NewRGBA(image.Rect(0, 0, 200, 600))
-	for y := 0; y < 600; y++ {
+	for y := range 600 {
 		c := red
 		switch {
 		case y >= 400:
@@ -150,7 +150,7 @@ func TestTheSquareRenditionCropsATallImageToItsCentreToo(t *testing.T) {
 		case y >= 200:
 			c = green
 		}
-		for x := 0; x < 200; x++ {
+		for x := range 200 {
 			tall.Set(x, y, c)
 		}
 	}
@@ -210,6 +210,11 @@ func TestAnOriginalWithTooManyPixelsIsRefusedBeforeDecoding(t *testing.T) {
 	huge := pngHeaderOnly(20000, 20000)
 	if _, err := RenderEmailWide(bytes.NewReader(huge)); err == nil {
 		t.Fatal("expected an error for an image over the pixel limit")
+	}
+	// 30 megapixels would decode to about 120 MB as RGBA, too much headroom to
+	// spend on mail imagery inside a 512Mi instance.
+	if _, err := RenderEmailSquare(bytes.NewReader(pngHeaderOnly(6000, 5000))); err == nil {
+		t.Fatal("expected an error for a 30 megapixel image")
 	}
 }
 

@@ -515,7 +515,7 @@ the Terraform defaults and fails if the three stop agreeing.
 
 Mail shows an Event's imagery through its email renditions (spec #870): the Cover Image as a JPEG 1200px wide, and a 128px square JPEG from the Thumbnail, or from the Cover Image cropped to its centre.
 It shows an Organization's Logo through the Logo's email rendition: a PNG fitted within 96px square, its transparency kept.
-The API renders them itself whenever an Organizer sets or replaces an Event's image, or an Org Admin the Organization's Logo, so only Events and Organizations saved before renditions existed are missing them.
+The API renders them itself whenever an Event Owner sets or replaces an Event's image, or an Org Admin the Organization's Logo, so only Events and Organizations saved before renditions existed are missing them.
 Until they are filled, mail about those Events and Organizations simply shows no images.
 
 **Run the fill once after the deploy that adds renditions (#876 and #877, migrations 144 and 145).**
