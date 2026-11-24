@@ -132,7 +132,8 @@ func TestStaffMailHTMLEscapesWhatPeopleTyped(t *testing.T) {
 	submitted.OrganizationName, submitted.Note = hostile, hostile
 	declined := goldenPayoutRequestDeclined(LocaleES)
 	declined.OrganizationName, declined.Reason = hostile, hostile
-	failed := PayoutRequestTransferFailed{Locale: LocaleEN, OrganizationName: hostile, AmountCents: 1, Currency: "USD", Reason: hostile}
+	failed := goldenPayoutRequestTransferFailed(LocaleEN)
+	failed.OrganizationName, failed.Reason = hostile, hostile
 	review := goldenQuestionReviewSubmitted(LocaleES)
 	review.OrganizationName, review.EventName, review.Note = hostile, hostile, hostile
 	answered := goldenQuestionReviewAnswered(LocaleEN)
@@ -173,7 +174,7 @@ func TestStaffMailHTMLEscapesWhatPeopleTyped(t *testing.T) {
 // sentence (ADR 0026 amendment).
 func TestPayoutTransferFailedHTMLNeverReadsAsARefusal(t *testing.T) {
 	for _, locale := range []Locale{LocaleEN, LocaleES} {
-		failed := PayoutRequestTransferFailed{Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 100, Currency: "USD", Reason: "Account closed"}
+		failed := goldenPayoutRequestTransferFailed(locale)
 		body, err := failed.HTML(goldenChrome)
 		if err != nil {
 			t.Fatalf("render: %v", err)

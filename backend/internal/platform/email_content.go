@@ -190,8 +190,8 @@ var (
 		"\n\nLas preguntas aprobadas se hacen desde ahora. Una pregunta rechazada no se hace; edítela y envíe de nuevo las preguntas del evento a revisión.",
 	)
 	questionReviewAnsweredPreheaderCopy = translated(
-		"What the platform operator ruled on each of your questions.",
-		"Lo que el operador de la plataforma resolvió sobre cada una de sus preguntas.",
+		"What the Platform Operator ruled on each of your questions.",
+		"Lo que el Operador de la Plataforma resolvió sobre cada una de sus preguntas.",
 	)
 	// The verdict goes to the one Member who submitted the Review.
 	questionReviewAnsweredFooterReasonCopy = translated(

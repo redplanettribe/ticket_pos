@@ -18,10 +18,10 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	annulment := goldenAnnulmentNotice(LocaleEN)
 	expiry := goldenCertificateExpiryWarning(LocaleES)
 	payoutSubmitted := goldenPayoutRequestSubmitted(LocaleEN)
-	payoutPaid := PayoutRequestPaid{To: "luis@example.com", Locale: LocaleES, OrganizationName: "Club de Jazz", AmountCents: 100, RequestedCents: 100, Currency: "USD"}
+	payoutPaid := goldenPayoutRequestPaid(LocaleES)
 	payoutDeclined := goldenPayoutRequestDeclined(LocaleEN)
-	transferSent := PayoutRequestTransferSent{To: "luis@example.com", Locale: LocaleEN, OrganizationName: "Club de Jazz", AmountCents: 100, Currency: "USD"}
-	transferFailed := PayoutRequestTransferFailed{To: "luis@example.com", Locale: LocaleES, OrganizationName: "Club de Jazz", AmountCents: 100, Currency: "USD", Reason: "Cuenta cerrada"}
+	transferSent := goldenPayoutRequestTransferSent(LocaleEN)
+	transferFailed := goldenPayoutRequestTransferFailed(LocaleES)
 	reviewSubmitted := goldenQuestionReviewSubmitted(LocaleES)
 	reviewAnswered := goldenQuestionReviewAnswered(LocaleEN)
 	revoked := goldenTicketQuestionRevoked(LocaleES)

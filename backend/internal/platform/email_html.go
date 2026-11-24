@@ -346,8 +346,8 @@ func (n AnnulmentNotice) HTML(chrome MailChrome) (string, error) {
 	)
 }
 
-// The staff and operator kinds (#875): notices to Organizers and Platform
-// Operators in the notice card, each in its reader's Staff Locale exactly as
+// The staff and operator kinds (#875): notices to an Organization's Members and
+// to Platform Operators in the notice card, each in its reader's Staff Locale exactly as
 // its text is. Only the Certificate Expiry Warning carries a link today, so it
 // is the only one with a button. The rest are the subject as heading and the
 // text's own paragraphs, so the two parts cannot drift.

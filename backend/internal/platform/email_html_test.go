@@ -125,7 +125,7 @@ func staffMailFixtures(locale Locale) []mailFixture {
 	submitted := goldenPayoutRequestSubmitted(locale)
 	add("payoutrequest-submitted", submitted.HTML, submitted.Text())
 
-	paid := PayoutRequestPaid{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, RequestedCents: 120000, Currency: "USD"}
+	paid := goldenPayoutRequestPaid(locale)
 	add("payoutrequest-paid", paid.HTML, paid.Text())
 	paid.AmountCents = 100000
 	add("payoutrequest-paid-shortfall", paid.HTML, paid.Text())
@@ -133,11 +133,10 @@ func staffMailFixtures(locale Locale) []mailFixture {
 	declined := goldenPayoutRequestDeclined(locale)
 	add("payoutrequest-declined", declined.HTML, declined.Text())
 
-	sent := PayoutRequestTransferSent{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD",
-		SubmittedAt: time.Date(2026, 11, 20, 3, 0, 0, 0, time.UTC)}
+	sent := goldenPayoutRequestTransferSent(locale)
 	add("payoutrequest-transfersent", sent.HTML, sent.Text())
 
-	failed := PayoutRequestTransferFailed{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD", Reason: "Account closed"}
+	failed := goldenPayoutRequestTransferFailed(locale)
 	add("payoutrequest-transferfailed", failed.HTML, failed.Text())
 
 	reviewSubmitted := goldenQuestionReviewSubmitted(locale)
@@ -164,6 +163,21 @@ func goldenPayoutRequestSubmitted(locale Locale) PayoutRequestSubmitted {
 		To: "ops@example.com", Locale: locale, OrganizationName: "Club de Jazz",
 		AmountCents: 120000, Currency: "USD", RequestedBy: "luis@example.com", Note: "We owe the venue on Monday",
 	}
+}
+
+func goldenPayoutRequestPaid(locale Locale) PayoutRequestPaid {
+	return PayoutRequestPaid{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, RequestedCents: 120000, Currency: "USD"}
+}
+
+func goldenPayoutRequestTransferSent(locale Locale) PayoutRequestTransferSent {
+	return PayoutRequestTransferSent{
+		To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD",
+		SubmittedAt: time.Date(2026, 11, 20, 3, 0, 0, 0, time.UTC),
+	}
+}
+
+func goldenPayoutRequestTransferFailed(locale Locale) PayoutRequestTransferFailed {
+	return PayoutRequestTransferFailed{To: "luis@example.com", Locale: locale, OrganizationName: "Club de Jazz", AmountCents: 120000, Currency: "USD", Reason: "Account closed"}
 }
 
 func goldenPayoutRequestDeclined(locale Locale) PayoutRequestDeclined {
