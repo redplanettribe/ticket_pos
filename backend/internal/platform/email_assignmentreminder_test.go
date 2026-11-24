@@ -67,7 +67,7 @@ func TestAssignmentReminderIsWrittenInSpanish(t *testing.T) {
 	}
 	text := reminder.Text()
 	for _, want := range []string{
-		"Hola Ana,",
+		"Hola Ana:",
 		"Noche de Jazz",
 		"viernes 11 de septiembre, 20:30",
 		"2 de sus 3 entradas aún no tienen dirección",

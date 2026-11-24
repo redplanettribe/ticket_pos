@@ -1065,7 +1065,7 @@ var (
 	)
 	assignmentReminderGreetingCopy = translated(
 		"Hi %s,",
-		"Hola %s,",
+		"Hola %s:",
 	)
 	// The Event and, when the zone can be loaded, when it starts — in the
 	// Event's own zone, so the buyer is told the day the doors open where the
