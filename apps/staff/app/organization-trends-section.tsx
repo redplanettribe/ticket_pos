@@ -645,9 +645,10 @@ function chartSelection(
   };
 }
 
-/** How a Daily chart's bucket is read aloud: its name and its stack height,
- * said partial for today and a month the span cuts. */
-function describeStack(
+/** How a Daily chart's bucket is read aloud: its name and its value (a
+ * stack's height, or a line's point), said partial for today and a month
+ * the span cuts. */
+function describeBucketValue(
   t: ReturnType<typeof useTranslations<"organizationTrends">>,
   format: (value: number) => string,
 ): (datum: TrendStackDatum) => string {
@@ -760,7 +761,7 @@ function StackedFigureChart({
                 data,
                 { figureId, selected, onSelect },
                 t("selectBucket", { figure: figureName, granularity: trends.granularity }),
-                describeStack(t, format),
+                describeBucketValue(t, format),
               )}
               ariaLabel={ariaLabel}
             />
@@ -891,7 +892,7 @@ function LineFigureChart({
                   data,
                   { figureId, selected, onSelect },
                   t("selectBucket", { figure: figureName, granularity: trends.granularity }),
-                  describeStack(t, format),
+                  describeBucketValue(t, format),
                 )
           }
           ariaLabel={ariaLabel}
