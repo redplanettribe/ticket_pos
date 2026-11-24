@@ -34,7 +34,10 @@ type Event struct {
 	Description    sql.NullString
 	CoverImageKey  sql.NullString
 	CoverVideoKey  sql.NullString
-	Discoverable   bool
+	// ThumbnailKey is the Event's optional square Thumbnail (migration 141),
+	// independent of the Cover Image.
+	ThumbnailKey sql.NullString
+	Discoverable bool
 	// FeeHandling is the Event's Fee Handling mode ('pass_on' or 'absorb'),
 	// constrained by the column's CHECK (migration 021).
 	FeeHandling string
@@ -65,6 +68,7 @@ type UpdateEventParams struct {
 	Description   sql.NullString
 	CoverImageKey sql.NullString
 	CoverVideoKey sql.NullString
+	ThumbnailKey  sql.NullString
 	Discoverable  bool
 	FeeHandling   string
 	// RegistrationMode and RegistrationURL are the External Registration pair.
@@ -101,7 +105,7 @@ func New(db *platform.DB) *Repository {
 const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
-	description, cover_image_key, cover_video_key, discoverable, fee_handling,
+	description, cover_image_key, cover_video_key, thumbnail_key, discoverable, fee_handling,
 	registration_mode, registration_url, registration_click_count, requires_named_tickets, created_at
 `
 
@@ -113,7 +117,7 @@ func scanEvent(row interface {
 	if err := row.Scan(
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
+		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.Discoverable, &e.FeeHandling,
 		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -145,7 +149,7 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 		if err := rows.Scan(
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
+			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.ThumbnailKey, &e.Discoverable, &e.FeeHandling,
 			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.RequiresNamedTickets, &e.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -214,11 +218,12 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			description = $10,
 			cover_image_key = $11,
 			cover_video_key = $12,
-			discoverable = $13,
-			fee_handling = $14,
-			registration_mode = $15,
-			registration_url = $16,
-			requires_named_tickets = $17
+			thumbnail_key = $13,
+			discoverable = $14,
+			fee_handling = $15,
+			registration_mode = $16,
+			registration_url = $17,
+			requires_named_tickets = $18
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,
@@ -226,7 +231,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 		nullTime(params.StartsAt), nullTime(params.EndsAt),
 		nullString(params.Timezone), nullString(params.VenueName),
 		nullString(params.VenueAddress), nullString(params.Description),
-		nullString(params.CoverImageKey), nullString(params.CoverVideoKey),
+		nullString(params.CoverImageKey), nullString(params.CoverVideoKey), nullString(params.ThumbnailKey),
 		params.Discoverable, params.FeeHandling,
 		params.RegistrationMode, nullString(params.RegistrationURL),
 		params.RequiresNamedTickets,

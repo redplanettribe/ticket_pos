@@ -84,7 +84,12 @@ type EventDetail struct {
 	// stored (ADR 0020).
 	CoverVideoKey *string `json:"cover_video_key"`
 	CoverVideoURL *string `json:"cover_video_url"`
-	Discoverable  bool    `json:"discoverable"`
+	// ThumbnailKey and ThumbnailURL are the Event's optional Thumbnail, its own
+	// square image, independent of the Cover Image. The URL is null when there is
+	// no Thumbnail: the Cover Image is never substituted for it (spec #853).
+	ThumbnailKey *string `json:"thumbnail_key"`
+	ThumbnailURL *string `json:"thumbnail_url"`
+	Discoverable bool    `json:"discoverable"`
 	// FeeHandling is the Event's Fee Handling mode, and the two rates are the
 	// Platform Fee schedule it is read with. The rates travel with the Event so
 	// the staff forms can show an organizer what a price means for the buyer and
@@ -194,6 +199,10 @@ type UpdateEventInput struct {
 	// it, nil leaves it alone, anything else must be a key under this Event's
 	// videos prefix.
 	CoverVideoKey *string
+	// ThumbnailKey attaches or clears the Thumbnail, exactly as CoverImageKey
+	// does the Cover Image: an empty string clears it, nil leaves it alone,
+	// anything else must be a key under this Event's thumbnails prefix.
+	ThumbnailKey *string
 	// FeeHandling is the submitted Fee Handling mode, or nil when the form said
 	// nothing about it — an update that omits it leaves the Event's mode alone.
 	FeeHandling *sales.FeeHandling
@@ -219,6 +228,11 @@ type CreateCoverUploadURLInput struct {
 
 // CreateVideoUploadURLInput requests a presigned Cover Video upload URL.
 type CreateVideoUploadURLInput struct {
+	ContentType string
+}
+
+// CreateThumbnailUploadURLInput requests a presigned Thumbnail upload URL.
+type CreateThumbnailUploadURLInput struct {
 	ContentType string
 }
 
@@ -655,12 +669,25 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	} else {
 		params.CoverVideoKey = event.CoverVideoKey
 	}
+	if input.ThumbnailKey != nil {
+		key := strings.TrimSpace(*input.ThumbnailKey)
+		if key == "" {
+			params.ThumbnailKey = sql.NullString{}
+		} else if !storage.ThumbnailKeyBelongsToEvent(key, actor.OrganizationID, eventID) {
+			return nil, catalog.ErrInvalidThumbnailKey()
+		} else {
+			params.ThumbnailKey = sql.NullString{String: key, Valid: true}
+		}
+	} else {
+		params.ThumbnailKey = event.ThumbnailKey
+	}
 
 	// The poster invariant: a Cover Video requires a Cover Image. It binds on the
 	// final state the update would leave behind, not on the fields the request
 	// happens to carry — so setting both at once is fine, clearing both is fine,
 	// and replacing the image under a video is fine, while attaching a video to an
-	// imageless Event or clearing the image out from under a video is not.
+	// imageless Event or clearing the image out from under a video is not. The
+	// Thumbnail is no poster and plays no part in it (spec #853).
 	if params.CoverVideoKey.Valid && !params.CoverImageKey.Valid {
 		return nil, catalog.ErrCoverVideoRequiresCoverImage()
 	}
@@ -744,6 +771,7 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	// whatever happens next cannot make this request wrong (ADR 0020).
 	s.deleteReplacedObject(ctx, event.CoverImageKey, params.CoverImageKey, "cover image", eventID)
 	s.deleteReplacedObject(ctx, event.CoverVideoKey, params.CoverVideoKey, "cover video", eventID)
+	s.deleteReplacedObject(ctx, event.ThumbnailKey, params.ThumbnailKey, "thumbnail", eventID)
 
 	detail := s.toEventDetail(updated)
 	return &detail, nil
@@ -971,6 +999,45 @@ func (s *Service) CreateVideoUploadURL(ctx context.Context, actor ActorContext, 
 	}
 
 	key, err := storage.BuildVideoObjectKey(actor.OrganizationID, eventID, contentType)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadURL, err := s.storage.PresignPut(ctx, key, contentType, 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.CoverUploadResult{
+		UploadURL: uploadURL,
+		ObjectKey: key,
+		PublicURL: s.storage.PublicURL(key),
+	}, nil
+}
+
+// CreateThumbnailUploadURL returns a presigned PUT URL for an Event Thumbnail.
+// Only JPEG is accepted: the Thumbnail is the browser's own export of the
+// organizer's square crop, stored verbatim under the Event's thumbnails prefix
+// (spec #853, ADR 0020).
+func (s *Service) CreateThumbnailUploadURL(ctx context.Context, actor ActorContext, eventID string, input CreateThumbnailUploadURLInput) (*storage.CoverUploadResult, error) {
+	if s.storage == nil {
+		return nil, catalog.ErrThumbnailUploadUnavailable()
+	}
+
+	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, catalog.ErrEventNotFound()
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(input.ContentType))
+	if !storage.ThumbnailContentTypeAllowed(contentType) {
+		return nil, catalog.ErrInvalidThumbnailKey()
+	}
+
+	key, err := storage.BuildThumbnailObjectKey(actor.OrganizationID, eventID, contentType)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,6 +1361,14 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		if s.storage != nil {
 			url := s.storage.PublicURL(key)
 			detail.CoverVideoURL = &url
+		}
+	}
+	if e.ThumbnailKey.Valid {
+		key := e.ThumbnailKey.String
+		detail.ThumbnailKey = &key
+		if s.storage != nil {
+			url := s.storage.PublicURL(key)
+			detail.ThumbnailURL = &url
 		}
 	}
 	return detail

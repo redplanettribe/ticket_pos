@@ -57,13 +57,17 @@ type PublicOrganizationSummary struct {
 
 // PublicEventCard is a summary row for Storefront listings (global explorer and org page).
 type PublicEventCard struct {
-	Slug           string                    `json:"slug"`
-	Name           string                    `json:"name"`
-	StartsAt       *time.Time                `json:"starts_at"`
-	EndsAt         *time.Time                `json:"ends_at"`
-	Timezone       *string                   `json:"timezone"`
-	VenueName      *string                   `json:"venue_name"`
-	CoverImageURL  *string                   `json:"cover_image_url"`
+	Slug          string     `json:"slug"`
+	Name          string     `json:"name"`
+	StartsAt      *time.Time `json:"starts_at"`
+	EndsAt        *time.Time `json:"ends_at"`
+	Timezone      *string    `json:"timezone"`
+	VenueName     *string    `json:"venue_name"`
+	CoverImageURL *string    `json:"cover_image_url"`
+	// ThumbnailURL is the Event's square Thumbnail for compact square frames,
+	// null when it has none. Never the Cover Image in disguise: a consumer that
+	// wants a fallback crops the Cover Image itself (spec #853).
+	ThumbnailURL   *string                   `json:"thumbnail_url"`
 	Organization   PublicOrganizationSummary `json:"organization"`
 	Currency       string                    `json:"currency"`
 	PriceFromCents *int                      `json:"price_from_cents"`
@@ -282,10 +286,13 @@ type PublicEventDetail struct {
 	// CoverVideoURL is the Event's optional Cover Video, played in the hero over
 	// the Cover Image poster. Only the key's derived URL is public; listings and
 	// link previews stay on the Cover Image (ADR 0020).
-	CoverVideoURL *string                   `json:"cover_video_url"`
-	HasEnded      bool                      `json:"has_ended"`
-	Organization  PublicOrganizationSummary `json:"organization"`
-	Currency      string                    `json:"currency"`
+	CoverVideoURL *string `json:"cover_video_url"`
+	// ThumbnailURL is the Event's square Thumbnail, null when it has none and
+	// never substituted with the Cover Image (spec #853).
+	ThumbnailURL *string                   `json:"thumbnail_url"`
+	HasEnded     bool                      `json:"has_ended"`
+	Organization PublicOrganizationSummary `json:"organization"`
+	Currency     string                    `json:"currency"`
 	// PriceIncludesFee reports that the quoted prices carry the platform's
 	// service fee — true under 'pass_on' Fee Handling. It is the whole basis of
 	// the Storefront's single muted "includes service fee" note: under 'absorb'
@@ -616,6 +623,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		Description:      nullStringPtr(row.Description),
 		CoverImageURL:    s.coverURL(row.CoverImageKey),
 		CoverVideoURL:    s.coverURL(row.CoverVideoKey),
+		ThumbnailURL:     s.coverURL(row.ThumbnailKey),
 		HasEnded:         eventEnded(row, now),
 		Organization:     s.publicOrgSummaryWithSupport(row.OrgName, row.OrgSlug, row.OrgLogoKey, row.OrgSupportWhatsApp),
 		Currency:         row.OrgCurrency,
@@ -793,6 +801,7 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 		VenueName:        nullStringPtr(row.VenueName),
 		Timezone:         nullStringPtr(row.Timezone),
 		CoverImageURL:    s.coverURL(row.CoverImageKey),
+		ThumbnailURL:     s.coverURL(row.ThumbnailKey),
 		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
 		Currency:         row.OrgCurrency,
 		Tags:             tags,

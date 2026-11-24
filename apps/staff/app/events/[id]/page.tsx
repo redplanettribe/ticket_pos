@@ -20,6 +20,9 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
 
   // Tags are managed by org_admin / event_owner only.
   const canManageTags = role === "org_admin" || role === "event_owner";
+  // The Thumbnail upload URL is Org Admin only on the server, so the card is
+  // too: an Event Owner would otherwise be offered an upload that is refused.
+  const canEditThumbnail = role === "org_admin";
 
-  return <EventDetailForm eventId={id} canManageTags={canManageTags} />;
+  return <EventDetailForm eventId={id} canManageTags={canManageTags} canEditThumbnail={canEditThumbnail} />;
 }

@@ -12278,6 +12278,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/thumbnail-upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create thumbnail upload URL
+         * @description Returns a presigned PUT URL for uploading an event Thumbnail, the event's square image (JPEG only).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Upload details */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.thumbnailUploadURLBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCoverUploadURL"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets": {
         parameters: {
             query?: never;
@@ -15770,6 +15853,13 @@ export interface components {
              */
             terms_acceptance?: boolean;
         };
+        "handler.thumbnailUploadURLBody": {
+            /**
+             * @description ContentType must be image/jpeg: the staff app always exports the
+             *     organizer's square crop as JPEG, so nothing else is ever a Thumbnail.
+             */
+            content_type?: string;
+        };
         "handler.ticketQuestionBody": {
             /** @description Kind is one of the seven; see catalog.ParseTicketQuestionKind. */
             kind?: string;
@@ -15845,6 +15935,11 @@ export interface components {
             requires_named_tickets?: boolean;
             slug?: string;
             starts_at?: string;
+            /**
+             * @description ThumbnailKey attaches or clears the Thumbnail, behaving exactly like
+             *     cover_image_key: absent leaves it alone, an empty string clears it.
+             */
+            thumbnail_key?: string;
             timezone?: string;
             venue_address?: string;
             venue_name?: string;
@@ -18297,6 +18392,13 @@ export interface components {
             slug?: string;
             starts_at?: string;
             status?: string;
+            /**
+             * @description ThumbnailKey and ThumbnailURL are the Event's optional Thumbnail, its own
+             *     square image, independent of the Cover Image. The URL is null when there is
+             *     no Thumbnail: the Cover Image is never substituted for it (spec #853).
+             */
+            thumbnail_key?: string;
+            thumbnail_url?: string;
             /**
              * @description TicketAssignmentEnabled is the platform's Ticket Assignment feature flag
              *     (ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff
@@ -20898,6 +21000,12 @@ export interface components {
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];
             /**
+             * @description ThumbnailURL is the Event's square Thumbnail for compact square frames,
+             *     null when it has none. Never the Cover Image in disguise: a consumer that
+             *     wants a fallback crops the Cover Image itself (spec #853).
+             */
+            thumbnail_url?: string;
+            /**
              * @description TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
              *     quantities on active Ticket Sales across every Sales Channel, Capacity
              *     Holds excluded — floored at 5: an integer at or above the floor, null
@@ -21045,6 +21153,11 @@ export interface components {
              */
             surrenderable_free_tickets?: number;
             tags?: components["schemas"]["service.TagView"][];
+            /**
+             * @description ThumbnailURL is the Event's square Thumbnail, null when it has none and
+             *     never substituted with the Cover Image (spec #853).
+             */
+            thumbnail_url?: string;
             ticket_types?: components["schemas"]["service.PublicTicketType"][];
             /**
              * @description TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line

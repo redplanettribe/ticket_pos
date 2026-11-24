@@ -49,6 +49,9 @@ type updateEventBody struct {
 	// CoverVideoKey attaches or clears the Cover Video. Absent leaves it alone,
 	// an empty string clears it, mirroring cover_image_key.
 	CoverVideoKey *string `json:"cover_video_key"`
+	// ThumbnailKey attaches or clears the Thumbnail, behaving exactly like
+	// cover_image_key: absent leaves it alone, an empty string clears it.
+	ThumbnailKey *string `json:"thumbnail_key"`
 	// FeeHandling is the Event's Fee Handling mode. Absent means "leave it
 	// alone": a form that does not know about the switch must not reset it.
 	FeeHandling *string `json:"fee_handling"`
@@ -67,6 +70,12 @@ type updateEventBody struct {
 type coverUploadURLBody struct {
 	ContentType string  `json:"content_type"`
 	FileName    *string `json:"file_name"`
+}
+
+type thumbnailUploadURLBody struct {
+	// ContentType must be image/jpeg: the staff app always exports the
+	// organizer's square crop as JPEG, so nothing else is ever a Thumbnail.
+	ContentType string `json:"content_type"`
 }
 
 type videoUploadURLBody struct {
@@ -515,6 +524,64 @@ func (h *Handler) CreateVideoUploadURL(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
+// CreateThumbnailUploadURL returns a presigned URL for uploading an Event Thumbnail.
+//
+// @Summary      Create thumbnail upload URL
+// @Description  Returns a presigned PUT URL for uploading an event Thumbnail, the event's square image (JPEG only).
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string                  true  "Event ID"
+// @Param        body  body      thumbnailUploadURLBody  true  "Upload details"
+// @Success      200   {object}  openapi.EnvelopeCoverUploadURL
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/thumbnail-upload-url [post]
+func (h *Handler) CreateThumbnailUploadURL(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
+		})
+		return
+	}
+
+	var body thumbnailUploadURLBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
+	if contentType == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Code: platform.CodeRequired, Message: "is required"},
+		})
+		return
+	}
+	if !storage.ThumbnailContentTypeAllowed(contentType) {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Code: platform.CodeInvalidThumbnailContentType, Message: "must be image/jpeg"},
+		})
+		return
+	}
+
+	actor := actorFromRequest(r)
+
+	result, err := h.svc.CreateThumbnailUploadURL(r.Context(), actor, eventID, service.CreateThumbnailUploadURLInput{
+		ContentType: contentType,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
 type createTicketTypeBody struct {
 	Name        string  `json:"name"`
 	Description *string `json:"description"`
@@ -930,6 +997,7 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		Description:          body.Description,
 		CoverImageKey:        body.CoverImageKey,
 		CoverVideoKey:        body.CoverVideoKey,
+		ThumbnailKey:         body.ThumbnailKey,
 		FeeHandling:          feeHandling,
 		RegistrationMode:     registrationMode,
 		RegistrationURL:      registrationURL,

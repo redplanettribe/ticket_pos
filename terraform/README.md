@@ -123,7 +123,7 @@ gcloud and the console. Both must be flipped off, in two applies, before the ins
 Single-zone is deliberate and recorded in ADR 0007. Regional HA is `availability_type = "REGIONAL"` in
 `cloud_sql.tf` — an in-place update, not a recreate, and roughly double the bill.
 
-**Bucket.** One public-read bucket for `covers/`, `logos/`, and `avatars/`. Two things about it matter:
+**Bucket.** One public-read bucket for `covers/`, `videos/`, `thumbnails/`, `logos/`, and `avatars/`. Two things about it matter:
 
 - *Everything in it is world-readable to anyone with the URL, forever.* The `allUsers` grant is
   bucket-wide and uniform access gives no per-object escape. Nothing private goes here.
@@ -133,6 +133,7 @@ Single-zone is deliberate and recorded in ADR 0007. Regional HA is `availability
   as an opaque browser network error on every image upload. The origins come from `staff_origin` and
   `storefront_origin` in `envs/prod/terraform.tfvars`; a new browser surface that uploads needs its origin
   added to both.
+  The rule's GET matters as well: Staff's "Crop from cover" reads the Cover Image cross-origin to draw it onto a canvas, so the Staff origin must stay listed for that read, not only for uploads.
 
 Access is via the S3-compatible API with an HMAC key, so `platform/storage` runs the same code against
 GCS and MinIO (ADR 0007). The key belongs to a dedicated service account holding `objectAdmin` on this

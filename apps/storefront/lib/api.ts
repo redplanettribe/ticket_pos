@@ -363,6 +363,10 @@ export type PublicEventCard = {
   timezone: string | null;
   venue_name: string | null;
   cover_image_url: string | null;
+  // The Event's Thumbnail, its own square image, or null when it has none: the
+  // API never substitutes the Cover Image. Which one a card shows is
+  // cardImageUrl's decision (lib/card-image.ts).
+  thumbnail_url: string | null;
   organization: PublicOrganizationSummary;
   currency: string;
   price_from_cents: number | null;
@@ -507,6 +511,9 @@ export type PublicEventDetail = {
   // The Event's optional Cover Video, played in the hero over the cover image
   // poster. Listings and link previews stay on the cover image.
   cover_video_url: string | null;
+  // The Event's Thumbnail, or null. The Event page has no square frame, so
+  // nothing renders it yet; it is typed because the API sends it.
+  thumbnail_url: string | null;
   has_ended: boolean;
   organization: PublicOrganizationSummary;
   currency: string;

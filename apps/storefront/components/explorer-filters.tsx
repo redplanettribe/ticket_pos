@@ -131,6 +131,9 @@ export function ExplorerFilters({
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t("searchLabel")}
           aria-label={t("searchLabel")}
+          // On a phone the Spanish placeholder is wider than the field: end it
+          // in an ellipsis rather than cut through a letter.
+          className="text-ellipsis"
         />
         <Button type="submit">{t("searchSubmit")}</Button>
       </form>

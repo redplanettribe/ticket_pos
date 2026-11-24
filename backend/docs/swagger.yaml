@@ -1092,6 +1092,14 @@ components:
             refused by the API, not merely by a disabled button.
           type: boolean
       type: object
+    handler.thumbnailUploadURLBody:
+      properties:
+        content_type:
+          description: |-
+            ContentType must be image/jpeg: the staff app always exports the
+            organizer's square crop as JPEG, so nothing else is ever a Thumbnail.
+          type: string
+      type: object
     handler.ticketQuestionBody:
       properties:
         kind:
@@ -1195,6 +1203,11 @@ components:
         slug:
           type: string
         starts_at:
+          type: string
+        thumbnail_key:
+          description: |-
+            ThumbnailKey attaches or clears the Thumbnail, behaving exactly like
+            cover_image_key: absent leaves it alone, an empty string clears it.
           type: string
         timezone:
           type: string
@@ -4846,6 +4859,14 @@ components:
           type: string
         status:
           type: string
+        thumbnail_key:
+          description: |-
+            ThumbnailKey and ThumbnailURL are the Event's optional Thumbnail, its own
+            square image, independent of the Cover Image. The URL is null when there is
+            no Thumbnail: the Cover Image is never substituted for it (spec #853).
+          type: string
+        thumbnail_url:
+          type: string
         ticket_assignment_enabled:
           description: |-
             TicketAssignmentEnabled is the platform's Ticket Assignment feature flag
@@ -8212,6 +8233,12 @@ components:
             $ref: '#/components/schemas/service.TagView'
           type: array
           uniqueItems: false
+        thumbnail_url:
+          description: |-
+            ThumbnailURL is the Event's square Thumbnail for compact square frames,
+            null when it has none. Never the Cover Image in disguise: a consumer that
+            wants a fallback crops the Cover Image itself (spec #853).
+          type: string
         tickets_sold:
           description: |-
             TicketsSold is the Event's Tickets Sold figure — Ticket Sale Line
@@ -8376,6 +8403,11 @@ components:
             $ref: '#/components/schemas/service.TagView'
           type: array
           uniqueItems: false
+        thumbnail_url:
+          description: |-
+            ThumbnailURL is the Event's square Thumbnail, null when it has none and
+            never substituted with the Cover Image (spec #853).
+          type: string
         ticket_types:
           items:
             $ref: '#/components/schemas/service.PublicTicketType'
@@ -21251,6 +21283,64 @@ paths:
       security:
       - BearerAuth: []
       summary: Set event tags
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/thumbnail-upload-url:
+    post:
+      description: Returns a presigned PUT URL for uploading an event Thumbnail, the
+        event's square image (JPEG only).
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.thumbnailUploadURLBody'
+                description: Upload details
+                summary: body
+        description: Upload details
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCoverUploadURL'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Create thumbnail upload URL
       tags:
       - staff
   /api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets:

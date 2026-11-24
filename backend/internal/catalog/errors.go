@@ -202,6 +202,19 @@ func ErrInvalidCoverVideoKey() apperror.DomainError {
 	return apperror.New("INVALID_COVER_VIDEO_KEY", "Cover video key is not valid for this event.", nil)
 }
 
+// ErrThumbnailUploadUnavailable is returned when object storage is not configured.
+func ErrThumbnailUploadUnavailable() apperror.DomainError {
+	return apperror.New("THUMBNAIL_UPLOAD_UNAVAILABLE", "Thumbnail upload is not available.", nil)
+}
+
+// ErrInvalidThumbnailKey is returned when a thumbnail_key does not belong to the
+// event. A key under the covers or videos prefix is invalid here too: the
+// prefixes are disjoint so one image's key never attaches to another's slot
+// (ADR 0020).
+func ErrInvalidThumbnailKey() apperror.DomainError {
+	return apperror.New("INVALID_THUMBNAIL_KEY", "Thumbnail key is not valid for this event.", nil)
+}
+
 // ErrCoverVideoRequiresCoverImage is returned when an Event update would leave a Cover
 // Video without the Cover Image that serves as its poster — whether by attaching a video
 // to an imageless Event or by clearing the image out from under an existing video. The

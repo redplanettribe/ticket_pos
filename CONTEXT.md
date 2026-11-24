@@ -146,19 +146,27 @@ _Avoid_: Locale (which is the Storefront's page property), Member Locale, staff 
 
 **Event**:
 A scheduled occurrence belonging to an Organization, for which tickets are sold.
-Has scheduling (start and optional end, timezone, venue), optional markdown description, Cover Image, and Cover Video, and a lifecycle status.
+Has scheduling (start and optional end, timezone, venue), optional markdown description, Cover Image, Cover Video, and Thumbnail, and a lifecycle status.
 _Avoid_: Show, gig, occurrence
 
 **Cover Image**:
 An Event's optional still image, shown on Storefront listings, the Event page hero, and link previews.
 Required before a Cover Video may be attached, and cannot be removed while one is; it serves as the Cover Video's poster.
-Distinct from a Logo, which represents the Organization rather than a single Event.
-_Avoid_: Banner, thumbnail, hero image, photo
+Stands in for a missing Thumbnail in a square frame, cropped to its centre.
+Distinct from a Logo, which represents the Organization rather than a single Event, and from the Thumbnail, the Event's square image.
+_Avoid_: Banner, hero image, photo
 
 **Cover Video**:
 An Event's optional short looping video, shown in the Event page hero in place of the Cover Image once it has loaded.
 Requires a Cover Image to exist as its poster; appears only in the hero — listings and link previews always use the Cover Image.
 _Avoid_: Trailer, promo video, hero video, clip
+
+**Thumbnail**:
+An Event's optional square image, framed by the organizer, shown wherever an Event appears in a compact square frame, such as a Timeline row.
+Independent of the Cover Image: either may exist without the other, and one may be cropped from the other without staying tied to it afterwards.
+An Event without one falls back to its Cover Image, cropped to the centre, in the same frame.
+Wide frames - the Organization page's cards, the Event page hero, link previews - always use the Cover Image.
+_Avoid_: Square image, card image, listing image, avatar, icon
 
 **Event status**:
 Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).

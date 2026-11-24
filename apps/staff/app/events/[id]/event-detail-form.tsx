@@ -2,7 +2,7 @@
 
 import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Alert,
@@ -37,13 +37,15 @@ import {
 import { EventCoverImage } from "./event-cover-image";
 import { EventCoverVideo } from "./event-cover-video";
 import { EventTagsSection } from "./event-tags-section";
+import { EventThumbnail } from "./event-thumbnail";
 
 type EventDetailFormProps = {
   eventId: string;
   canManageTags: boolean;
+  canEditThumbnail: boolean;
 };
 
-export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps) {
+export function EventDetailForm({ eventId, canManageTags, canEditThumbnail }: EventDetailFormProps) {
   const t = useTranslations("event");
   const errorCopy = useMessages().errors;
   const router = useRouter();
@@ -62,6 +64,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [coverVideoUrl, setCoverVideoUrl] = useState<string | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
   const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("tickets");
   const [registrationUrl, setRegistrationUrl] = useState("");
@@ -82,11 +85,20 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     setDescription(event.description ?? "");
     setCoverImageUrl(event.cover_image_url);
     setCoverVideoUrl(event.cover_video_url);
+    setThumbnailUrl(event.thumbnail_url);
     setFeeHandling(event.fee_handling);
     setRegistrationMode(event.registration_mode);
     setRegistrationUrl(event.registration_url ?? "");
     setRequiresNamedTickets(event.requires_named_tickets);
   }, []);
+
+  // The copy is read through a ref so that loading depends on the Event alone.
+  // Every media card calls router.refresh() after a save, which hands this
+  // component fresh `t` and `errorCopy` identities; were they dependencies, the
+  // refresh would refetch the Event and swap the whole form for the loading
+  // line, throwing the organizer back to the top of the page.
+  const copyRef = useRef({ t, errorCopy });
+  copyRef.current = { t, errorCopy };
 
   const loadEvent = useCallback(async () => {
     setLoading(true);
@@ -95,14 +107,15 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
       const event = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}`);
       applyEvent(event);
     } catch (loadError) {
+      const copy = copyRef.current;
       setError(
-        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
-          t("loadFailed"),
+        apiErrorMessage(copy.errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          copy.t("loadFailed"),
       );
     } finally {
       setLoading(false);
     }
-  }, [applyEvent, errorCopy, eventId, t]);
+  }, [applyEvent, eventId]);
 
   useEffect(() => {
     void loadEvent();
@@ -287,6 +300,19 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
           router.refresh();
         }}
       />
+
+      {canEditThumbnail ? (
+        <EventThumbnail
+          eventId={eventId}
+          thumbnailUrl={thumbnailUrl}
+          coverImageUrl={coverImageUrl}
+          patchBody={patchBody}
+          onUpdated={(event) => {
+            applyEvent(event);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       <EventCoverVideo
         eventId={eventId}
