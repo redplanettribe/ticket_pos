@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/migrations"
 )
 
 // The Event Recap sweep (spec #884, #891), exercised through the internal
@@ -431,10 +432,13 @@ func TestEventRecapMigrationHasADownMigration(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		// Whatever happened above, leave the schema as every other test
-		// expects it.
-		_, _ = env.db.Exec(`CREATE TABLE IF NOT EXISTS event_recaps (
-			event_id UUID PRIMARY KEY REFERENCES events (id) ON DELETE CASCADE,
-			sent_at TIMESTAMPTZ NOT NULL)`)
+		// expects it: the table there, from the migration itself.
+		var table *string
+		if err := env.db.QueryRow(`SELECT to_regclass('event_recaps')::text`).Scan(&table); err == nil && table == nil {
+			if up, err := migrations.Files.ReadFile("146_event_recaps.sql"); err == nil {
+				_, _ = env.db.Exec(string(up))
+			}
+		}
 		_, _ = env.db.Exec(`INSERT INTO schema_migrations (version) VALUES ('146_event_recaps') ON CONFLICT DO NOTHING`)
 	})
 	if _, err := env.db.Exec(string(down)); err != nil {

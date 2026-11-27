@@ -110,18 +110,23 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 }
 
 // recapEvent writes ONE Event's recap to each of its readers and records the
-// Event. It reports false when the run's budget ran out before this Event's
-// readers were all written to, which ends the run.
+// Event. It reports false when the run's budget ran out before this Event was
+// begun, which ends the run with the Event untouched and still due.
 //
 // THE READERS ARE RESOLVED HERE, AT SEND TIME, never when the Event ended:
 // somebody made an Event Owner this morning gets it, and somebody whose
 // assignment was removed yesterday does not.
 //
+// THE BUDGET IS CHECKED ONCE PER EVENT, BEFORE ITS FIRST SEND, and an Event
+// once begun is finished. The recap goes once per Event, so a run that stopped
+// between two readers of one Event would leave the second without it for
+// good. The overrun is bounded by one Event's readers at the pacer's gap.
+//
 // THE EVENT IS RECORDED AFTER THE SENDS AND ONLY IF ONE WAS ACCEPTED, the
 // rule the Certificate Expiry Warning keeps for a mail with several readers. An
-// Event that reached nobody stays due and the next run retries it. One that
-// reached some readers and not others is recorded: the recap goes once per
-// Event, and retrying it would write a second time to those it reached.
+// Event that reached nobody stays due and the next run retries it. One whose
+// provider refused some readers and accepted others is recorded: retrying it
+// would write a second time to those it reached.
 //
 // AN EVENT WITH NO EVENT OWNER IS SKIPPED AND STAYS DUE in this ticket. Who is
 // written to then, and what becomes of an Event that resolves to nobody, is
@@ -140,18 +145,19 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		return true
 	}
 
+	// The gap comes first and the budget check second, as in the Reminder
+	// sweeps: a pause that spends the last of the budget ends the run here,
+	// with this Event unsent, rather than one Event past it.
+	pacer.pauseBefore(ctx, result.Sent+result.Failed)
+	if !s.now().Before(deadline) {
+		return false
+	}
+
 	sentAt := s.now()
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
-	accepted, withinBudget := 0, true
+	accepted := 0
 	for _, to := range recipients {
-		// The gap comes first and the budget check second, as in the Reminder
-		// sweeps: a pause that spends the last of the budget ends the run
-		// here, unsent, rather than one send past it.
 		pacer.pauseBefore(ctx, result.Sent+result.Failed)
-		if !s.now().Before(deadline) {
-			withinBudget = false
-			break
-		}
 		err := s.email.SendEventRecap(ctx, platform.EventRecap{
 			To:             to,
 			Locale:         s.staffLocale(ctx, to),
@@ -172,7 +178,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		accepted++
 	}
 	if accepted == 0 {
-		return withinBudget
+		return true
 	}
 	result.Recapped++
 	if err := s.eventRecaps.RecordEventRecapSent(ctx, c.EventID); err != nil {
@@ -180,7 +186,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		s.logger.Error(ctx, "an Event Recap was sent but could not be recorded; the next run will send it again",
 			"event_id", c.EventID, "error", err)
 	}
-	return withinBudget
+	return true
 }
 
 // distinctEmails is the addresses with repeats dropped, compared normalized,
