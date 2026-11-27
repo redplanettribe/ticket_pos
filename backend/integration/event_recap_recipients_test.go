@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"html"
 	"net/http"
 	"sort"
 	"strings"
@@ -89,6 +90,13 @@ func TestEventRecapGoesToEveryOrgAdminWhenTheEventHasNoEventOwner(t *testing.T) 
 		if recap.Locale != want {
 			t.Errorf("%s got locale %q, want %q", recap.To, recap.Locale, want)
 		}
+		reason := map[platform.Locale]string{
+			platform.LocaleEN: "You're getting this because Jazz Night has no Event Owner and you're an Org Admin of its Organization.",
+			platform.LocaleES: "Recibe este correo porque Jazz Night no tiene Responsable del evento y usted es Administrador de la organización.",
+		}[want]
+		if !strings.Contains(recapFooter(t, recap), reason) {
+			t.Errorf("%s was not told %q", recap.To, reason)
+		}
 	}
 }
 
@@ -103,6 +111,12 @@ func TestEventRecapDoesNotGoToTheOrgAdminsWhenTheEventHasAnEventOwner(t *testing
 
 	sweepEventRecapsAt(t, env, recapAt(1, 9, 0))
 	wantRecapReaders(t, "the morning after", "owner@example.com")
+	const reason = "You're getting this because you're an Event Owner of Jazz Night."
+	for _, recap := range sharedEmail.EventRecapsSent() {
+		if !strings.Contains(recapFooter(t, recap), reason) {
+			t.Errorf("%s was not told %q", recap.To, reason)
+		}
+	}
 }
 
 // A Member who is an Event Owner of the Event and an Org Admin of the
@@ -206,4 +220,15 @@ func TestEventRecapIsSentForAHouseOrganizationsEvents(t *testing.T) {
 
 	sweepEventRecapsAt(t, env, recapAt(1, 9, 0))
 	wantRecapReaders(t, "the morning after", "admin@example.com", "owner@example.com")
+}
+
+// recapFooter is one recap's HTML part as a reader sees it, entities decoded,
+// where the footer's reason is stated.
+func recapFooter(t *testing.T, recap platform.EventRecap) string {
+	t.Helper()
+	body, err := recap.HTML(platform.MailChrome{})
+	if err != nil {
+		t.Fatalf("render the recap: %v", err)
+	}
+	return html.UnescapeString(body)
 }

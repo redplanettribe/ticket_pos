@@ -39,6 +39,11 @@ var EventRecapWentLiveAt = time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
 type EventRecap struct {
 	To     string
 	Locale Locale
+	// ToOrgAdmin is whether To is written to as an Org Admin of the Event's
+	// Organization, because the Event has no Event Owner (#885), rather than
+	// as one of its Event Owners. It changes the footer's reason and nothing
+	// else.
+	ToOrgAdmin bool
 	// EventName is the Event the recap is about, named in the subject so
 	// recaps for different Events can be told apart in an inbox.
 	EventName string
@@ -72,6 +77,14 @@ type EventRecap struct {
 	// of the buyer at the link and never learns whether they signed up, and
 	// the count is not deduplicated. The mail calls it clicks and nothing else.
 	RegistrationLinkClicks *int
+}
+
+// footerReasonCopy is the footer's reason, by why the reader was written to.
+func (r EventRecap) footerReasonCopy() mailCopy {
+	if r.ToOrgAdmin {
+		return eventRecapOrgAdminFooterReasonCopy
+	}
+	return eventRecapFooterReasonCopy
 }
 
 // externalRegistration is whether this is the recap of an Event with External
@@ -294,11 +307,16 @@ var (
 		"%s is over. The live figures are in the staff app.",
 		"%s ha terminado. Las cifras en vivo están en la aplicación del personal.",
 	)
-	// The footer reason: an Event Owner, or whoever else answers for the
-	// Event, which is why it names the Event and not a role.
+	// The footer reason, by why the reader was written to: as an Event Owner
+	// of the Event, or as an Org Admin of its Organization because the Event
+	// has no Event Owner (#885). In the glossary's Spanish terms.
 	eventRecapFooterReasonCopy = translated(
-		"You're getting this because you answer for %s.",
-		"Recibe este correo porque responde por %s.",
+		"You're getting this because you're an Event Owner of %s.",
+		"Recibe este correo porque es Responsable del evento %s.",
+	)
+	eventRecapOrgAdminFooterReasonCopy = translated(
+		"You're getting this because %s has no Event Owner and you're an Org Admin of its Organization.",
+		"Recibe este correo porque %s no tiene Responsable del evento y usted es Administrador de la organización.",
 	)
 )
 
@@ -591,7 +609,7 @@ func (r EventRecap) HTML(chrome MailChrome) (string, error) {
 	}
 	return renderMail(mailKindEventRecap, r.Locale, chrome, r.Subject(),
 		fmt.Sprintf(eventRecapPreheaderCopy.in(r.Locale), r.EventName),
-		fmt.Sprintf(eventRecapFooterReasonCopy.in(r.Locale), r.EventName),
+		fmt.Sprintf(r.footerReasonCopy().in(r.Locale), r.EventName),
 		card,
 	)
 }

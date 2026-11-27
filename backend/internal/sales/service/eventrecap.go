@@ -187,7 +187,7 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 // one over longest first, until enough of them starved the rest. It is
 // logged, so an operator can find it, and counted as Unaddressed.
 func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate, pacer *reminderPacer, deadline time.Time, result *EventRecapSweepResult) bool {
-	readers, err := s.eventRecapReaders(ctx, c)
+	readers, toOrgAdmins, err := s.eventRecapReaders(ctx, c)
 	if err != nil {
 		result.Skipped++
 		s.logger.Error(ctx, "event recap: the Event's readers could not be read; the Event stays due", "event_id", c.EventID, "error", err)
@@ -261,7 +261,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	accepted := 0
 	for _, to := range readers {
 		pacer.pauseBefore(ctx, result.Sent+result.Failed)
-		recap.To, recap.Locale = to, s.staffLocale(ctx, to)
+		recap.To, recap.Locale, recap.ToOrgAdmin = to, s.staffLocale(ctx, to), toOrgAdmins
 		err := s.email.SendEventRecap(ctx, recap)
 		if err != nil {
 			// The address is not logged: the log counts readers and names
@@ -322,19 +322,22 @@ func (s *Service) releaseEventRecap(ctx context.Context, c catalog.EventRecapCan
 // Org Admin of a busy Organization. One copy per person: the addresses are
 // compared normalized, so a Member who holds an Event Owner assignment and was
 // later made Org Admin is written to once.
-func (s *Service) eventRecapReaders(ctx context.Context, c catalog.EventRecapCandidate) ([]string, error) {
+//
+// toOrgAdmins says which of the two lists it is, which the mail's footer
+// states as the reason it was sent.
+func (s *Service) eventRecapReaders(ctx context.Context, c catalog.EventRecapCandidate) (readers []string, toOrgAdmins bool, err error) {
 	owners, err := s.eventRecapRecipients.EventOwnerEmails(ctx, c.EventID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if readers := distinctEmails(owners); len(readers) > 0 {
-		return readers, nil
+		return readers, false, nil
 	}
 	admins, err := s.eventRecapRecipients.OrgAdminEmails(ctx, c.OrganizationID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return distinctEmails(admins), nil
+	return distinctEmails(admins), true, nil
 }
 
 // distinctEmails is the addresses with repeats dropped, compared normalized,

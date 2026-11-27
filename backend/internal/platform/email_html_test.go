@@ -403,6 +403,9 @@ func staffMailFixtures(locale Locale) []mailFixture {
 
 	add("eventrecap", goldenEventRecap(locale))
 	add("eventrecap-external", goldenExternalEventRecap(locale))
+	toOrgAdmin := goldenEventRecap(locale)
+	toOrgAdmin.ToOrgAdmin = true
+	add("eventrecap-orgadmin", toOrgAdmin)
 	return fixtures
 }
 

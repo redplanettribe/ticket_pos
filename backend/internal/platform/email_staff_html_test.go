@@ -24,7 +24,7 @@ func TestStaffMailFixturesCoverEveryKind(t *testing.T) {
 	kinds := map[string]bool{}
 	for _, f := range staffFixtures() {
 		name := strings.TrimSuffix(strings.TrimSuffix(f.name, "-en"), "-es")
-		for _, variant := range []string{"-expiring", "-expired", "-shortfall", "-external"} {
+		for _, variant := range []string{"-expiring", "-expired", "-shortfall", "-external", "-orgadmin"} {
 			name = strings.TrimSuffix(name, variant)
 		}
 		kinds[name] = true
@@ -294,6 +294,8 @@ func TestStaffMailFooterSaysWhyTheReaderGotIt(t *testing.T) {
 				want = strings.Replace(questionReviewAnsweredFooterReasonCopy.in(f.locale), "%s", "Noche de Jazz", 1)
 			case strings.HasPrefix(f.name, "ticketquestionrevoked-"):
 				want = strings.Replace(questionRevokedFooterReasonCopy.in(f.locale), "%s", "Club de Jazz", 1)
+			case strings.HasPrefix(f.name, "eventrecap-orgadmin-"):
+				want = strings.Replace(eventRecapOrgAdminFooterReasonCopy.in(f.locale), "%s", "Noche de Jazz", 1)
 			case strings.HasPrefix(f.name, "eventrecap-"):
 				want = strings.Replace(eventRecapFooterReasonCopy.in(f.locale), "%s", "Noche de Jazz", 1)
 			default:
