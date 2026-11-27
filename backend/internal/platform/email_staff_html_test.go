@@ -44,7 +44,9 @@ func TestStaffMailHTMLCarriesTheTextPartWordForWord(t *testing.T) {
 			}
 			read := textOf(parseMail(t, body))
 			for _, line := range strings.Split(f.text, "\n") {
-				if line = strings.TrimSpace(line); line != "" && !strings.Contains(read, line) {
+				// Word for word, whatever the spacing: the text part pads a
+				// table's columns with spaces, which are not words.
+				if line = strings.Join(strings.Fields(line), " "); line != "" && !strings.Contains(read, line) {
 					t.Errorf("the HTML part does not say %q", line)
 				}
 			}
@@ -237,6 +239,148 @@ func TestPayoutTransferFailedHTMLNeverReadsAsARefusal(t *testing.T) {
 			if strings.Contains(read, forbidden) {
 				t.Errorf("%s: the transfer-failed HTML reads as a refusal (%q)", locale, forbidden)
 			}
+		}
+	}
+}
+
+// The Event Recap states the Event's sales figures in both parts: its totals,
+// Tickets Sold and Ticket Sales by Sales Channel, Tickets Sold by Ticket Type,
+// and the count of reversed Sales, with money and counts in the marks of the
+// reader's Staff Locale (#886).
+func TestEventRecapStatesTheSalesFiguresInTheReadersStaffLocale(t *testing.T) {
+	for locale, want := range map[Locale][]string{
+		LocaleEN: {
+			"Tickets sold: 1,284",
+			"Ticket sales: 713",
+			"Takings: $23,450.50",
+			"Net Proceeds of Online Sales: $16,500.00",
+			"Reversed sales: 2 (left out of every figure here)",
+			"Sales Channel Tickets sold Ticket sales",
+			"Online 1,100 640",
+			"In person 150 60",
+			"Import 34 13",
+			"Ticket Type Tickets sold",
+			"General 1,004",
+			"Palco 280",
+			"Cortesía 0",
+		},
+		LocaleES: {
+			"Entradas vendidas: 1.284",
+			"Ventas de entradas: 713",
+			"Recaudación: $23.450,50",
+			"Ingresos netos de las ventas en línea: $16.500,00",
+			"Ventas revertidas: 2 (fuera de todas las cifras de este correo)",
+			"Canal de venta Entradas vendidas Ventas de entradas",
+			"En línea 1.100 640",
+			"Presencial 150 60",
+			"Importación 34 13",
+			"Tipo de entrada Entradas vendidas",
+			"General 1.004",
+			"Palco 280",
+			"Cortesía 0",
+		},
+	} {
+		recap := goldenEventRecap(locale)
+		body, err := recap.HTML(goldenChrome)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		parts := map[string]string{
+			"HTML": textOf(parseMail(t, body)),
+			"text": strings.Join(strings.Fields(recap.Text()), " "),
+		}
+		for part, read := range parts {
+			for _, figure := range want {
+				if !strings.Contains(read, figure) {
+					t.Errorf("%s: the %s part does not say %q:\n%s", locale, part, figure, read)
+				}
+			}
+			if strings.Contains(strings.ToLower(read), "asistentes") {
+				t.Errorf("%s: the %s part says asistentes; a ticket sold is not a person who came", locale, part)
+			}
+		}
+	}
+}
+
+// The text part's tables are padded into columns, the figures set to the
+// right, so they read as tables where the client keeps the spacing.
+func TestEventRecapTextPartAlignsItsTables(t *testing.T) {
+	text := goldenEventRecap(LocaleEN).Text()
+	for _, table := range []string{
+		"Sales Channel  Tickets sold  Ticket sales\n" +
+			"Online                1,100           640\n" +
+			"In person               150            60\n" +
+			"Import                   34            13",
+		"Ticket Type  Tickets sold\n" +
+			"General             1,004\n" +
+			"Palco                 280\n" +
+			"Cortesía                0",
+	} {
+		if !strings.Contains(text, table) {
+			t.Errorf("the text part does not carry this table:\n%s\n\nit reads:\n%s", table, text)
+		}
+	}
+}
+
+// An Event that sold nothing states its totals as zeros and has no table to
+// split them in; a recap with no sales figures at all states none.
+func TestEventRecapOfAnEventThatSoldNothingStatesItsTotalsAndNoTable(t *testing.T) {
+	recap := goldenEventRecap(LocaleEN)
+	recap.Sales = &EventRecapSales{
+		Currency:    "USD",
+		Channels:    []EventRecapChannel{{Channel: "online"}, {Channel: "in_person"}, {Channel: "import"}},
+		TicketTypes: []EventRecapTicketType{{Name: "General"}},
+	}
+	body, err := recap.HTML(goldenChrome)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	doc := parseMail(t, body)
+	for _, part := range []string{textOf(doc), recap.Text()} {
+		for _, figure := range []string{"Tickets sold: 0", "Ticket sales: 0", "Takings: $0.00", "Net Proceeds of Online Sales: $0.00", "Reversed sales: 0"} {
+			if !strings.Contains(part, figure) {
+				t.Errorf("the mail does not say %q:\n%s", figure, part)
+			}
+		}
+		if strings.Contains(part, "Sales Channel") || strings.Contains(part, "Ticket Type") || strings.Contains(part, "left out") {
+			t.Errorf("an Event that sold nothing has a table or a reversal note:\n%s", part)
+		}
+	}
+	if n := len(findAll(doc, func(n *html.Node) bool { return n.Data == "th" })); n != 0 {
+		t.Errorf("found %d column headings, want no table", n)
+	}
+
+	recap.Sales = nil
+	if text := recap.Text(); strings.Contains(text, "Tickets sold") || strings.Contains(text, "Takings") {
+		t.Errorf("a recap with no sales figures states some:\n%s", text)
+	}
+}
+
+// Money is written as the staff app writes it for the same Staff Locale, in
+// the Organization's currency whoever reads.
+func TestFormatStaffMoney(t *testing.T) {
+	for _, c := range []struct {
+		cents    int
+		currency string
+		locale   Locale
+		want     string
+	}{
+		{0, "USD", LocaleEN, "$0.00"},
+		{0, "USD", LocaleES, "$0,00"},
+		{2505, "USD", LocaleEN, "$25.05"},
+		{2505, "USD", LocaleES, "$25,05"},
+		{123450, "USD", LocaleEN, "$1,234.50"},
+		{123450, "USD", LocaleES, "$1.234,50"},
+		{123456789, "USD", LocaleEN, "$1,234,567.89"},
+		{123456789, "USD", LocaleES, "$1.234.567,89"},
+		{-123450, "USD", LocaleEN, "-$1,234.50"},
+		{-123450, "USD", LocaleES, "$-1.234,50"},
+		{123450, "COP", LocaleEN, "COP 1,234.50"},
+		{123450, "COP", LocaleES, "COP 1.234,50"},
+		{123450, "USD", Locale(""), "$1,234.50"},
+	} {
+		if got := formatStaffMoney(c.cents, c.currency, c.locale); got != c.want {
+			t.Errorf("formatStaffMoney(%d, %s, %q) = %q, want %q", c.cents, c.currency, c.locale, got, c.want)
 		}
 	}
 }

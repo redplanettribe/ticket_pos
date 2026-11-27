@@ -208,6 +208,22 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 			return transactional.SendEventRecap(ctx, platform.EventRecap{
 				To: to, Locale: es, EventName: event, SentAt: now,
 				SalesTrendsURL: recapEvent + "/sales/trends", ReachURL: recapEvent + "/reach", SalesURL: recapEvent + "/sales",
+				Sales: &platform.EventRecapSales{
+					Currency:    "USD",
+					TicketsSold: 1284, TicketSales: 713,
+					TakingsCents: 2345050, NetProceedsCents: 1650000,
+					ReversedSales: 2,
+					Channels: []platform.EventRecapChannel{
+						{Channel: "online", TicketsSold: 1100, TicketSales: 640},
+						{Channel: "in_person", TicketsSold: 150, TicketSales: 60},
+						{Channel: "import", TicketsSold: 34, TicketSales: 13},
+					},
+					TicketTypes: []platform.EventRecapTicketType{
+						{Name: "General", TicketsSold: 1004},
+						{Name: "Palco", TicketsSold: 280},
+						{Name: "Cortesía", TicketsSold: 0},
+					},
+				},
 			})
 		}),
 		{name: "follow digest", identity: digestIdentity, locale: es, send: func(ctx context.Context) error {

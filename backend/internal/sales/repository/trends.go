@@ -80,6 +80,54 @@ func (r *Repository) SalesTrends(ctx context.Context, orgID, eventID, timezone s
 	return out, rows.Err()
 }
 
+// EventChannelSales is what one Event sold on one Sales Channel: its Tickets
+// Sold, and how many Ticket Sales they are.
+type EventChannelSales struct {
+	Channel     string
+	TicketsSold int
+	TicketSales int
+}
+
+// EventSalesByChannel totals an Event's active Ticket Sales per Sales Channel,
+// for the Event Recap (#886): the split of the Sales summary's Tickets Sold
+// and sales count that Organization Trends draws for an Organization
+// (OrganizationSalesByDay), read for one Event entire.
+//
+// It keeps their rules and adds none: the quantities of the lines of active
+// sales, and each sale counted once however many lines it has, so the
+// channels add up to SalesSummary's two counts over the same rows. Reversed
+// sales are left out. It reads no money: Takings and Net Proceeds stay with
+// the reads that already state them. A channel that sold nothing has no row.
+//
+// Bounded by the Event, like SalesTrends, and on the same index.
+func (r *Repository) EventSalesByChannel(ctx context.Context, orgID, eventID string) ([]EventChannelSales, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			ts.channel,
+			SUM(tsl.quantity)::bigint,
+			COUNT(DISTINCT ts.id)::bigint
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'active'
+		GROUP BY 1
+		ORDER BY 1
+	`, eventID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EventChannelSales
+	for rows.Next() {
+		var channel EventChannelSales
+		if err := rows.Scan(&channel.Channel, &channel.TicketsSold, &channel.TicketSales); err != nil {
+			return nil, err
+		}
+		out = append(out, channel)
+	}
+	return out, rows.Err()
+}
+
 // PlatformTicketsSoldDay is one (day, Sales Channel) cell of the platform's
 // Tickets Sold: how many tickets every Organization together sold on that
 // channel on that day. Day is a calendar date on the clock the caller named,

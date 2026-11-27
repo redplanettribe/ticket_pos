@@ -6,6 +6,8 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales"
+	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
 
 // The Event Recap sweep (spec #884, #891): the one email that tells the people
@@ -69,8 +71,8 @@ type EventRecapSweepResult struct {
 	// Failed is how many mails the provider refused. An Event none of whose
 	// readers could be written to stays due and is retried by the next run.
 	Failed int `json:"failed"`
-	// Skipped is how many Events were due but whose readers could not be read;
-	// they stay due.
+	// Skipped is how many Events were due but whose readers or sales figures
+	// could not be read; they stay due.
 	Skipped int `json:"skipped"`
 	// Unrecorded is how many Events were mailed but could not be recorded:
 	// counted in Recapped too, and the one case that can send a second recap.
@@ -170,7 +172,17 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		return false
 	}
 
+	// The figures are read once per Event, at the instant the mail says they
+	// are as of, so every reader of one Event is told the same numbers. An
+	// Event whose figures cannot be read is not mailed without them: it stays
+	// due, and the next run reads them again.
 	sentAt := s.now()
+	figures, err := s.eventRecapSales(ctx, c)
+	if err != nil {
+		result.Skipped++
+		s.logger.Error(ctx, "event recap: the Event's sales figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
+		return true
+	}
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
 	accepted := 0
 	for _, to := range readers {
@@ -183,6 +195,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 			SalesTrendsURL: eventURL + "/sales/trends",
 			ReachURL:       eventURL + "/reach",
 			SalesURL:       eventURL + "/sales",
+			Sales:          figures,
 		})
 		if err != nil {
 			// The address is not logged: the log counts readers and names
@@ -242,4 +255,110 @@ func distinctEmails(emails []string) []string {
 		out = append(out, email)
 	}
 	return out
+}
+
+// eventRecapChannels is the Sales Channels in the order the recap lists them,
+// each stated even where it sold nothing, so a reader sees that the door or
+// the imports moved no ticket rather than wondering whether they were counted.
+var eventRecapChannels = []string{"online", "in_person", "import"}
+
+// eventRecapSales is one Event's sales figures as they stand now, for its
+// Event Recap (#886), or nil for an Event with External Registration, which
+// produces no Ticket Sale and so has none.
+//
+// NO NEW ARITHMETIC. Each figure is read from the read model that already
+// states it on the staff surface the mail links to, so the two agree:
+//
+//   - Tickets Sold, Ticket Sales and Net Proceeds for the Event entire are
+//     the Sales summary's (repo.SalesSummary).
+//   - Takings, and Tickets Sold by Ticket Type, are Sales Trends' cells
+//     (repo.SalesTrends) added over the Event's days, as its charts add
+//     them, with the catalog its legend lists (repo.ListEventTicketTypes),
+//     a Ticket Type that sold nothing included.
+//   - The count of reversed Sales is the one both surfaces state
+//     (repo.ReversedSalesCount).
+//   - Tickets Sold and Ticket Sales by Sales Channel are
+//     repo.EventSalesByChannel, the one read this adds: the Sales summary's
+//     two counts grouped by channel, as Organization Trends groups them.
+//
+// Every one reads ACTIVE Ticket Sales only, so a Sale Reversal drops its
+// Sale whole from all of them.
+//
+// The reads are separate statements, not one snapshot. A sale recorded
+// between two of them would be in one figure and not another; the recap goes
+// the morning after the Event is over, and says its figures are a reading at
+// an instant, so the reads are not wrapped in a transaction for it.
+func (s *Service) eventRecapSales(ctx context.Context, c catalog.EventRecapCandidate) (*platform.EventRecapSales, error) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, c.OrganizationID, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
+		return nil, nil
+	}
+
+	summary, err := s.repo.SalesSummary(ctx, c.OrganizationID, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+	buckets, err := s.repo.SalesTrends(ctx, c.OrganizationID, c.EventID, resolveEventLocation(event.Timezone).String())
+	if err != nil {
+		return nil, err
+	}
+	ticketTypes, err := s.repo.ListEventTicketTypes(ctx, c.OrganizationID, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+	channels, err := s.repo.EventSalesByChannel(ctx, c.OrganizationID, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+	reversed, err := s.repo.ReversedSalesCount(ctx, c.OrganizationID, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+
+	figures := &platform.EventRecapSales{
+		Currency:         event.Currency,
+		TicketsSold:      summary.TicketsSold,
+		TicketSales:      summary.SalesCount,
+		NetProceedsCents: summary.NetProceedsCents,
+		ReversedSales:    reversed,
+	}
+
+	soldByType := make(map[string]int, len(ticketTypes))
+	for _, bucket := range buckets {
+		figures.TakingsCents += bucket.TakingsCents
+		soldByType[bucket.TicketTypeID] += bucket.Quantity
+	}
+	for _, ticketType := range ticketTypes {
+		figures.TicketTypes = append(figures.TicketTypes, platform.EventRecapTicketType{
+			Name: ticketType.Name, TicketsSold: soldByType[ticketType.ID],
+		})
+	}
+
+	byChannel := make(map[string]repository.EventChannelSales, len(channels))
+	for _, channel := range channels {
+		byChannel[channel.Channel] = channel
+	}
+	for _, name := range eventRecapChannels {
+		sold := byChannel[name]
+		delete(byChannel, name)
+		figures.Channels = append(figures.Channels, platform.EventRecapChannel{
+			Channel: name, TicketsSold: sold.TicketsSold, TicketSales: sold.TicketSales,
+		})
+	}
+	// A channel this list does not know yet is stated after the three, never
+	// dropped with its sales: the rows must add up to the totals above.
+	for _, channel := range channels {
+		if _, unlisted := byChannel[channel.Channel]; unlisted {
+			figures.Channels = append(figures.Channels, platform.EventRecapChannel{
+				Channel: channel.Channel, TicketsSold: channel.TicketsSold, TicketSales: channel.TicketSales,
+			})
+		}
+	}
+	return figures, nil
 }

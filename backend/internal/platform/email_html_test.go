@@ -411,6 +411,22 @@ func goldenEventRecap(locale Locale) EventRecap {
 		To: "owner@example.com", Locale: locale, EventName: "Noche de Jazz",
 		SentAt:         time.Date(2026, 12, 6, 14, 0, 0, 0, time.UTC),
 		SalesTrendsURL: event + "/sales/trends", ReachURL: event + "/reach", SalesURL: event + "/sales",
+		Sales: &EventRecapSales{
+			Currency:    "USD",
+			TicketsSold: 1284, TicketSales: 713,
+			TakingsCents: 2345050, NetProceedsCents: 1650000,
+			ReversedSales: 2,
+			Channels: []EventRecapChannel{
+				{Channel: "online", TicketsSold: 1100, TicketSales: 640},
+				{Channel: "in_person", TicketsSold: 150, TicketSales: 60},
+				{Channel: "import", TicketsSold: 34, TicketSales: 13},
+			},
+			TicketTypes: []EventRecapTicketType{
+				{Name: "General", TicketsSold: 1004},
+				{Name: "Palco", TicketsSold: 280},
+				{Name: "Cortesía", TicketsSold: 0},
+			},
+		},
 	}
 }
 
@@ -744,8 +760,22 @@ func assertMailStructure(t *testing.T, body, text string, locale Locale, assetOr
 		t.Errorf("<html lang> is not %q", locale)
 	}
 
+	// A table lays the mail out and says so, unless it is a table of figures,
+	// which has header cells and must stay a table to a screen reader.
 	for _, table := range findAll(doc, func(n *html.Node) bool { return n.Data == "table" }) {
-		if attr(table, "role") != "presentation" {
+		headers := findAll(table, func(n *html.Node) bool { return n.Data == "th" })
+		nested := findAll(table, func(n *html.Node) bool { return n.Data == "table" })
+		switch {
+		case len(headers) > 0 && len(nested) == 1:
+			if hasAttr(table, "role") {
+				t.Errorf("a table of figures has a role, which hides its headings from a screen reader")
+			}
+			for _, header := range headers {
+				if attr(header, "scope") != "col" {
+					t.Errorf("a column heading has no scope=\"col\"")
+				}
+			}
+		case attr(table, "role") != "presentation":
 			t.Errorf("a layout table has no role=\"presentation\"")
 		}
 	}

@@ -124,6 +124,24 @@ box. Takes a detailsView. */}}
 </tr></table>
 </td></tr></table>{{end}}
 
+{{/* A table of figures (#886): a row of column headings over hairlined rows.
+The first column names the row and reads from the left; every other column is
+a figure, set to the right so a column's digits line up. A DATA TABLE, the
+only one a mail has: it carries header cells and no role="presentation",
+which is for the tables that only lay a mail out. Takes a mailTable. */}}
+{{define "table"}}<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;border-collapse:collapse;">
+<tr>
+{{- range $i, $column := .Columns}}
+<th scope="col" class="t-muted bd" align="{{if $i}}right{{else}}left{{end}}" valign="bottom" style="padding:6px 0 6px {{if $i}}12px{{else}}0{{end}};border-bottom:1px solid #dadee5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;font-weight:600;color:#5c646f;text-align:{{if $i}}right{{else}}left{{end}};">{{$column}}</th>
+{{- end}}
+</tr>
+{{range .Rows}}<tr>
+{{- range $i, $cell := .}}
+<td class="t-fg bd" align="{{if $i}}right{{else}}left{{end}}" valign="top" style="padding:8px 0 8px {{if $i}}12px{{else}}0{{end}};border-bottom:1px solid #dadee5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:21px;color:#121921;text-align:{{if $i}}right{{else}}left{{end}};">{{$cell}}</td>
+{{- end}}
+</tr>
+{{end}}</table>{{end}}
+
 {{/* The consent block (#879): the Sale Confirmation's double opt-in, in its
 own section at the bottom of the card behind a hairline, so it never reads as
 part of the purchase. Its link is a plain link, not a second button: a mail
