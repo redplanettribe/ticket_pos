@@ -13,20 +13,8 @@ import (
 // until the Event was over, and its busiest Affiliate Links.
 //
 // THE LOADS ARE RECORDED THROUGH THE BEACON, the Storefront's own call, with
-// the affiliates clock moved to the moment of each, and the Affiliate Links
-// are made, followed and bought through with the real APIs.
-
-// loadRecapPage loads an Event's page count times at one moment, through the
-// Affiliate Link with that code when there is one.
-func loadRecapPage(t *testing.T, env *testEnv, at time.Time, slug, code string, count int) {
-	t.Helper()
-	sharedApp.AffiliatesService.WithClock(func() time.Time { return at })
-	for i := 0; i < count; i++ {
-		if resp, body := recordPageView(t, env, testOrgSlug, slug, code); resp.StatusCode < 200 || resp.StatusCode > 299 {
-			t.Fatalf("page view status=%d error=%+v", resp.StatusCode, body.Error)
-		}
-	}
-}
+// the affiliates clock moved to the moment of each (recordPageViews), and the
+// Affiliate Links are made, followed and bought through with the real APIs.
 
 // recapReach is the recap's reach figures, which every recap states.
 func recapReach(t *testing.T, recap platform.EventRecap) *platform.EventRecapReach {
@@ -69,14 +57,14 @@ func TestEventRecapCountsThePageViewsUntilTheEventWasOver(t *testing.T) {
 	over := recapAt(0, 23, 0)
 	f.publishedEvent(t, env, "Jazz Night", over)
 
-	loadRecapPage(t, env, recapAt(-3, 12, 10), "jazz-night", "", 2)
-	loadRecapPage(t, env, recapAt(0, 20, 30), "jazz-night", "", 3)
-	loadRecapPage(t, env, recapAt(0, 22, 59), "jazz-night", "", 1)
+	recordPageViews(t, env, recapAt(-3, 12, 10), testOrgSlug, "jazz-night", "", 2)
+	recordPageViews(t, env, recapAt(0, 20, 30), testOrgSlug, "jazz-night", "", 3)
+	recordPageViews(t, env, recapAt(0, 22, 59), testOrgSlug, "jazz-night", "", 1)
 	// From the over instant on: the hour that began at it, the night, and the
 	// morning of the recap itself.
-	loadRecapPage(t, env, over, "jazz-night", "", 4)
-	loadRecapPage(t, env, recapAt(1, 0, 5), "jazz-night", "", 8)
-	loadRecapPage(t, env, recapAt(1, 8, 0), "jazz-night", "", 16)
+	recordPageViews(t, env, over, testOrgSlug, "jazz-night", "", 4)
+	recordPageViews(t, env, recapAt(1, 0, 5), testOrgSlug, "jazz-night", "", 8)
+	recordPageViews(t, env, recapAt(1, 8, 0), testOrgSlug, "jazz-night", "", 16)
 
 	recap := onlyRecap(t, env)
 	if got := recapReach(t, recap).PageViews; got != 6 {
@@ -92,9 +80,9 @@ func TestEventRecapCutsPageViewsAtTheHourThatBeganBeforeTheEventWasOver(t *testi
 	f := newRecapFixture(t, env)
 	f.publishedEvent(t, env, "Jazz Night", recapAt(0, 22, 30))
 
-	loadRecapPage(t, env, recapAt(0, 22, 10), "jazz-night", "", 2)
-	loadRecapPage(t, env, recapAt(0, 22, 50), "jazz-night", "", 1)
-	loadRecapPage(t, env, recapAt(0, 23, 0), "jazz-night", "", 4)
+	recordPageViews(t, env, recapAt(0, 22, 10), testOrgSlug, "jazz-night", "", 2)
+	recordPageViews(t, env, recapAt(0, 22, 50), testOrgSlug, "jazz-night", "", 1)
+	recordPageViews(t, env, recapAt(0, 23, 0), testOrgSlug, "jazz-night", "", 4)
 
 	if got := recapReach(t, onlyRecap(t, env)).PageViews; got != 3 {
 		t.Fatalf("Page Views = %d, want 3: the whole of the 22:00 bucket and nothing of the 23:00 one", got)
@@ -127,15 +115,15 @@ func TestEventRecapListsTheThreeBusiestAffiliateLinks(t *testing.T) {
 	undoOwnSale(t, env, "rita.poster@example.com", buy("rita.poster@example.com", poster))
 	buy("bea.flyer@example.com", flyer)
 
-	loadRecapPage(t, env, recapAt(-2, 10, 0), "jazz-night", poster, 3)
-	loadRecapPage(t, env, recapAt(0, 21, 0), "jazz-night", poster, 2)
-	loadRecapPage(t, env, recapAt(-1, 9, 0), "jazz-night", radio, 3)
-	loadRecapPage(t, env, recapAt(-1, 15, 0), "jazz-night", flyer, 2)
-	loadRecapPage(t, env, recapAt(0, 12, 0), "jazz-night", late, 1)
-	loadRecapPage(t, env, recapAt(0, 12, 0), "jazz-night", "", 4)
+	recordPageViews(t, env, recapAt(-2, 10, 0), testOrgSlug, "jazz-night", poster, 3)
+	recordPageViews(t, env, recapAt(0, 21, 0), testOrgSlug, "jazz-night", poster, 2)
+	recordPageViews(t, env, recapAt(-1, 9, 0), testOrgSlug, "jazz-night", radio, 3)
+	recordPageViews(t, env, recapAt(-1, 15, 0), testOrgSlug, "jazz-night", flyer, 2)
+	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "jazz-night", late, 1)
+	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "jazz-night", "", 4)
 	// After the Event was over the fourth link drew more Clicks than any
 	// other ever did. They are in its lifetime figure and not in the recap.
-	loadRecapPage(t, env, recapAt(1, 1, 0), "jazz-night", late, 9)
+	recordPageViews(t, env, recapAt(1, 1, 0), testOrgSlug, "jazz-night", late, 9)
 
 	recap := onlyRecap(t, env)
 	reach := recapReach(t, recap)
@@ -182,7 +170,7 @@ func TestEventRecapOfAnEventWithNoAffiliateLinksHasNoAffiliateLinkBlock(t *testi
 	env := setupTest(t)
 	f := newRecapFixture(t, env)
 	f.publishedEvent(t, env, "Jazz Night", recapAt(0, 23, 0))
-	loadRecapPage(t, env, recapAt(0, 12, 0), "jazz-night", "", 2)
+	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "jazz-night", "", 2)
 
 	recap := onlyRecap(t, env)
 	if reach := recapReach(t, recap); reach.PageViews != 2 || len(reach.AffiliateLinks) != 0 {
@@ -200,7 +188,7 @@ func TestEventRecapLeavesOutAnAffiliateLinkNobodyFollowed(t *testing.T) {
 	eventID := f.publishedEvent(t, env, "Jazz Night", recapAt(0, 23, 0))
 	unfollowed := newAffiliateLink(t, env, f.admin, eventID, "Unfollowed")
 	// Its only Clicks came once the Event was over.
-	loadRecapPage(t, env, recapAt(1, 2, 0), "jazz-night", unfollowed, 3)
+	recordPageViews(t, env, recapAt(1, 2, 0), testOrgSlug, "jazz-night", unfollowed, 3)
 
 	recap := onlyRecap(t, env)
 	if reach := recapReach(t, recap); reach.PageViews != 0 || len(reach.AffiliateLinks) != 0 {
@@ -221,8 +209,8 @@ func TestEventRecapOfAnEventWithExternalRegistrationStatesClicksAndNoAttributedS
 	assignToEvent(t, env, f.admin, eventID, f.ownerID, "event_owner")
 	publishRecapEvent(t, env, f.admin, eventID)
 	newsletter := newAffiliateLink(t, env, f.admin, eventID, "Newsletter")
-	loadRecapPage(t, env, recapAt(0, 12, 0), "meetup", newsletter, 2)
-	loadRecapPage(t, env, recapAt(0, 12, 0), "meetup", "", 1)
+	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "meetup", newsletter, 2)
+	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "meetup", "", 1)
 
 	recap := onlyRecap(t, env)
 	reach := recapReach(t, recap)

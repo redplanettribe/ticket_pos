@@ -9,10 +9,10 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// eventRecapAffiliateLinks is how many Affiliate Links the Event Recap lists:
-// the busiest three. A revisitable ruling of #887, not one the spec's author
+// eventRecapAffiliateLinkLimit is the most Affiliate Links the Event Recap
+// lists: the busiest three. A revisitable ruling of #887, not one the spec's author
 // made explicitly.
-const eventRecapAffiliateLinks = 3
+const eventRecapAffiliateLinkLimit = 3
 
 // EventRecapReach is the attention one Event's page drew before the Event was
 // over, for its Event Recap (spec #884, #887): its Page Views, and its
@@ -38,8 +38,8 @@ const eventRecapAffiliateLinks = 3
 //     Registration, as on that list.
 //
 // THE BUSIEST LINKS are the ones with the most Clicks before overAt, at most
-// three, and only links that drew a Click at all, the rule Reach Trends
-// keeps: a link nobody followed has nothing to say. Equal Clicks are ordered
+// three, and only links that drew a Click at all, as the Reach Trends surface
+// lists only what has something to say: a link nobody followed has nothing. Equal Clicks are ordered
 // by Attributed Sales, most first, then by name.
 //
 // The two reads are separate statements, like the sales figures' beside them.
@@ -73,13 +73,13 @@ func (s *Service) EventRecapReach(ctx context.Context, organizationID, eventID s
 		clicks[*bucket.LinkID] += int(bucket.Views)
 	}
 
-	attributes := attributesSales(*target)
+	sellsHere := attributesSales(*target)
 	for _, link := range links {
 		if clicks[link.ID] == 0 {
 			continue
 		}
 		row := platform.EventRecapAffiliateLink{Name: link.Name, Clicks: clicks[link.ID]}
-		if attributes {
+		if sellsHere {
 			sales := link.SalesCount
 			row.AttributedSales = &sales
 		}
@@ -95,8 +95,8 @@ func (s *Service) EventRecapReach(ctx context.Context, organizationID, eventID s
 		}
 		return a.Name < b.Name
 	})
-	if len(reach.AffiliateLinks) > eventRecapAffiliateLinks {
-		reach.AffiliateLinks = reach.AffiliateLinks[:eventRecapAffiliateLinks]
+	if len(reach.AffiliateLinks) > eventRecapAffiliateLinkLimit {
+		reach.AffiliateLinks = reach.AffiliateLinks[:eventRecapAffiliateLinkLimit]
 	}
 	return reach, nil
 }
