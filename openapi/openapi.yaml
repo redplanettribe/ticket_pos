@@ -12696,16 +12696,19 @@ paths:
         Channel, Tickets Sold by Ticket Type, Takings, the Net Proceeds of its Online
         Sales, and how many of its Sales are reversed), the money in the Organization''s
         currency and in the marks of the reader''s Staff Locale, and links to the
-        Event''s Sales Trends, Reach and Sales list in the staff application. Sends
-        are paced by the gap the Reminder sweeps share, the Event over longest first,
-        at most a batch of Events per run and inside a run budget. Internal service-to-service
-        only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token
-        before the request reaches the API (ADR 0008), and no Customer Session or
-        staff token reaches it. Nothing about the run can be named by the caller.
-        The response reports how many Events were due in this batch, how many were
-        recapped, how many mails went and how many were refused, how many Events were
-        skipped, how many were mailed but could not be recorded, and how many were
-        recorded with nobody to write to. It names nobody and no Event.'
+        Event''s Sales Trends, Reach and Sales list in the staff application. An Event
+        with External Registration states its Registration Link clicks, as the count
+        stands when the mail is sent, in place of every sales figure, never as registrations
+        or people, and links to Reach only. Sends are paced by the gap the Reminder
+        sweeps share, the Event over longest first, at most a batch of Events per
+        run and inside a run budget. Internal service-to-service only: Cloud Run IAM
+        authenticates the caller by Google-signed OIDC ID token before the request
+        reaches the API (ADR 0008), and no Customer Session or staff token reaches
+        it. Nothing about the run can be named by the caller. The response reports
+        how many Events were due in this batch, how many were recapped, how many mails
+        went and how many were refused, how many Events were skipped, how many were
+        mailed but could not be recorded, and how many were recorded with nobody to
+        write to. It names nobody and no Event.'
       responses:
         "200":
           content:

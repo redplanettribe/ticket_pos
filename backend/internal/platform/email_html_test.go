@@ -402,7 +402,26 @@ func staffMailFixtures(locale Locale) []mailFixture {
 	add("ticketquestionrevoked", revoked)
 
 	add("eventrecap", goldenEventRecap(locale))
+	add("eventrecap-external", goldenExternalEventRecap(locale))
 	return fixtures
+}
+
+// goldenExternalEventRecap is the recap of an Event with External
+// Registration (#888): its Registration Link clicks in place of every sales
+// figure, its links attributing no sale, and Reach its only link. It is given
+// the other two URLs as well, which it must not print.
+func goldenExternalEventRecap(locale Locale) EventRecap {
+	recap := goldenEventRecap(locale)
+	recap.Sales = nil
+	recap.RegistrationLinkClicks = goldenCount(1960)
+	recap.Reach = &EventRecapReach{
+		PageViews: 15320,
+		AffiliateLinks: []EventRecapAffiliateLink{
+			{Name: "Instagram de María", Clicks: 2140},
+			{Name: "Radio Quito", Clicks: 880},
+		},
+	}
+	return recap
 }
 
 func goldenEventRecap(locale Locale) EventRecap {

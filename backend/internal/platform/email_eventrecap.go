@@ -15,8 +15,11 @@ import (
 // Customer, no buyer, no Holder. It says that the Event is over, the instant
 // its figures are as of, the Event's sales figures (#886), the attention its
 // page drew before it was over (#887), and the three staff surfaces that hold
-// the live ones. The figures later tickets add go where these are, between the
-// as-of paragraph and the links.
+// the live ones.
+//
+// AN EVENT WITH EXTERNAL REGISTRATION (#888) sells nothing here, so its recap
+// states its Registration Link clicks in place of every sales figure, beside
+// the same reach figures, and links to Reach only.
 
 // EventRecapWentLiveAt is the instant the Event Recap was switched on: the
 // start of its deploy day on the platform clock. Only an Event that becomes
@@ -55,6 +58,23 @@ type EventRecap struct {
 	// Reach is the attention the Event's page drew until the Event was over
 	// (#887), or nil for a recap that states none.
 	Reach *EventRecapReach
+	// RegistrationLinkClicks is how many times the Event's page handed
+	// somebody to its Registration Link, as the count stood at SentAt (#888).
+	// Set for an Event with External Registration and nil for one that sells
+	// Ticket Types. Set, it makes the recap the External Registration one: the
+	// count stands in place of every sales figure, Sales is not stated even if
+	// given, and the mail links to Reach only.
+	//
+	// CLICKS, NEVER REGISTRATIONS AND NEVER PEOPLE. The platform loses sight
+	// of the visitor at the link and never learns whether they signed up, and
+	// the count is not deduplicated. The mail calls it clicks and nothing else.
+	RegistrationLinkClicks *int
+}
+
+// externalRegistration is whether this is the recap of an Event with External
+// Registration.
+func (r EventRecap) externalRegistration() bool {
+	return r.RegistrationLinkClicks != nil
 }
 
 // EventRecapReach is the attention an Event's page drew before the Event was
@@ -153,6 +173,20 @@ var (
 		"The figures in this Event Recap are as they stood on %s (Ecuador time), when it was sent. A door sale recorded late, a Sale Import or a Sale Reversal still changes the live figures, which the staff app holds.",
 		"Las cifras de este Resumen del evento son las que había el %s (hora de Ecuador), cuando se envió. Una venta en puerta registrada tarde, una importación de ventas o una reversión de venta todavía cambian las cifras en vivo, que están en la aplicación del personal.",
 	)
+	// The as-of sentence of an Event with External Registration (#888), which
+	// has no door sale, Sale Import or Sale Reversal to move its figures.
+	eventRecapExternalAsOfCopy = translated(
+		"The figures in this Event Recap are as they stood on %s (Ecuador time), when it was sent. The staff app holds the live figures.",
+		"Las cifras de este Resumen del evento son las que había el %s (hora de Ecuador), cuando se envió. Las cifras en vivo están en la aplicación del personal.",
+	)
+	// The one figure an Event with External Registration states in place of
+	// its sales figures (#888), named by the glossary's term for the link and
+	// the staff app's word for the count. Clicks: never registrations, never
+	// people, never anybody going.
+	eventRecapRegistrationLinkClicksCopy = translated(
+		"Registration Link clicks",
+		"Clics en el Enlace de inscripción",
+	)
 	// The sales figures (#886). The figures are named in the staff app's words
 	// (its casing where it has the label, the glossary's for a term it does
 	// not label), so the mail reads as the surfaces it links to do; Spanish
@@ -243,6 +277,16 @@ var (
 		"Sales list:",
 		"Lista de ventas:",
 	)
+	// Reach as the one link, and so the button, of an Event with External
+	// Registration (#888).
+	eventRecapReachOnlyLeadCopy = translated(
+		"See the attention its page drew in Reach:",
+		"Vea la atención que recibió su página en Alcance:",
+	)
+	eventRecapReachButtonCopy = translated(
+		"Open Reach",
+		"Abrir Alcance",
+	)
 	eventRecapPreheaderCopy = translated(
 		"%s is over. The live figures are in the staff app.",
 		"%s ha terminado. Las cifras en vivo están en la aplicación del personal.",
@@ -293,12 +337,24 @@ func (s eventRecapSection) text() string {
 // sections is the recap's body before its links: that the Event is over, the
 // instant its figures are as of, the sales figures where it states any, and
 // then the reach figures where it states any.
+//
+// AN EVENT WITH EXTERNAL REGISTRATION states its Registration Link clicks
+// where the sales figures would be, and no sales figure at all (#888).
 func (r EventRecap) sections() []eventRecapSection {
+	asOf := eventRecapAsOfCopy
+	if r.externalRegistration() {
+		asOf = eventRecapExternalAsOfCopy
+	}
 	sections := []eventRecapSection{
 		{Lines: []string{fmt.Sprintf(eventRecapOverCopy.in(r.Locale), r.EventName)}},
-		{Lines: []string{fmt.Sprintf(eventRecapAsOfCopy.in(r.Locale), formatEcuadorInstant(r.SentAt, r.Locale))}},
+		{Lines: []string{fmt.Sprintf(asOf.in(r.Locale), formatEcuadorInstant(r.SentAt, r.Locale))}},
 	}
-	if r.Sales != nil {
+	switch {
+	case r.externalRegistration():
+		sections = append(sections, eventRecapSection{Lines: []string{
+			eventRecapRegistrationLinkClicksCopy.in(r.Locale) + ": " + formatStaffCount(*r.RegistrationLinkClicks, r.Locale),
+		}})
+	case r.Sales != nil:
 		sections = append(sections, r.Sales.sections(r.Locale)...)
 	}
 	if r.Reach != nil {
@@ -469,7 +525,14 @@ func formatStaffMoney(cents int, currency string, locale Locale) string {
 
 // links is the three staff surfaces, Sales Trends first: it is the HTML
 // part's one button, and the other two are plain links under it.
+//
+// AN EVENT WITH EXTERNAL REGISTRATION LINKS TO REACH ONLY (#888), whatever
+// URLs it was given: Sales Trends and the Sales list have nothing to show for
+// an Event that produces no Ticket Sale. Reach is then the one button.
 func (r EventRecap) links() []mailLink {
+	if r.externalRegistration() {
+		return []mailLink{{lead: eventRecapReachOnlyLeadCopy, label: eventRecapReachButtonCopy, url: r.ReachURL}}
+	}
 	return []mailLink{
 		{lead: eventRecapSalesTrendsLeadCopy, label: eventRecapSalesTrendsButtonCopy, url: r.SalesTrendsURL},
 		{lead: eventRecapReachLeadCopy, url: r.ReachURL},
@@ -507,8 +570,9 @@ type eventRecapLinkView struct {
 }
 
 // HTML is the Event Recap's HTML part: the subject as its heading, the text
-// part's own paragraphs and tables, Sales Trends as the one button, and Reach
-// and the Sales list as plain links.
+// part's own paragraphs and tables, the first link as the one button (Sales
+// Trends, or Reach for an Event with External Registration), and any other
+// links as plain ones.
 func (r EventRecap) HTML(chrome MailChrome) (string, error) {
 	card := eventRecapCard{Heading: r.Subject(), Sections: r.sections()}
 	for i, link := range r.links() {

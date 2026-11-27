@@ -38,7 +38,8 @@ func (r *Repository) ListEventRecapCandidates(
 	limit int,
 ) ([]catalog.EventRecapCandidate, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT e.id, e.organization_id, e.name, e.status, e.starts_at, e.ends_at
+		SELECT e.id, e.organization_id, e.name, e.status, e.starts_at, e.ends_at,
+		       e.registration_mode, e.registration_click_count
 		FROM events e
 		WHERE `+eventRecapDue+`
 		ORDER BY COALESCE(e.ends_at, e.starts_at) ASC, e.id ASC
@@ -53,8 +54,17 @@ func (r *Repository) ListEventRecapCandidates(
 	for rows.Next() {
 		var c catalog.EventRecapCandidate
 		var startsAt, endsAt sql.NullTime
-		if err := rows.Scan(&c.EventID, &c.OrganizationID, &c.EventName, &c.Status, &startsAt, &endsAt); err != nil {
+		var registrationMode string
+		var registrationClicks int64
+		if err := rows.Scan(&c.EventID, &c.OrganizationID, &c.EventName, &c.Status, &startsAt, &endsAt,
+			&registrationMode, &registrationClicks); err != nil {
 			return nil, err
+		}
+		// The count is carried only for an Event with External Registration:
+		// one that sells Ticket Types has no Registration Link to click.
+		if catalog.RegistrationModeOrDefault(registrationMode) == catalog.RegistrationModeExternal {
+			clicks := int(registrationClicks)
+			c.RegistrationLinkClicks = &clicks
 		}
 		if startsAt.Valid {
 			c.StartsAt = startsAt.Time

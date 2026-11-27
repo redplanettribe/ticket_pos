@@ -105,6 +105,13 @@ type EventRecapCandidate struct {
 	Status   string
 	StartsAt time.Time
 	EndsAt   time.Time
+	// RegistrationLinkClicks is the Event's count of hand-offs to its
+	// Registration Link as the candidate query read it (#888), for an Event
+	// with External Registration, and nil for one that sells Ticket Types.
+	// Clicks, never registrations or people. It is the Event's lifetime
+	// counter, the one the staff app states: it has no hourly buckets, so it
+	// cannot be cut at the instant the Event was over.
+	RegistrationLinkClicks *int
 }
 
 // Inputs is the candidate as EventRecapDue reads it, at one run. A candidate

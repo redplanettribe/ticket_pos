@@ -24,7 +24,7 @@ func TestStaffMailFixturesCoverEveryKind(t *testing.T) {
 	kinds := map[string]bool{}
 	for _, f := range staffFixtures() {
 		name := strings.TrimSuffix(strings.TrimSuffix(f.name, "-en"), "-es")
-		for _, variant := range []string{"-expiring", "-expired", "-shortfall"} {
+		for _, variant := range []string{"-expiring", "-expired", "-shortfall", "-external"} {
 			name = strings.TrimSuffix(name, variant)
 		}
 		kinds[name] = true
@@ -74,8 +74,9 @@ func TestStaffMailCarriesNoEventImagery(t *testing.T) {
 }
 
 // A button only where the text carries a link: the Certificate Expiry
-// Warning's Issuer page and the Event Recap's Sales Trends are the two, and
-// every other staff kind has none.
+// Warning's Issuer page and the Event Recap's Sales Trends, or its Reach for
+// an Event with External Registration, are the ones, and every other staff
+// kind has none.
 func TestStaffMailHasAButtonOnlyWhereTheTextHasALink(t *testing.T) {
 	for _, f := range staffFixtures() {
 		t.Run(f.name, func(t *testing.T) {
@@ -88,6 +89,8 @@ func TestStaffMailHasAButtonOnlyWhereTheTextHasALink(t *testing.T) {
 			switch {
 			case strings.HasPrefix(f.name, "certificateexpiry-"):
 				want, label = goldenCertificateExpiryWarning(f.locale).IssuerURL, certificateExpiryButtonCopy.in(f.locale)
+			case strings.HasPrefix(f.name, "eventrecap-external-"):
+				want, label = goldenExternalEventRecap(f.locale).ReachURL, eventRecapReachButtonCopy.in(f.locale)
 			case strings.HasPrefix(f.name, "eventrecap-"):
 				want, label = goldenEventRecap(f.locale).SalesTrendsURL, eventRecapSalesTrendsButtonCopy.in(f.locale)
 			default:
@@ -122,6 +125,133 @@ func TestEventRecapLinksToSalesTrendsReachAndTheSalesList(t *testing.T) {
 			}
 			if !strings.Contains(recap.Text(), url) {
 				t.Errorf("%s: the text part does not carry %s", locale, url)
+			}
+		}
+	}
+}
+
+// The Event Recap of an Event with External Registration links to Reach and
+// to nothing else, in both parts and both languages, even when it is given
+// the Sales Trends and Sales list URLs (#888).
+func TestEventRecapOfAnEventWithExternalRegistrationLinksToReachOnly(t *testing.T) {
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		recap := goldenExternalEventRecap(locale)
+		body, err := recap.HTML(goldenChrome)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		// Every staff surface the card links to. The button and the line to
+		// paste under it are one link said twice, and the chrome's own links
+		// go to the platform, not the staff app.
+		hrefs := map[string]bool{}
+		for _, link := range findAll(parseMail(t, body), func(n *html.Node) bool { return n.Data == "a" }) {
+			if href := attr(link, "href"); strings.HasPrefix(href, "https://staff.example.com/") {
+				hrefs[href] = true
+			}
+		}
+		if len(hrefs) != 1 || !hrefs[recap.ReachURL] {
+			t.Errorf("%s: the HTML part links to %v in the staff app, want Reach only", locale, hrefs)
+		}
+		for part, read := range eventRecapParts(t, recap) {
+			if part == "text" && !strings.Contains(read, recap.ReachURL) {
+				t.Errorf("%s: the text part does not carry %s", locale, recap.ReachURL)
+			}
+			for _, unwanted := range []string{
+				recap.SalesTrendsURL, recap.SalesURL,
+				"Sales Trends", "Sales list", "Tendencias de ventas", "Lista de ventas",
+			} {
+				if strings.Contains(read, unwanted) {
+					t.Errorf("%s: the %s part says %q:\n%s", locale, part, unwanted, read)
+				}
+			}
+		}
+	}
+}
+
+// The Event Recap of an Event with External Registration states its
+// Registration Link clicks in place of every sales figure, beside its Page
+// Views and its Affiliate Links' Clicks, in the reader's marks (#888).
+func TestEventRecapOfAnEventWithExternalRegistrationStatesClicksInPlaceOfSalesFigures(t *testing.T) {
+	for locale, c := range map[Locale]struct{ want, unwanted []string }{
+		LocaleEN: {
+			want: []string{
+				"Registration Link clicks: 1,960",
+				"Page views until the Event was over: 15,320",
+				"Affiliate Link Clicks Instagram de María 2,140 Radio Quito 880",
+			},
+			unwanted: []string{
+				"Tickets sold", "Ticket sales", "Takings", "Net Proceeds", "Reversed sales",
+				"Sales Channel", "Ticket Type", "Attributed sales", "$", "door sale", "Sale Import", "Sale Reversal",
+			},
+		},
+		LocaleES: {
+			want: []string{
+				"Clics en el Enlace de inscripción: 1.960",
+				"Vistas de página hasta que terminó el evento: 15.320",
+				"Enlace de Afiliado Clics Instagram de María 2.140 Radio Quito 880",
+			},
+			unwanted: []string{
+				"Entradas vendidas", "Ventas de entradas", "Recaudación", "Ingresos netos", "Ventas revertidas",
+				"Canal de venta", "Tipo de entrada", "Ventas atribuidas", "$", "venta en puerta", "importación de ventas", "reversión de venta",
+			},
+		},
+	} {
+		recap := goldenExternalEventRecap(locale)
+		// Sales figures handed to such a recap are still not stated.
+		recap.Sales = goldenEventRecap(locale).Sales
+		for part, read := range eventRecapParts(t, recap) {
+			for _, figure := range c.want {
+				if !strings.Contains(read, figure) {
+					t.Errorf("%s: the %s part does not say %q:\n%s", locale, part, figure, read)
+				}
+			}
+			for _, figure := range c.unwanted {
+				if strings.Contains(read, figure) {
+					t.Errorf("%s: the %s part says %q:\n%s", locale, part, figure, read)
+				}
+			}
+		}
+	}
+}
+
+// The Event Recap never renders clicks as people (spec #884, #888): the
+// platform loses sight of the visitor at the Registration Link and never
+// learns whether they signed up, and a Click or a Page View is a load, not a
+// person.
+//
+// HELD OVER EVERY PART AND THE SUBJECT, in both languages, for the External
+// Registration fixture, one nobody clicked and one clicked once. The
+// Registration Link is named, as the thing that was clicked; once its name is
+// read past, no word for a registration, a person or somebody going is left.
+// The recap of an Event that sells Ticket Types is not held to the word list:
+// it states no Registration Link clicks, and its "In person" is a Sales
+// Channel and its "registrada" a sale recorded.
+func TestEventRecapNeverRendersClicksAsPeople(t *testing.T) {
+	edited := func(locale Locale, clicks int) EventRecap {
+		recap := goldenExternalEventRecap(locale)
+		recap.RegistrationLinkClicks = goldenCount(clicks)
+		return recap
+	}
+	linkName := map[Locale]string{LocaleEN: "Registration Link", LocaleES: "Enlace de inscripción"}
+	peopleWords := regexp.MustCompile(`(?i)(registr|regist[eé]r|inscri|sign[- ]?up|sign(ed|ing) up|rsvp|apunt)\pL*` +
+		`|\b(people|person|persons|attendees?|attending|attended|guests?|visitors?|going|went|came|audience|headcount|turnout` +
+		`|personas?|gente|asistentes?|asistir\pL*|asistieron|asistencia|invitad[oa]s?|visitantes?|público|van|fueron|vinieron)\b`)
+
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		for name, recap := range map[string]EventRecap{
+			"external": goldenExternalEventRecap(locale), "nobody clicked": edited(locale, 0),
+			"one click": edited(locale, 1),
+		} {
+			parts := eventRecapParts(t, recap)
+			parts["subject"] = recap.Subject()
+			for part, read := range parts {
+				if part != "subject" && !strings.Contains(read, linkName[locale]) {
+					t.Errorf("%s, %s: the %s part does not name the Registration Link:\n%s", locale, name, part, read)
+				}
+				read = strings.ReplaceAll(read, linkName[locale], "")
+				if word := peopleWords.FindString(read); word != "" {
+					t.Errorf("%s, %s: the %s part says %q, a word for people or registrations:\n%s", locale, name, part, word, read)
+				}
 			}
 		}
 	}

@@ -199,21 +199,27 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		s.logger.Error(ctx, "event recap: the Event's reach figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
 		return true
 	}
+	// An Event with External Registration states its Registration Link clicks
+	// in place of every sales figure and links to Reach only (#888): its Sales
+	// Trends and Sales list have nothing to show.
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
+	recap := platform.EventRecap{
+		EventName:              c.EventName,
+		SentAt:                 sentAt,
+		ReachURL:               eventURL + "/reach",
+		Sales:                  figures,
+		Reach:                  reach,
+		RegistrationLinkClicks: c.RegistrationLinkClicks,
+	}
+	if c.RegistrationLinkClicks == nil {
+		recap.SalesTrendsURL = eventURL + "/sales/trends"
+		recap.SalesURL = eventURL + "/sales"
+	}
 	accepted := 0
 	for _, to := range readers {
 		pacer.pauseBefore(ctx, result.Sent+result.Failed)
-		err := s.email.SendEventRecap(ctx, platform.EventRecap{
-			To:             to,
-			Locale:         s.staffLocale(ctx, to),
-			EventName:      c.EventName,
-			SentAt:         sentAt,
-			SalesTrendsURL: eventURL + "/sales/trends",
-			ReachURL:       eventURL + "/reach",
-			SalesURL:       eventURL + "/sales",
-			Sales:          figures,
-			Reach:          reach,
-		})
+		recap.To, recap.Locale = to, s.staffLocale(ctx, to)
+		err := s.email.SendEventRecap(ctx, recap)
 		if err != nil {
 			// The address is not logged: the log counts readers and names
 			// the Event, where an operator has to find the row.
@@ -306,15 +312,18 @@ var eventRecapChannels = []string{catalog.SalesChannelOnline, catalog.SalesChann
 // the morning after the Event is over, and says its figures are a reading at
 // an instant, so the reads are not wrapped in a transaction for it.
 func (s *Service) eventRecapSales(ctx context.Context, c catalog.EventRecapCandidate) (*platform.EventRecapSales, error) {
+	// The candidate says which kind of Event this is, once for the whole
+	// recap: one that carries Registration Link clicks has External
+	// Registration, and states them in place of these figures (#888).
+	if c.RegistrationLinkClicks != nil {
+		return nil, nil
+	}
 	event, ok, err := s.repo.GetEventImportContext(ctx, c.OrganizationID, c.EventID)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, sales.ErrEventNotFound()
-	}
-	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
-		return nil, nil
 	}
 
 	summary, err := s.repo.SalesSummary(ctx, c.OrganizationID, c.EventID)
