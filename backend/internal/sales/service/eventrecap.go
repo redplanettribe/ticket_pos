@@ -36,10 +36,14 @@ type EventRecapSource interface {
 }
 
 // EventRecapRecipients is what the sweep needs from identity: who the Event
-// Owners of an Event are right now. The Staff Locale each is written in comes
-// through the StaffLocales seam the Payout Request notices already use.
+// Owners of an Event are right now, and who the Org Admins of its Organization
+// are, for an Event with none (#885). Neither list has Event Staff in it, and
+// neither has anybody for being a Platform Operator: the allowlist is not
+// Membership. The Staff Locale each is written in comes through the
+// StaffLocales seam the Payout Request notices already use.
 type EventRecapRecipients interface {
 	EventOwnerEmails(ctx context.Context, eventID string) ([]string, error)
+	OrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
 }
 
 const (
@@ -65,12 +69,16 @@ type EventRecapSweepResult struct {
 	// Failed is how many mails the provider refused. An Event none of whose
 	// readers could be written to stays due and is retried by the next run.
 	Failed int `json:"failed"`
-	// Skipped is how many Events were due but had nobody to write to or whose
-	// readers could not be read; they stay due.
+	// Skipped is how many Events were due but whose readers could not be read;
+	// they stay due.
 	Skipped int `json:"skipped"`
 	// Unrecorded is how many Events were mailed but could not be recorded:
 	// counted in Recapped too, and the one case that can send a second recap.
 	Unrecorded int `json:"unrecorded"`
+	// Unaddressed is how many Events had no Event Owner and no Org Admin to
+	// write to: nothing was sent, and they are recorded, never due again.
+	// Not counted in Recapped.
+	Unaddressed int `json:"unaddressed"`
 }
 
 // SweepEventRecaps runs one sweep: reads the batch of due Events, writes to
@@ -105,6 +113,7 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 		"failed", result.Failed,
 		"skipped", result.Skipped,
 		"unrecorded", result.Unrecorded,
+		"unaddressed", result.Unaddressed,
 	)
 	return result, nil
 }
@@ -128,20 +137,26 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 // provider refused some readers and accepted others is recorded: retrying it
 // would write a second time to those it reached.
 //
-// AN EVENT WITH NO EVENT OWNER IS SKIPPED AND STAYS DUE in this ticket. Who is
-// written to then, and what becomes of an Event that resolves to nobody, is
-// #885's to decide.
+// AN EVENT THAT RESOLVES TO NOBODY IS RECORDED (#885): no Event Owner and no
+// Org Admin is a state no later run is likely to change, and an Event left
+// due would come back every morning and sit at the front of the batch, the
+// one over longest first, until enough of them starved the rest. It is
+// logged, so an operator can find it, and counted as Unaddressed.
 func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate, pacer *reminderPacer, deadline time.Time, result *EventRecapSweepResult) bool {
-	owners, err := s.eventRecapRecipients.EventOwnerEmails(ctx, c.EventID)
+	recipients, err := s.eventRecapReaders(ctx, c)
 	if err != nil {
 		result.Skipped++
-		s.logger.Error(ctx, "event recap: the Event's Event Owners could not be read; the Event stays due", "event_id", c.EventID, "error", err)
+		s.logger.Error(ctx, "event recap: the Event's readers could not be read; the Event stays due", "event_id", c.EventID, "error", err)
 		return true
 	}
-	recipients := distinctEmails(owners)
 	if len(recipients) == 0 {
-		result.Skipped++
-		s.logger.Info("event recap: the Event has no Event Owner; nobody was written to and the Event stays due", "event_id", c.EventID)
+		result.Unaddressed++
+		s.logger.Info("event recap: the Event has no Event Owner and its Organization no Org Admin; nothing was sent and the Event is recorded as recapped",
+			"event_id", c.EventID, "organization_id", c.OrganizationID)
+		if err := s.eventRecaps.RecordEventRecapSent(ctx, c.EventID); err != nil {
+			s.logger.Error(ctx, "an Event Recap with nobody to write to could not be recorded; the next run will look at it again",
+				"event_id", c.EventID, "error", err)
+		}
 		return true
 	}
 
@@ -187,6 +202,28 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 			"event_id", c.EventID, "error", err)
 	}
 	return true
+}
+
+// eventRecapReaders is who one Event's recap goes to, resolved now: every
+// Event Owner of the Event by its Event assignments, or, when it has none,
+// every Org Admin of its Organization (#885). The Org Admins are the fallback
+// and never an addition, so an Event with an Event Owner does not mail every
+// Org Admin of a busy Organization. One copy per person: the addresses are
+// compared normalized, so a Member who holds an Event Owner assignment and was
+// later made Org Admin is written to once.
+func (s *Service) eventRecapReaders(ctx context.Context, c catalog.EventRecapCandidate) ([]string, error) {
+	owners, err := s.eventRecapRecipients.EventOwnerEmails(ctx, c.EventID)
+	if err != nil {
+		return nil, err
+	}
+	if readers := distinctEmails(owners); len(readers) > 0 {
+		return readers, nil
+	}
+	admins, err := s.eventRecapRecipients.OrgAdminEmails(ctx, c.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	return distinctEmails(admins), nil
 }
 
 // distinctEmails is the addresses with repeats dropped, compared normalized,

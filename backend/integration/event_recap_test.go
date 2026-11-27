@@ -28,12 +28,13 @@ import (
 
 // recapSweepResult is the sweep's response envelope, counts only.
 type recapSweepResult struct {
-	Due        int `json:"due"`
-	Recapped   int `json:"recapped"`
-	Sent       int `json:"sent"`
-	Failed     int `json:"failed"`
-	Skipped    int `json:"skipped"`
-	Unrecorded int `json:"unrecorded"`
+	Due         int `json:"due"`
+	Recapped    int `json:"recapped"`
+	Sent        int `json:"sent"`
+	Failed      int `json:"failed"`
+	Skipped     int `json:"skipped"`
+	Unrecorded  int `json:"unrecorded"`
+	Unaddressed int `json:"unaddressed"`
 }
 
 // recapAt is hour:minute on the platform clock, day days after day 0.

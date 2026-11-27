@@ -501,8 +501,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	// The Event Recap (spec #884) runs on the same shape with one more seam:
 	// the catalog says which Events are due and records the ones sent, identity
-	// says who an Event's Event Owners are, and sales composes, paces and
-	// sends, on links built from the staff application's origin.
+	// says who an Event's Event Owners are, or its Organization's Org Admins,
+	// and sales composes, paces and sends, on links built from the staff
+	// application's origin.
 	salesService = salesService.WithEventRecaps(catalogService, identityService, cfg.StaffBaseURL)
 
 	// A Sale Reversal takes every Holder on the Sale with it, and they are told
