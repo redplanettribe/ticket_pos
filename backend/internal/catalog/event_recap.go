@@ -114,6 +114,13 @@ type EventRecapCandidate struct {
 	RegistrationLinkClicks *int
 }
 
+// ExternalRegistration is whether the candidate is an Event with External
+// Registration, which is what carrying Registration Link clicks means. Fixed
+// once the Event is published, so it cannot change under a run.
+func (c EventRecapCandidate) ExternalRegistration() bool {
+	return c.RegistrationLinkClicks != nil
+}
+
 // Inputs is the candidate as EventRecapDue reads it, at one run. A candidate
 // is by construction an Event with no recap recorded.
 func (c EventRecapCandidate) Inputs(runAt time.Time) EventRecapInputs {

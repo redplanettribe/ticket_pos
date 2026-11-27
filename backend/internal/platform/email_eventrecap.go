@@ -14,8 +14,8 @@ import (
 // written in its reader's Staff Locale. It names the Event and nobody else: no
 // Customer, no buyer, no Holder. It says that the Event is over, the instant
 // its figures are as of, the Event's sales figures (#886), the attention its
-// page drew before it was over (#887), and the three staff surfaces that hold
-// the live ones.
+// page drew before it was over (#887), and the staff surfaces that hold the
+// live ones: three for an Event that sells Ticket Types.
 //
 // AN EVENT WITH EXTERNAL REGISTRATION (#888) sells nothing here, so its recap
 // states its Registration Link clicks in place of every sales figure, beside
@@ -47,7 +47,9 @@ type EventRecap struct {
 	SentAt time.Time
 	// SalesTrendsURL, ReachURL and SalesURL are the Event's Sales Trends, Reach
 	// and Sales list in the staff app, where the live figures are. Each is ""
-	// where the deployment cannot build it, which drops that link.
+	// where the deployment cannot build it, which drops that link. The recap
+	// of an Event with External Registration prints ReachURL alone, whatever
+	// the other two hold.
 	SalesTrendsURL string
 	ReachURL       string
 	SalesURL       string
@@ -59,14 +61,15 @@ type EventRecap struct {
 	// (#887), or nil for a recap that states none.
 	Reach *EventRecapReach
 	// RegistrationLinkClicks is how many times the Event's page handed
-	// somebody to its Registration Link, as the count stood at SentAt (#888).
+	// somebody to its Registration Link, as the count stood when the run read
+	// the Event, moments before SentAt (#888).
 	// Set for an Event with External Registration and nil for one that sells
 	// Ticket Types. Set, it makes the recap the External Registration one: the
 	// count stands in place of every sales figure, Sales is not stated even if
 	// given, and the mail links to Reach only.
 	//
 	// CLICKS, NEVER REGISTRATIONS AND NEVER PEOPLE. The platform loses sight
-	// of the visitor at the link and never learns whether they signed up, and
+	// of the buyer at the link and never learns whether they signed up, and
 	// the count is not deduplicated. The mail calls it clicks and nothing else.
 	RegistrationLinkClicks *int
 }
@@ -523,8 +526,9 @@ func formatStaffMoney(cents int, currency string, locale Locale) string {
 	}
 }
 
-// links is the three staff surfaces, Sales Trends first: it is the HTML
-// part's one button, and the other two are plain links under it.
+// links is the staff surfaces the recap links to. For an Event that sells
+// Ticket Types they are three, Sales Trends first: it is the HTML part's one
+// button, and the other two are plain links under it.
 //
 // AN EVENT WITH EXTERNAL REGISTRATION LINKS TO REACH ONLY (#888), whatever
 // URLs it was given: Sales Trends and the Sales list have nothing to show for

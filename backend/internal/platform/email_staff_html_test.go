@@ -215,7 +215,7 @@ func TestEventRecapOfAnEventWithExternalRegistrationStatesClicksInPlaceOfSalesFi
 }
 
 // The Event Recap never renders clicks as people (spec #884, #888): the
-// platform loses sight of the visitor at the Registration Link and never
+// platform loses sight of the buyer at the Registration Link and never
 // learns whether they signed up, and a Click or a Page View is a load, not a
 // person.
 //
@@ -227,7 +227,7 @@ func TestEventRecapOfAnEventWithExternalRegistrationStatesClicksInPlaceOfSalesFi
 // it states no Registration Link clicks, and its "In person" is a Sales
 // Channel and its "registrada" a sale recorded.
 func TestEventRecapNeverRendersClicksAsPeople(t *testing.T) {
-	edited := func(locale Locale, clicks int) EventRecap {
+	withClicks := func(locale Locale, clicks int) EventRecap {
 		recap := goldenExternalEventRecap(locale)
 		recap.RegistrationLinkClicks = goldenCount(clicks)
 		return recap
@@ -239,8 +239,8 @@ func TestEventRecapNeverRendersClicksAsPeople(t *testing.T) {
 
 	for _, locale := range []Locale{LocaleEN, LocaleES} {
 		for name, recap := range map[string]EventRecap{
-			"external": goldenExternalEventRecap(locale), "nobody clicked": edited(locale, 0),
-			"one click": edited(locale, 1),
+			"external": goldenExternalEventRecap(locale), "nobody clicked": withClicks(locale, 0),
+			"one click": withClicks(locale, 1),
 		} {
 			parts := eventRecapParts(t, recap)
 			parts["subject"] = recap.Subject()

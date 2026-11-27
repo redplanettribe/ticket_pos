@@ -14,17 +14,24 @@ import (
 // Registration Link hand-off, and the Page View beacon with and without an
 // Affiliate Link's code.
 
+// publishedExternalEvent makes "Meetup", a published Event with External
+// Registration over at overAt, with the fixture's Event Owner.
+func (f recapFixture) publishedExternalEvent(t *testing.T, env *testEnv, overAt time.Time) string {
+	t.Helper()
+	eventID := createExternalAffiliateEvent(t, env, f.admin, "Meetup", "meetup")
+	setEventDates(t, env, f.admin, eventID, "Meetup", overAt.Add(-3*time.Hour), &overAt)
+	assignToEvent(t, env, f.admin, eventID, f.ownerID, "event_owner")
+	publishRecapEvent(t, env, f.admin, eventID)
+	return eventID
+}
+
 // An Event with External Registration is mailed with its Page Views, its
 // Registration Link clicks and its Affiliate Links' Clicks, and no sales
 // figure; the mail links to Reach only.
 func TestEventRecapOfAnEventWithExternalRegistrationStatesItsClicksAndLinksToReachOnly(t *testing.T) {
 	env := setupTest(t)
 	f := newRecapFixture(t, env)
-	eventID := createExternalAffiliateEvent(t, env, f.admin, "Meetup", "meetup")
-	over := recapAt(0, 23, 0)
-	setEventDates(t, env, f.admin, eventID, "Meetup", over.Add(-3*time.Hour), &over)
-	assignToEvent(t, env, f.admin, eventID, f.ownerID, "event_owner")
-	publishRecapEvent(t, env, f.admin, eventID)
+	eventID := f.publishedExternalEvent(t, env, recapAt(0, 23, 0))
 
 	newsletter := newAffiliateLink(t, env, f.admin, eventID, "Newsletter")
 	recordPageViews(t, env, recapAt(0, 12, 0), testOrgSlug, "meetup", newsletter, 2)
@@ -88,11 +95,7 @@ func TestEventRecapOfAnEventThatSellsTicketTypesStatesNoRegistrationLinkClicks(t
 func TestEventRecapOfAnEventWithExternalRegistrationNobodyClickedStatesZeros(t *testing.T) {
 	env := setupTest(t)
 	f := newRecapFixture(t, env)
-	eventID := createExternalAffiliateEvent(t, env, f.admin, "Meetup", "meetup")
-	over := recapAt(0, 23, 0)
-	setEventDates(t, env, f.admin, eventID, "Meetup", over.Add(-3*time.Hour), &over)
-	assignToEvent(t, env, f.admin, eventID, f.ownerID, "event_owner")
-	publishRecapEvent(t, env, f.admin, eventID)
+	f.publishedExternalEvent(t, env, recapAt(0, 23, 0))
 
 	recap := onlyRecap(t, env)
 	wantInBothParts(t, recap, "Registration Link clicks: 0", "Page views until the Event was over: 0")

@@ -181,7 +181,10 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	}
 
 	// The figures are read once per Event, at the instant the mail says they
-	// are as of, so every reader of one Event is told the same numbers. An
+	// are as of, so every reader of one Event is told the same numbers. The
+	// one exception is the Registration Link clicks of an Event with External
+	// Registration (#888), which came with the candidate when the run began,
+	// at most the run's budget earlier. An
 	// Event whose figures cannot be read is not mailed without them: it stays
 	// due, and the next run reads them again.
 	sentAt := s.now()
@@ -200,20 +203,19 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		return true
 	}
 	// An Event with External Registration states its Registration Link clicks
-	// in place of every sales figure and links to Reach only (#888): its Sales
-	// Trends and Sales list have nothing to show.
+	// in place of every sales figure and links to Reach only (#888). The mail
+	// keeps that rule, in one place: it prints neither of the other two URLs
+	// for a recap that carries the clicks.
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
 	recap := platform.EventRecap{
 		EventName:              c.EventName,
 		SentAt:                 sentAt,
+		SalesTrendsURL:         eventURL + "/sales/trends",
 		ReachURL:               eventURL + "/reach",
+		SalesURL:               eventURL + "/sales",
 		Sales:                  figures,
 		Reach:                  reach,
 		RegistrationLinkClicks: c.RegistrationLinkClicks,
-	}
-	if c.RegistrationLinkClicks == nil {
-		recap.SalesTrendsURL = eventURL + "/sales/trends"
-		recap.SalesURL = eventURL + "/sales"
 	}
 	accepted := 0
 	for _, to := range readers {
@@ -313,9 +315,9 @@ var eventRecapChannels = []string{catalog.SalesChannelOnline, catalog.SalesChann
 // an instant, so the reads are not wrapped in a transaction for it.
 func (s *Service) eventRecapSales(ctx context.Context, c catalog.EventRecapCandidate) (*platform.EventRecapSales, error) {
 	// The candidate says which kind of Event this is, once for the whole
-	// recap: one that carries Registration Link clicks has External
-	// Registration, and states them in place of these figures (#888).
-	if c.RegistrationLinkClicks != nil {
+	// recap: one with External Registration states its Registration Link
+	// clicks in place of these figures (#888).
+	if c.ExternalRegistration() {
 		return nil, nil
 	}
 	event, ok, err := s.repo.GetEventImportContext(ctx, c.OrganizationID, c.EventID)
