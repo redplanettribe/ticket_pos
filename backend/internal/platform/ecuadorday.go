@@ -45,3 +45,19 @@ func EcuadorDate(instant time.Time) string {
 func StartOfEcuadorDate(date time.Time) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, ecuadorLocation())
 }
+
+// LatestEcuadorHour is the latest instant at hour:00, Ecuador time, that is
+// not after the given one: today's if the platform clock has reached it,
+// yesterday's otherwise. It is how a daily job that runs at a stated hour of
+// the platform clock names the run it is, whenever it was actually invoked: a
+// run a few seconds late, a run made by hand in the afternoon and a run
+// retried before midnight are all the same day's run.
+func LatestEcuadorHour(instant time.Time, hour int) time.Time {
+	loc := ecuadorLocation()
+	local := instant.In(loc)
+	at := time.Date(local.Year(), local.Month(), local.Day(), hour, 0, 0, 0, loc)
+	if at.After(instant) {
+		at = at.AddDate(0, 0, -1)
+	}
+	return at
+}

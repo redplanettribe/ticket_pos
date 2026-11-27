@@ -2862,6 +2862,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/event-recaps/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Event Recaps
+         * @description Sweeps the published Events that are over (the end instant passed, or the start where there is no end), were over at or after the instant the Event Recap went live, were over at least six hours before the run's 09:00 on the platform clock (America/Guayaquil), and were never recapped, and emails each one's Event Recap to every Event Owner of the Event, as its Event assignments stand when the mail is sent, each in their own Staff Locale and English where none is stored. The run is that of the latest 09:00 the platform clock has reached, whenever it is called, so a late or repeated call decides what the scheduled one would have, and a missed day is made good by the next run. A draft, a cancelled Event and a dateless Event are never recapped; an Event that sold nothing is. An Event is recorded as recapped once at least one address accepted its mail, and is never due again whatever happens to its dates afterwards; rescheduling it later before it is recapped makes the recap wait for the new time. An Event none of whose readers could be written to, or that has no Event Owner, stays due. Event Staff are never written to. The mail names the Event and no Customer, says its figures are as of the instant it was sent, and links to the Event's Sales Trends, Reach and Sales list in the staff application. Sends are paced by the gap the Reminder sweeps share, the Event over longest first, at most a batch of Events per run and inside a run budget. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller. The response reports how many Events were due in this batch, how many were recapped, how many mails went and how many were refused, how many Events were skipped, and how many were mailed but could not be recorded. It names nobody and no Event.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEventRecapSweep"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/follow-digests/drain": {
         parameters: {
             query?: never;
@@ -16377,6 +16425,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeEventRecapSweep": {
+            data?: components["schemas"]["service.EventRecapSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeFollowDigestDrain": {
             data?: components["schemas"]["service.DrainResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -18512,6 +18565,32 @@ export interface components {
             starts_at?: string;
             status?: string;
             timezone?: string;
+        };
+        "service.EventRecapSweepResult": {
+            /** @description Due is how many Events this run found due in its batch. */
+            due?: number;
+            /**
+             * @description Failed is how many mails the provider refused. An Event none of whose
+             *     readers could be written to stays due and is retried by the next run.
+             */
+            failed?: number;
+            /**
+             * @description Recapped is how many of them were mailed to at least one reader and are
+             *     recorded, never due again.
+             */
+            recapped?: number;
+            /** @description Sent is how many mails the provider accepted, one per reader per Event. */
+            sent?: number;
+            /**
+             * @description Skipped is how many Events were due but had nobody to write to or whose
+             *     readers could not be read; they stay due.
+             */
+            skipped?: number;
+            /**
+             * @description Unrecorded is how many Events were mailed but could not be recorded:
+             *     counted in Recapped too, and the one case that can send a second recap.
+             */
+            unrecorded?: number;
         };
         "service.EventView": {
             ends_at?: string;

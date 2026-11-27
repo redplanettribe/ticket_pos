@@ -44,8 +44,9 @@ func TestEveryEmailSenderKindHasAnHTMLRenderingAndGoldensInBothLanguages(t *test
 		goldens[kind][f.locale] = append(goldens[kind][f.locale], f.name)
 	}
 
-	if sender.NumMethod() != 22 {
-		t.Errorf("EmailSender has %d kinds, the spec's twenty-two no longer; update this count and the spec", sender.NumMethod())
+	// Spec #870's twenty-two, and the Event Recap (spec #884).
+	if sender.NumMethod() != 23 {
+		t.Errorf("EmailSender has %d kinds, twenty-three no longer; update this count and the spec", sender.NumMethod())
 	}
 	for i := range sender.NumMethod() {
 		method := sender.Method(i)

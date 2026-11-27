@@ -145,6 +145,9 @@ const (
 	// mailKindDigest is the Follow Digest's card: its two sections of compact
 	// Event rows.
 	mailKindDigest mailKind = "digest"
+	// mailKindEventRecap is the Event Recap's card: a staff notice with one
+	// button and two plain links under it, and room for its figures.
+	mailKindEventRecap mailKind = "eventrecap"
 )
 
 // dryRunEventRow is a compact Event row with every optional branch filled.
@@ -182,6 +185,12 @@ var mailKinds = map[mailKind]any{
 			{More: &digestMoreView{}},
 		},
 		Button: &mailButton{},
+	},
+	// Every optional branch filled, so the dry run executes each one.
+	mailKindEventRecap: eventRecapCard{
+		Blocks: [][]string{{""}},
+		Button: &mailButton{},
+		Links:  []eventRecapLinkView{{URL: "#"}},
 	},
 	// Every optional branch filled, so the dry run executes each one.
 	mailKindCover: coverCard{

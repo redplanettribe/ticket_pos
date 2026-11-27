@@ -9,8 +9,8 @@ import (
 
 // The staff and operator kinds' HTML parts (ADR 0082, #875): the Certificate
 // Expiry Warning, the five Payout Request notices, both Question Review
-// notices and Ticket Question Revoked, in the platform chrome with no Event
-// imagery. The goldens and the structural assertions cover their shape; these
+// notices, Ticket Question Revoked and the Event Recap, in the platform chrome
+// with no Event imagery. The goldens and the structural assertions cover their shape; these
 // cover what a reader is told.
 
 // staffFixtures is every staff and operator golden fixture.
@@ -18,7 +18,7 @@ func staffFixtures() []mailFixture {
 	return append(staffMailFixtures(LocaleEN), staffMailFixtures(LocaleES)...)
 }
 
-// All nine kinds, in both languages.
+// All ten kinds, in both languages.
 func TestStaffMailFixturesCoverEveryKind(t *testing.T) {
 	kinds := map[string]bool{}
 	for _, f := range staffFixtures() {
@@ -28,8 +28,8 @@ func TestStaffMailFixturesCoverEveryKind(t *testing.T) {
 		}
 		kinds[name] = true
 	}
-	if len(kinds) != 9 {
-		t.Fatalf("staff fixtures cover %d kinds, want 9: %v", len(kinds), kinds)
+	if len(kinds) != 10 {
+		t.Fatalf("staff fixtures cover %d kinds, want 10: %v", len(kinds), kinds)
 	}
 }
 
@@ -71,7 +71,8 @@ func TestStaffMailCarriesNoEventImagery(t *testing.T) {
 }
 
 // A button only where the text carries a link: the Certificate Expiry
-// Warning's Issuer page is the one, and every other staff kind has none.
+// Warning's Issuer page and the Event Recap's Sales Trends are the two, and
+// every other staff kind has none.
 func TestStaffMailHasAButtonOnlyWhereTheTextHasALink(t *testing.T) {
 	for _, f := range staffFixtures() {
 		t.Run(f.name, func(t *testing.T) {
@@ -80,22 +81,69 @@ func TestStaffMailHasAButtonOnlyWhereTheTextHasALink(t *testing.T) {
 				t.Fatalf("render: %v", err)
 			}
 			buttons := findAll(parseMail(t, body), isPrimaryButton)
-			if !strings.HasPrefix(f.name, "certificateexpiry-") {
+			var want, label string
+			switch {
+			case strings.HasPrefix(f.name, "certificateexpiry-"):
+				want, label = goldenCertificateExpiryWarning(f.locale).IssuerURL, certificateExpiryButtonCopy.in(f.locale)
+			case strings.HasPrefix(f.name, "eventrecap-"):
+				want, label = goldenEventRecap(f.locale).SalesTrendsURL, eventRecapSalesTrendsButtonCopy.in(f.locale)
+			default:
 				if len(buttons) != 0 {
 					t.Fatalf("a kind with no link has %d buttons", len(buttons))
 				}
 				return
 			}
-			want := goldenCertificateExpiryWarning(f.locale).IssuerURL
-			if len(buttons) != 1 || attr(buttons[0], "href") != want || textOf(buttons[0]) != certificateExpiryButtonCopy.in(f.locale) {
-				t.Fatalf("want one button %q to %s", certificateExpiryButtonCopy.in(f.locale), want)
+			if len(buttons) != 1 || attr(buttons[0], "href") != want || textOf(buttons[0]) != label {
+				t.Fatalf("want one button %q to %s", label, want)
 			}
 		})
 	}
 }
 
+// The Event Recap links to the Event's Sales Trends, Reach and Sales list, in
+// both parts, in both languages.
+func TestEventRecapLinksToSalesTrendsReachAndTheSalesList(t *testing.T) {
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		recap := goldenEventRecap(locale)
+		body, err := recap.HTML(goldenChrome)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		hrefs := map[string]bool{}
+		for _, link := range findAll(parseMail(t, body), func(n *html.Node) bool { return n.Data == "a" }) {
+			hrefs[attr(link, "href")] = true
+		}
+		for _, url := range []string{recap.SalesTrendsURL, recap.ReachURL, recap.SalesURL} {
+			if !hrefs[url] {
+				t.Errorf("%s: the HTML part does not link to %s", locale, url)
+			}
+			if !strings.Contains(recap.Text(), url) {
+				t.Errorf("%s: the text part does not carry %s", locale, url)
+			}
+		}
+	}
+}
+
+// The Event Recap names the Event in its subject and says when its figures
+// are as of, on the platform clock.
+func TestEventRecapNamesTheEventAndSaysWhenItsFiguresAreAsOf(t *testing.T) {
+	for locale, asOf := range map[Locale]string{
+		LocaleEN: "6 December 2026 at 09:00 (Ecuador time)",
+		LocaleES: "6 de diciembre de 2026 a las 09:00 (hora de Ecuador)",
+	} {
+		recap := goldenEventRecap(locale)
+		if !strings.Contains(recap.Subject(), recap.EventName) {
+			t.Errorf("%s: subject %q does not name the Event", locale, recap.Subject())
+		}
+		if !strings.Contains(recap.Text(), asOf) {
+			t.Errorf("%s: text %q does not say its figures are as of %q", locale, recap.Text(), asOf)
+		}
+	}
+}
+
 // The footer says why this reader got it: a Platform Operator, the one who
-// asked to be paid, the one who submitted the questions, an Org Admin.
+// asked to be paid, the one who submitted the questions, an Org Admin, the
+// one who answers for the Event.
 func TestStaffMailFooterSaysWhyTheReaderGotIt(t *testing.T) {
 	for _, f := range staffFixtures() {
 		t.Run(f.name, func(t *testing.T) {
@@ -113,6 +161,8 @@ func TestStaffMailFooterSaysWhyTheReaderGotIt(t *testing.T) {
 				want = strings.Replace(questionReviewAnsweredFooterReasonCopy.in(f.locale), "%s", "Noche de Jazz", 1)
 			case strings.HasPrefix(f.name, "ticketquestionrevoked-"):
 				want = strings.Replace(questionRevokedFooterReasonCopy.in(f.locale), "%s", "Club de Jazz", 1)
+			case strings.HasPrefix(f.name, "eventrecap-"):
+				want = strings.Replace(eventRecapFooterReasonCopy.in(f.locale), "%s", "Noche de Jazz", 1)
 			default:
 				t.Fatalf("no footer reason expected for %s", f.name)
 			}
@@ -141,6 +191,8 @@ func TestStaffMailHTMLEscapesWhatPeopleTyped(t *testing.T) {
 	answered.Items[2].QuestionLabel, answered.Items[2].Reason = hostile, hostile
 	revoked := goldenTicketQuestionRevoked(LocaleES)
 	revoked.OrganizationName, revoked.EventName, revoked.QuestionLabel, revoked.Reason = hostile, hostile, hostile, hostile
+	recap := goldenEventRecap(LocaleEN)
+	recap.EventName = hostile
 
 	for name, render := range map[string]func(MailChrome) (string, error){
 		"payout request submitted":       submitted.HTML,
@@ -149,6 +201,7 @@ func TestStaffMailHTMLEscapesWhatPeopleTyped(t *testing.T) {
 		"question review submitted":      review.HTML,
 		"question review answered":       answered.HTML,
 		"ticket question revoked":        revoked.HTML,
+		"event recap":                    recap.HTML,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body, err := render(goldenChrome)

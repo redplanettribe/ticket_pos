@@ -95,6 +95,25 @@ func (s *Service) OrgAdminEmails(ctx context.Context, orgID string) ([]string, e
 	return emails, nil
 }
 
+// EventOwnerEmails returns the address of every Event Owner of one Event:
+// each Member whose Event assignment there has the Event Owner role, as the
+// assignments stand now. For the Event Recap, which writes to the people
+// answerable for an Event at the moment it is sent (spec #884). Event Staff
+// are never in it, and neither is anybody by their Organization role alone.
+func (s *Service) EventOwnerEmails(ctx context.Context, eventID string) ([]string, error) {
+	assignments, err := s.repo.ListEventAssignments(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	emails := make([]string, 0, len(assignments))
+	for _, a := range assignments {
+		if a.Role == repository.RoleEventOwner {
+			emails = append(emails, a.Email)
+		}
+	}
+	return emails, nil
+}
+
 // ListOrganizationsForOperator returns one page of every Organization on the
 // platform, name-ascending, plus the unpaginated total (ADR 0006). Page and size
 // arrive already floored and clamped by the handler.

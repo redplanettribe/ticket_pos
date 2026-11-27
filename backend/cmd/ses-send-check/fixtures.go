@@ -203,6 +203,13 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 				IssuerURL: fixtureStaff + "/operator/issuer",
 			})
 		}),
+		transactionalMessage("event recap", es, func(ctx context.Context) error {
+			const recapEvent = fixtureStaff + "/events/6f1c2a9e-0b7d-4c1e-9a53-2d8e4f7b1c60"
+			return transactional.SendEventRecap(ctx, platform.EventRecap{
+				To: to, Locale: es, EventName: event, SentAt: now,
+				SalesTrendsURL: recapEvent + "/sales/trends", ReachURL: recapEvent + "/reach", SalesURL: recapEvent + "/sales",
+			})
+		}),
 		{name: "follow digest", identity: digestIdentity, locale: es, send: func(ctx context.Context) error {
 			return digest.SendFollowDigest(ctx, platform.FollowDigest{
 				To: to, CustomerName: "Ana", Locale: es,

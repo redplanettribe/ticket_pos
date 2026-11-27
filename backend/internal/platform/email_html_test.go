@@ -400,7 +400,18 @@ func staffMailFixtures(locale Locale) []mailFixture {
 
 	revoked := goldenTicketQuestionRevoked(locale)
 	add("ticketquestionrevoked", revoked)
+
+	add("eventrecap", goldenEventRecap(locale))
 	return fixtures
+}
+
+func goldenEventRecap(locale Locale) EventRecap {
+	const event = "https://staff.example.com/events/6f1c2a9e-0b7d-4c1e-9a53-2d8e4f7b1c60"
+	return EventRecap{
+		To: "owner@example.com", Locale: locale, EventName: "Noche de Jazz",
+		SentAt:         time.Date(2026, 12, 6, 14, 0, 0, 0, time.UTC),
+		SalesTrendsURL: event + "/sales/trends", ReachURL: event + "/reach", SalesURL: event + "/sales",
+	}
 }
 
 func goldenCertificateExpiryWarning(locale Locale) CertificateExpiryWarning {

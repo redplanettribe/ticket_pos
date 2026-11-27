@@ -400,6 +400,11 @@ func (s *SMTPEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Ce
 	return s.send(ctx, "certificate expiry warning", w.To, w.Subject(), w.Text(), renderedHTML(ctx, s.logger, "certificate expiry warning", w.HTML, s.chrome))
 }
 
+// SendEventRecap delivers one Event Recap.
+func (s *SMTPEmailSender) SendEventRecap(ctx context.Context, r EventRecap) error {
+	return s.send(ctx, "event recap", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "event recap", r.HTML, s.chrome))
+}
+
 // SendFollowDigest delivers the weekly Follow Digest. It is only reached on
 // the sender built with the Digest identity's From: the wiring routes the
 // Digest there through SplitEmailSender.

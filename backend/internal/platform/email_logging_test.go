@@ -17,6 +17,7 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 	taxDocument := goldenTaxDocumentDelivery(LocaleES)
 	annulment := goldenAnnulmentNotice(LocaleEN)
 	expiry := goldenCertificateExpiryWarning(LocaleES)
+	recap := goldenEventRecap(LocaleES)
 	payoutSubmitted := goldenPayoutRequestSubmitted(LocaleEN)
 	payoutPaid := goldenPayoutRequestPaid(LocaleES)
 	payoutDeclined := goldenPayoutRequestDeclined(LocaleEN)
@@ -54,6 +55,9 @@ func TestLoggingSenderLogsTheHTMLSizeAndNotTheMarkup(t *testing.T) {
 		}},
 		{"certificate expiry warning", "certificate expiry warning sent", expiry.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendCertificateExpiryWarning(ctx, expiry)
+		}},
+		{"event recap", "event recap sent", recap.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
+			return s.SendEventRecap(ctx, recap)
 		}},
 		{"payout request submitted", "payout request submitted notice sent", payoutSubmitted.HTML, func(ctx context.Context, s *LoggingEmailSender) error {
 			return s.SendPayoutRequestSubmitted(ctx, payoutSubmitted)

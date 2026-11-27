@@ -289,7 +289,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		platformLogger.Warn("storefront base url: falling back to the development origin (no STOREFRONT_BASE_URL set); Confirmation Links will point at localhost")
 	}
 	if cfg.AppEnv == "production" && cfg.StaffBaseURL == platform.DevStaffBaseURL {
-		platformLogger.Warn("staff base url: falling back to the development origin (no STAFF_BASE_URL set); the Certificate Expiry Warning's Issuer-page link will point at localhost")
+		platformLogger.Warn("staff base url: falling back to the development origin (no STAFF_BASE_URL set); the Certificate Expiry Warning's Issuer-page link and the Event Recap's links will point at localhost")
 	}
 
 	// Consent (#250, #251, parent #249). It depends on nothing but the database
@@ -498,6 +498,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// sales paces the run with the pacer the Reminder sweeps share. The far side
 	// holds everything while TICKET_ASSIGNMENT_ENABLED is closed.
 	salesService = salesService.WithOwedAssignmentMails(catalogService)
+
+	// The Event Recap (spec #884) runs on the same shape with one more seam:
+	// the catalog says which Events are due and records the ones sent, identity
+	// says who an Event's Event Owners are, and sales composes, paces and
+	// sends, on links built from the staff application's origin.
+	salesService = salesService.WithEventRecaps(catalogService, identityService, cfg.StaffBaseURL)
 
 	// A Sale Reversal takes every Holder on the Sale with it, and they are told
 	// (#327, parent #322, ADR 0046). Tied on here for the same reason and at the
