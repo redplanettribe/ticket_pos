@@ -619,6 +619,21 @@ Any day or month on it opens into the Events that made it, ranked.
 Carries no rate built on Page Views, for the reason Platform Trends carries none.
 _Avoid_: Dashboard, analytics, metrics, KPIs, statistics, insights, report, Organization Dashboard
 
+**Event Recap**:
+The one email that tells the people answerable for an Event how it went, sent the morning after it is over: at the first 09:00 of the platform clock that falls at least six hours after the Event is over, so the night's door sales are in.
+One per Event, never one per person per morning, the opposite of the Follow Digest: it names one Event and can be forwarded to whoever ran it.
+Sent once and never again; an Event rescheduled later before its Event Recap waits for the new time, and one rescheduled after it is not recapped a second time.
+Goes to every Event Owner of the Event, or to every Org Admin when the Event has no Event Owner, judged when it is sent rather than when the Event ended, one copy per person in their Staff Locale; never to Event Staff, since what it says is mostly money.
+Sent for a `published` Past Event only, whether or not anything sold, since an Event that drew many Page Views and sold nothing is news its owner should hear. An Event with External Registration gets one too, saying what such an Event has to say: its Page Views and its clicks.
+States Tickets Sold and Ticket Sales by Sales Channel and by Ticket Type, Takings and the Net Proceeds of its Online Sales, the Page Views and Clicks its page drew until the Event was over, its busiest Affiliate Links, and how many Sales were reversed, each as it stood when the mail was sent rather than as final: a door sale recorded late, a Sale Import or a Sale Reversal still moves the live figures afterwards, and the mail points at the surfaces that hold them.
+Carries no rate built on Page Views, for the reason Platform Trends carries none.
+Cannot be turned off: it is staff mail about one's own work, one per Event one answers for.
+Keeps no copy of what it said: that it was sent is recorded so it goes once, and nothing on a staff surface shows it.
+A House Organization's Events are recapped like any other; a Platform Operator receives none.
+Only an Event that becomes over after the Event Recap was switched on gets one; nothing that ended before is recapped.
+In Spanish, **Resumen del evento**.
+_Avoid_: Event report, event summary, wrap-up, post-event email, digest, newsletter. In Spanish: Informe del evento, Reporte
+
 **Payout**:
 A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
 May answer a Payout Request or stand alone: an Organization that asked is settled by fulfilling its request, and one that asked through some other conversation is settled by recording the Payout directly. Neither route changes what a Payout is.
