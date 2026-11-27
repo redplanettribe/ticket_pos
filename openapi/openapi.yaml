@@ -4982,8 +4982,8 @@ components:
           type: integer
         skipped:
           description: |-
-            Skipped is how many Events were due but whose readers or sales figures
-            could not be read; they stay due.
+            Skipped is how many Events were due but whose readers or figures, sales
+            or reach, could not be read; they stay due.
           type: integer
         unaddressed:
           description: |-

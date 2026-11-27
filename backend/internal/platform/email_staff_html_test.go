@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -326,6 +327,7 @@ func TestEventRecapTextPartAlignsItsTables(t *testing.T) {
 // split them in; a recap with no sales figures at all states none.
 func TestEventRecapOfAnEventThatSoldNothingStatesItsTotalsAndNoTable(t *testing.T) {
 	recap := goldenEventRecap(LocaleEN)
+	recap.Reach = nil
 	recap.Sales = &EventRecapSales{
 		Currency:    "USD",
 		Channels:    []EventRecapChannel{{Channel: "online"}, {Channel: "in_person"}, {Channel: "import"}},
@@ -353,6 +355,158 @@ func TestEventRecapOfAnEventThatSoldNothingStatesItsTotalsAndNoTable(t *testing.
 	recap.Sales = nil
 	if text := recap.Text(); strings.Contains(text, "Tickets sold") || strings.Contains(text, "Takings") {
 		t.Errorf("a recap with no sales figures states some:\n%s", text)
+	}
+}
+
+// eventRecapParts is one recap's two parts as a reader reads them, spacing
+// collapsed. The HTML part is read without its style sheet, which no reader
+// sees.
+func eventRecapParts(t *testing.T, recap EventRecap) map[string]string {
+	t.Helper()
+	body, err := recap.HTML(goldenChrome)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	doc := parseMail(t, body)
+	read := textOf(doc)
+	for _, style := range findAll(doc, func(n *html.Node) bool { return n.Data == "style" }) {
+		read = strings.Replace(read, textOf(style), "", 1)
+	}
+	return map[string]string{
+		"HTML": read,
+		"text": strings.Join(strings.Fields(recap.Text()), " "),
+	}
+}
+
+// The Event Recap states the attention the Event's page drew until the Event
+// was over: its Page Views, and its busiest Affiliate Links with their Clicks
+// and Attributed Sales, in the marks of the reader's Staff Locale (#887).
+func TestEventRecapStatesTheReachFiguresInTheReadersStaffLocale(t *testing.T) {
+	for locale, want := range map[Locale][]string{
+		LocaleEN: {
+			"Page views until the Event was over: 15,320",
+			"Its busiest Affiliate Links, by Clicks until the Event was over:",
+			"Affiliate Link Clicks Attributed sales",
+			"Instagram de María 2,140 96",
+			"Radio Quito 880 41",
+			"Volantes 15 0",
+		},
+		LocaleES: {
+			"Vistas de página hasta que terminó el evento: 15.320",
+			"Sus Enlaces de Afiliado con más clics hasta que terminó el evento:",
+			"Enlace de Afiliado Clics Ventas atribuidas",
+			"Instagram de María 2.140 96",
+			"Radio Quito 880 41",
+			"Volantes 15 0",
+		},
+	} {
+		for part, read := range eventRecapParts(t, goldenEventRecap(locale)) {
+			for _, figure := range want {
+				if !strings.Contains(read, figure) {
+					t.Errorf("%s: the %s part does not say %q:\n%s", locale, part, figure, read)
+				}
+			}
+		}
+	}
+}
+
+// An Event with no Affiliate Link to list states its Page Views, a zero
+// included, and has no Affiliate Link block; one whose links attribute no
+// sale, an Event with External Registration, lists their Clicks alone; and a
+// recap with no reach figures states none.
+func TestEventRecapReachWithoutAffiliateLinksHasNoBlock(t *testing.T) {
+	recap := goldenEventRecap(LocaleEN)
+	recap.Reach = &EventRecapReach{}
+	for part, read := range eventRecapParts(t, recap) {
+		if !strings.Contains(read, "Page views until the Event was over: 0") {
+			t.Errorf("the %s part does not state zero Page Views:\n%s", part, read)
+		}
+		if strings.Contains(read, "Affiliate Link") || strings.Contains(read, "Clicks") || strings.Contains(read, "Attributed sales") {
+			t.Errorf("the %s part has an Affiliate Link block with no link to list:\n%s", part, read)
+		}
+	}
+
+	recap.Reach = &EventRecapReach{PageViews: 40, AffiliateLinks: []EventRecapAffiliateLink{{Name: "Flyer", Clicks: 12}}}
+	for part, read := range eventRecapParts(t, recap) {
+		if !strings.Contains(read, "Affiliate Link Clicks Flyer 12") {
+			t.Errorf("the %s part does not list the link's Clicks alone:\n%s", part, read)
+		}
+		if strings.Contains(read, "Attributed sales") {
+			t.Errorf("the %s part states Attributed Sales nobody measured:\n%s", part, read)
+		}
+	}
+
+	recap.Reach = nil
+	for part, read := range eventRecapParts(t, recap) {
+		if strings.Contains(read, "Page views") || strings.Contains(read, "Affiliate Link") {
+			t.Errorf("the %s part of a recap with no reach figures states some:\n%s", part, read)
+		}
+	}
+}
+
+// The Event Recap never renders a rate built on Page Views (spec #884, the
+// rule Platform Trends and Organization Trends keep): a figure that counts
+// loads cannot be divided into one that counts sales or people without lying
+// when crawler traffic moves.
+//
+// HELD THREE WAYS, in both parts and both languages, over the fixture and
+// over recaps whose figures would make a tidy rate: no percent sign, no word
+// for a rate, and none of the quotients the figures could be divided into.
+func TestEventRecapNeverRendersARateBuiltOnPageViews(t *testing.T) {
+	// 200 Page Views, 50 Tickets Sold in 40 Ticket Sales, a link with 80
+	// Clicks and 20 Attributed Sales: every quotient is a round figure that
+	// would be easy to print and easy to find.
+	tidy := func(locale Locale) EventRecap {
+		recap := goldenEventRecap(locale)
+		recap.Sales = &EventRecapSales{
+			Currency: "USD", TicketsSold: 50, TicketSales: 40, TakingsCents: 100000, NetProceedsCents: 90000,
+			Channels:    []EventRecapChannel{{Channel: "online", TicketsSold: 50, TicketSales: 40}},
+			TicketTypes: []EventRecapTicketType{{Name: "General", TicketsSold: 50}},
+		}
+		recap.Reach = &EventRecapReach{
+			PageViews:      200,
+			AffiliateLinks: []EventRecapAffiliateLink{{Name: "Flyer", Clicks: 80, AttributedSales: goldenCount(20)}},
+		}
+		return recap
+	}
+	withoutLinks := func(locale Locale) EventRecap {
+		recap := tidy(locale)
+		recap.Reach.AffiliateLinks = nil
+		return recap
+	}
+	withoutSales := func(locale Locale) EventRecap {
+		recap := tidy(locale)
+		recap.Sales = nil
+		recap.Reach.AffiliateLinks[0].AttributedSales = nil
+		return recap
+	}
+	rateWords := regexp.MustCompile(`(?i)\b(rate|rates|ratio|conversion|converted|per view|per page view|percent|tasa|tasas|proporción|conversión|porcentaje|por vista|por ciento)\b`)
+	// Tickets Sold, Ticket Sales, Clicks and Attributed Sales over Page
+	// Views, and Attributed Sales over Clicks, as a share or a percentage in
+	// either locale's marks.
+	quotients := regexp.MustCompile(`\b(0[.,]25|0[.,]2|0[.,]4|0[.,]1|25|20|40|10)\s?%|\b0[.,](25|2|4|1)\b`)
+
+	for _, locale := range []Locale{LocaleEN, LocaleES} {
+		for name, recap := range map[string]EventRecap{
+			"fixture": goldenEventRecap(locale), "tidy": tidy(locale),
+			"without links": withoutLinks(locale), "without sales": withoutSales(locale),
+		} {
+			parts := eventRecapParts(t, recap)
+			parts["subject"] = recap.Subject()
+			for part, read := range parts {
+				if strings.Contains(read, "%") {
+					t.Errorf("%s, %s: the %s part has a percent sign:\n%s", locale, name, part, read)
+				}
+				if word := rateWords.FindString(read); word != "" {
+					t.Errorf("%s, %s: the %s part says %q, the word of a rate:\n%s", locale, name, part, word, read)
+				}
+				if name != "fixture" {
+					if quotient := quotients.FindString(read); quotient != "" {
+						t.Errorf("%s, %s: the %s part states %q, a figure divided into another:\n%s", locale, name, part, quotient, read)
+					}
+				}
+			}
+		}
 	}
 }
 

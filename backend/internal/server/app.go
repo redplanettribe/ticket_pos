@@ -580,6 +580,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// built after sales, and because it is additive — an unwired resolver simply
 	// attributes nothing (#146).
 	salesService = salesService.WithAffiliateLinks(affiliatesService)
+	// The Event Recap reads an Event's Page Views and busiest Affiliate Links
+	// from affiliates, which keeps the hourly buckets (#887).
+	salesService = salesService.WithEventRecapReach(affiliatesService)
 
 	// The Follow Digest pipeline (#220, ADR 0030): the platform's second piece of
 	// scheduled work, driven by two internal endpoints.

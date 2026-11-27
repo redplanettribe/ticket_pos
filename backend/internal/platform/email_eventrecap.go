@@ -13,9 +13,10 @@ import (
 // STAFF MAIL, in the platform chrome with no Event imagery and no tracking,
 // written in its reader's Staff Locale. It names the Event and nobody else: no
 // Customer, no buyer, no Holder. It says that the Event is over, the instant
-// its figures are as of, the Event's sales figures (#886), and the three staff
-// surfaces that hold the live ones. The figures later tickets add go where the
-// sales figures are, between the as-of paragraph and the links.
+// its figures are as of, the Event's sales figures (#886), the attention its
+// page drew before it was over (#887), and the three staff surfaces that hold
+// the live ones. The figures later tickets add go where these are, between the
+// as-of paragraph and the links.
 
 // EventRecapWentLiveAt is the instant the Event Recap was switched on: the
 // start of its deploy day on the platform clock. Only an Event that becomes
@@ -51,6 +52,41 @@ type EventRecap struct {
 	// for a recap that states none: an Event with External Registration, which
 	// produces no Ticket Sale and so has no Tickets Sold to say anything about.
 	Sales *EventRecapSales
+	// Reach is the attention the Event's page drew until the Event was over
+	// (#887), or nil for a recap that states none.
+	Reach *EventRecapReach
+}
+
+// EventRecapReach is the attention an Event's page drew before the Event was
+// over, as the Event Recap states it (#887): loads counted in the hourly
+// buckets of ADR 0057 whose hour began before the over instant, so somebody
+// looking at a finished Event does not inflate them.
+//
+// LOADS, NEVER PEOPLE, AND NEVER A RATE. Every figure is a count, a floor on
+// what the page drew. The mail divides none of them into another and states
+// no rate built on Page Views, because a figure that counts loads cannot be
+// divided into one that counts sales without lying when crawler traffic
+// moves. EventRecapReach has no field a rate could be read from.
+type EventRecapReach struct {
+	// PageViews is every load of the Event's page until the Event was over,
+	// the ones that came through an Affiliate Link included, each once.
+	PageViews int
+	// AffiliateLinks is the Event's busiest Affiliate Links, the one with the
+	// most Clicks first. Empty where no Affiliate Link drew a Click, which
+	// drops the block.
+	AffiliateLinks []EventRecapAffiliateLink
+}
+
+// EventRecapAffiliateLink is one Affiliate Link in the recap: the name staff
+// gave it, its Clicks until the Event was over, and its Attributed Sales.
+type EventRecapAffiliateLink struct {
+	Name   string
+	Clicks int
+	// AttributedSales is how many active Ticket Sales are attributed to the
+	// link, a reversed one dropped. Nil on an Event with External
+	// Registration, whose links can attribute none: not measured, which a
+	// zero would misstate.
+	AttributedSales *int
 }
 
 // EventRecapSales is an Event's sales figures as the Event Recap states them
@@ -168,6 +204,29 @@ var (
 		"Import",
 		"Importación",
 	)
+	// The reach figures (#887), in the staff app's words for them. Each says
+	// "until the Event was over", since the Reach surface the mail links to
+	// goes on counting loads afterwards and will state more.
+	eventRecapPageViewsCopy = translated(
+		"Page views until the Event was over",
+		"Vistas de página hasta que terminó el evento",
+	)
+	eventRecapBusiestLinksCopy = translated(
+		"Its busiest Affiliate Links, by Clicks until the Event was over:",
+		"Sus Enlaces de Afiliado con más clics hasta que terminó el evento:",
+	)
+	eventRecapAffiliateLinkCopy = translated(
+		"Affiliate Link",
+		"Enlace de Afiliado",
+	)
+	eventRecapClicksCopy = translated(
+		"Clicks",
+		"Clics",
+	)
+	eventRecapAttributedSalesCopy = translated(
+		"Attributed sales",
+		"Ventas atribuidas",
+	)
 	eventRecapSalesTrendsLeadCopy = translated(
 		"See how its sales moved in Sales Trends:",
 		"Vea cómo se movieron sus ventas en Tendencias de ventas:",
@@ -232,7 +291,8 @@ func (s eventRecapSection) text() string {
 }
 
 // sections is the recap's body before its links: that the Event is over, the
-// instant its figures are as of, and the sales figures where it states any.
+// instant its figures are as of, the sales figures where it states any, and
+// then the reach figures where it states any.
 func (r EventRecap) sections() []eventRecapSection {
 	sections := []eventRecapSection{
 		{Lines: []string{fmt.Sprintf(eventRecapOverCopy.in(r.Locale), r.EventName)}},
@@ -241,7 +301,51 @@ func (r EventRecap) sections() []eventRecapSection {
 	if r.Sales != nil {
 		sections = append(sections, r.Sales.sections(r.Locale)...)
 	}
+	if r.Reach != nil {
+		sections = append(sections, r.Reach.sections(r.Locale)...)
+	}
 	return sections
+}
+
+// sections is the reach figures: the Page Views as one figure on a line,
+// always stated, a zero included, and then the busiest Affiliate Links as a
+// table under the sentence that says what it ranks them by.
+//
+// AN EVENT WITH NO AFFILIATE LINK THAT DREW A CLICK HAS NO BLOCK: neither the
+// sentence nor the table. The Attributed sales column is dropped where no
+// link carries the figure, which is an Event with External Registration.
+//
+// NO RATE. The counts are written down and nothing is divided.
+func (r EventRecapReach) sections(locale Locale) []eventRecapSection {
+	sections := []eventRecapSection{{Lines: []string{
+		eventRecapPageViewsCopy.in(locale) + ": " + formatStaffCount(r.PageViews, locale),
+	}}}
+	if len(r.AffiliateLinks) == 0 {
+		return sections
+	}
+	attributed := false
+	for _, link := range r.AffiliateLinks {
+		attributed = attributed || link.AttributedSales != nil
+	}
+	table := &mailTable{Columns: []string{eventRecapAffiliateLinkCopy.in(locale), eventRecapClicksCopy.in(locale)}}
+	if attributed {
+		table.Columns = append(table.Columns, eventRecapAttributedSalesCopy.in(locale))
+	}
+	for _, link := range r.AffiliateLinks {
+		row := []string{link.Name, formatStaffCount(link.Clicks, locale)}
+		if attributed {
+			sales := 0
+			if link.AttributedSales != nil {
+				sales = *link.AttributedSales
+			}
+			row = append(row, formatStaffCount(sales, locale))
+		}
+		table.Rows = append(table.Rows, row)
+	}
+	return append(sections,
+		eventRecapSection{Lines: []string{eventRecapBusiestLinksCopy.in(locale)}},
+		eventRecapSection{Table: table},
+	)
 }
 
 // sections is the sales figures: the Event's totals as one figure a line,

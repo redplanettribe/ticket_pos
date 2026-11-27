@@ -367,7 +367,11 @@ type Service struct {
 	// nothing.
 	eventRecaps          EventRecapSource
 	eventRecapRecipients EventRecapRecipients
-	staffBaseURL         string
+	// eventRecapReach is the attention an Event's page drew before it was
+	// over (#887). Set by WithEventRecapReach; without it the sweep mails
+	// nobody.
+	eventRecapReach EventRecapReachSource
+	staffBaseURL    string
 	// displacedHolders tells the people who were holding a reversed Sale's
 	// Tickets that they are not holding them any more (#327, parent #322).
 	//
@@ -564,6 +568,15 @@ func (s *Service) WithEventRecaps(source EventRecapSource, recipients EventRecap
 	s.eventRecaps = source
 	s.eventRecapRecipients = recipients
 	s.staffBaseURL = staffBaseURL
+	return s
+}
+
+// WithEventRecapReach wires where the Event Recap reads an Event's Page Views
+// and busiest Affiliate Links from (#887): the affiliates service. A setter
+// apart from WithEventRecaps because affiliates is built after it is called,
+// and on its terms: a deployment that forgets it mails nobody.
+func (s *Service) WithEventRecapReach(reach EventRecapReachSource) *Service {
+	s.eventRecapReach = reach
 	return s
 }
 

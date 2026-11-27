@@ -427,8 +427,18 @@ func goldenEventRecap(locale Locale) EventRecap {
 				{Name: "Cortesía", TicketsSold: 0},
 			},
 		},
+		Reach: &EventRecapReach{
+			PageViews: 15320,
+			AffiliateLinks: []EventRecapAffiliateLink{
+				{Name: "Instagram de María", Clicks: 2140, AttributedSales: goldenCount(96)},
+				{Name: "Radio Quito", Clicks: 880, AttributedSales: goldenCount(41)},
+				{Name: "Volantes", Clicks: 15, AttributedSales: goldenCount(0)},
+			},
+		},
 	}
 }
+
+func goldenCount(n int) *int { return &n }
 
 func goldenCertificateExpiryWarning(locale Locale) CertificateExpiryWarning {
 	return CertificateExpiryWarning{

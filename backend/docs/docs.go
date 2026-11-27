@@ -5877,7 +5877,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "skipped": {
-                        "description": "Skipped is how many Events were due but whose readers or sales figures\ncould not be read; they stay due.",
+                        "description": "Skipped is how many Events were due but whose readers or figures, sales\nor reach, could not be read; they stay due.",
                         "type": "integer"
                     },
                     "unaddressed": {

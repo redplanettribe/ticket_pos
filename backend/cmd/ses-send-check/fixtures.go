@@ -224,6 +224,14 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 						{Name: "Cortesía", TicketsSold: 0},
 					},
 				},
+				Reach: &platform.EventRecapReach{
+					PageViews: 15320,
+					AffiliateLinks: []platform.EventRecapAffiliateLink{
+						{Name: "Instagram de María", Clicks: 2140, AttributedSales: fixtureCount(96)},
+						{Name: "Radio Quito", Clicks: 880, AttributedSales: fixtureCount(41)},
+						{Name: "Volantes", Clicks: 15, AttributedSales: fixtureCount(0)},
+					},
+				},
 			})
 		}),
 		{name: "follow digest", identity: digestIdentity, locale: es, send: func(ctx context.Context) error {
@@ -250,3 +258,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		}},
 	}, nil
 }
+
+// fixtureCount is a count a fixture states, for a figure that is nil where it
+// is not measured.
+func fixtureCount(n int) *int { return &n }

@@ -48,6 +48,14 @@ type EventRecapRecipients interface {
 	OrgAdminEmails(ctx context.Context, orgID string) ([]string, error)
 }
 
+// EventRecapReachSource is what the sweep needs from affiliates: the attention
+// an Event's page drew before the Event was over (#887), its Page Views and
+// its busiest Affiliate Links. The hourly buckets and the links are that
+// module's, so the cut at the over instant is made there.
+type EventRecapReachSource interface {
+	EventRecapReach(ctx context.Context, organizationID, eventID string, overAt time.Time) (*platform.EventRecapReach, error)
+}
+
 const (
 	// eventRecapBatch is the most Events one run recaps. The Reminder sweeps'
 	// figure: more Events than this over in one day is a backlog the next run
@@ -71,8 +79,8 @@ type EventRecapSweepResult struct {
 	// Failed is how many mails the provider refused. An Event none of whose
 	// readers could be written to stays due and is retried by the next run.
 	Failed int `json:"failed"`
-	// Skipped is how many Events were due but whose readers or sales figures
-	// could not be read; they stay due.
+	// Skipped is how many Events were due but whose readers or figures, sales
+	// or reach, could not be read; they stay due.
 	Skipped int `json:"skipped"`
 	// Unrecorded is how many Events were mailed but could not be recorded:
 	// counted in Recapped too, and the one case that can send a second recap.
@@ -89,7 +97,7 @@ type EventRecapSweepResult struct {
 // counts.
 func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult, error) {
 	result := &EventRecapSweepResult{}
-	if s.eventRecaps == nil || s.eventRecapRecipients == nil {
+	if s.eventRecaps == nil || s.eventRecapRecipients == nil || s.eventRecapReach == nil {
 		return result, nil
 	}
 
@@ -183,6 +191,14 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		s.logger.Error(ctx, "event recap: the Event's sales figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
 		return true
 	}
+	// The reach figures stop at the instant the Event was over, whenever the
+	// recap is sent, so loads of a finished Event's page are left out (#887).
+	reach, err := s.eventRecapReach.EventRecapReach(ctx, c.OrganizationID, c.EventID, catalog.EventOverAt(c.StartsAt, c.EndsAt))
+	if err != nil {
+		result.Skipped++
+		s.logger.Error(ctx, "event recap: the Event's reach figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
+		return true
+	}
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
 	accepted := 0
 	for _, to := range readers {
@@ -196,6 +212,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 			ReachURL:       eventURL + "/reach",
 			SalesURL:       eventURL + "/sales",
 			Sales:          figures,
+			Reach:          reach,
 		})
 		if err != nil {
 			// The address is not logged: the log counts readers and names

@@ -18582,8 +18582,8 @@ export interface components {
             /** @description Sent is how many mails the provider accepted, one per reader per Event. */
             sent?: number;
             /**
-             * @description Skipped is how many Events were due but whose readers or sales figures
-             *     could not be read; they stay due.
+             * @description Skipped is how many Events were due but whose readers or figures, sales
+             *     or reach, could not be read; they stay due.
              */
             skipped?: number;
             /**
