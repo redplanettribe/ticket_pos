@@ -312,8 +312,9 @@ type Service struct {
 	// notice is skipped and nothing else changes — which is what makes it safe
 	// for any test that builds this service by hand.
 	operators PlatformOperators
-	// staffLocales resolves the language each Payout Request notice is written
-	// in, by recipient address. Optional, and on the same terms as operators:
+	// staffLocales resolves the language each staff mail this service sends,
+	// a Payout Request notice or an Event Recap, is written in, by recipient
+	// address. Optional, and on the same terms as operators:
 	// unset, every notice falls to the English floor and nothing else changes,
 	// which is what any test building this service by hand gets.
 	staffLocales StaffLocales

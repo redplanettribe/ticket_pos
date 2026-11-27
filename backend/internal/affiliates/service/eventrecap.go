@@ -10,8 +10,8 @@ import (
 )
 
 // eventRecapAffiliateLinkLimit is the most Affiliate Links the Event Recap
-// lists: the busiest three. A revisitable ruling of #887, not one the spec's author
-// made explicitly.
+// lists: the busiest three. A revisitable ruling of #887, not one the spec's
+// author made explicitly.
 const eventRecapAffiliateLinkLimit = 3
 
 // EventRecapReach is the attention one Event's page drew before the Event was
@@ -39,8 +39,8 @@ const eventRecapAffiliateLinkLimit = 3
 //
 // THE BUSIEST LINKS are the ones with the most Clicks before overAt, at most
 // three, and only links that drew a Click at all, as the Reach Trends surface
-// lists only what has something to say: a link nobody followed has nothing. Equal Clicks are ordered
-// by Attributed Sales, most first, then by name.
+// lists only what has something to say: a link nobody followed has nothing.
+// Equal Clicks are ordered by Attributed Sales, most first, then by name.
 //
 // The two reads are separate statements, like the sales figures' beside them.
 func (s *Service) EventRecapReach(ctx context.Context, organizationID, eventID string, overAt time.Time) (*platform.EventRecapReach, error) {

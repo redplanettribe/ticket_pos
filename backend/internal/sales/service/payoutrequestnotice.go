@@ -228,28 +228,6 @@ func (s *Service) notifyPayoutRequestTransferFailed(ctx context.Context, request
 	})
 }
 
-// staffLocale is the language one notice is written in: the Staff Locale stored
-// against the address it is going to, and English underneath (ADR 0041). The
-// Event Recap sweep resolves its readers' language here too.
-//
-// EVERY FAILURE IS ENGLISH, on the same posture the rest of this file takes: an
-// unconfigured reader, a read that failed and an address nobody has stated a
-// language for are one outcome, and none of them is worth withholding a notice
-// about somebody's money over. The floor itself lives in
-// platform.ResolveStaffLocale rather than here — this module asks the question
-// and does not decide what a missing answer means.
-func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale {
-	if s.staffLocales == nil {
-		return platform.DefaultLocale
-	}
-	stored, err := s.staffLocales.StaffLocale(ctx, email)
-	if err != nil {
-		s.logger.Error(ctx, "staff mail: read staff locale", "error", err)
-		return platform.DefaultLocale
-	}
-	return platform.ResolveStaffLocale(stored)
-}
-
 // payoutNoticeOrganization reads what all five notices need and none of them
 // carries: the Organization's name, and the currency its money is stated in.
 //

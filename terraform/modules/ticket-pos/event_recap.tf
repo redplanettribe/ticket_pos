@@ -9,8 +9,8 @@
 # argument made once. What is written here is only where this job differs.
 #
 # IT WRITES TO MEMBERS, NOT TO BUYERS. Every reader is an Event Owner or an
-# Org Admin answerable for the Event, and the mail names no Customer. That is why it has no dark-ship
-# flag in the backend and why production switches it on in terraform.tfvars
+# Org Admin answerable for the Event, and the mail names no Customer. That is
+# why it has no dark-ship flag in the backend and why production switches it on in terraform.tfvars
 # with the deploy, where the Reminders waited for somebody to watch a first
 # run.
 #

@@ -223,9 +223,9 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	// are as of, so every reader of one Event is told the same numbers. The
 	// one exception is the Registration Link clicks of an Event with External
 	// Registration (#888), which came with the candidate when the run began,
-	// at most the run's budget earlier. An
-	// Event whose figures cannot be read is not mailed without them: it stays
-	// due, and the next run reads them again.
+	// at most the run's budget earlier. An Event whose figures cannot be read
+	// is not mailed without them: it stays due, and the next run reads them
+	// again.
 	sentAt := s.now()
 	figures, err := s.eventRecapSales(ctx, c)
 	if err != nil {
