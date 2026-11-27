@@ -117,8 +117,10 @@ var (
 		"The figures in this Event Recap are as they stood on %s (Ecuador time), when it was sent. A door sale recorded late, a Sale Import or a Sale Reversal still changes the live figures, which the staff app holds.",
 		"Las cifras de este Resumen del evento son las que había el %s (hora de Ecuador), cuando se envió. Una venta en puerta registrada tarde, una importación de ventas o una reversión de venta todavía cambian las cifras en vivo, que están en la aplicación del personal.",
 	)
-	// The sales figures (#886). The labels are the staff app's own, so the mail
-	// reads as the surfaces it links to do; Spanish says "entradas vendidas"
+	// The sales figures (#886). The figures are named in the staff app's words
+	// (its casing where it has the label, the glossary's for a term it does
+	// not label), so the mail reads as the surfaces it links to do; Spanish
+	// says "entradas vendidas"
 	// and never "asistentes", since a ticket sold is not a person who came.
 	eventRecapTicketsSoldCopy = translated(
 		"Tickets sold",

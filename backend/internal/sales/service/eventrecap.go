@@ -260,7 +260,7 @@ func distinctEmails(emails []string) []string {
 // eventRecapChannels is the Sales Channels in the order the recap lists them,
 // each stated even where it sold nothing, so a reader sees that the door or
 // the imports moved no ticket rather than wondering whether they were counted.
-var eventRecapChannels = []string{"online", "in_person", "import"}
+var eventRecapChannels = []string{catalog.SalesChannelOnline, catalog.SalesChannelInPerson, catalog.SalesChannelImport}
 
 // eventRecapSales is one Event's sales figures as they stand now, for its
 // Event Recap (#886), or nil for an Event with External Registration, which
@@ -340,25 +340,17 @@ func (s *Service) eventRecapSales(ctx context.Context, c catalog.EventRecapCandi
 		})
 	}
 
+	// The channel column admits these three and no other (migration 010), so
+	// the rows add up to the totals above.
 	byChannel := make(map[string]repository.EventChannelSales, len(channels))
 	for _, channel := range channels {
 		byChannel[channel.Channel] = channel
 	}
 	for _, name := range eventRecapChannels {
 		sold := byChannel[name]
-		delete(byChannel, name)
 		figures.Channels = append(figures.Channels, platform.EventRecapChannel{
 			Channel: name, TicketsSold: sold.TicketsSold, TicketSales: sold.TicketSales,
 		})
-	}
-	// A channel this list does not know yet is stated after the three, never
-	// dropped with its sales: the rows must add up to the totals above.
-	for _, channel := range channels {
-		if _, unlisted := byChannel[channel.Channel]; unlisted {
-			figures.Channels = append(figures.Channels, platform.EventRecapChannel{
-				Channel: channel.Channel, TicketsSold: channel.TicketsSold, TicketSales: channel.TicketSales,
-			})
-		}
 	}
 	return figures, nil
 }
