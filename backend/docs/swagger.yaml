@@ -4963,6 +4963,11 @@ components:
       type: object
     service.EventRecapSweepResult:
       properties:
+        backlog:
+          description: |-
+            Backlog is how many Events are due after this run, batch or no batch:
+            the number an Operator watches drain during a catch-up.
+          type: integer
         due:
           description: Due is how many Events this run found due in its batch.
           type: integer
@@ -4970,6 +4975,12 @@ components:
           description: |-
             Failed is how many mails the provider refused. An Event none of whose
             readers could be written to stays due and is retried by the next run.
+          type: integer
+        overlapped:
+          description: |-
+            Overlapped is how many Events were due but held by another sweep running
+            at the same time, or recapped by one since this run read its batch: left
+            to it, and written to by nobody here.
           type: integer
         recapped:
           description: |-
@@ -4983,7 +4994,8 @@ components:
         skipped:
           description: |-
             Skipped is how many Events were due but whose readers or figures, sales
-            or reach, could not be read; they stay due.
+            or reach, could not be read, or which could not be claimed; they stay
+            due.
           type: integer
         unaddressed:
           description: |-
@@ -12689,12 +12701,15 @@ paths:
         none of whose readers could be written to, or whose readers or sales figures
         could not be read, stays due. An Event with no Event Owner and no Org Admin
         sends nothing and is recorded as recapped all the same, so it is never retried.
-        Event Staff are never written to, and nobody is written to for being a Platform
-        Operator. The mail names the Event and no Customer, says its figures are as
-        of the instant it was sent, states the Event''s sales figures over its active
-        Ticket Sales (Tickets Sold and Ticket Sales for the Event entire and by Sales
-        Channel, Tickets Sold by Ticket Type, Takings, the Net Proceeds of its Online
-        Sales, and how many of its Sales are reversed), the money in the Organization''s
+        Overlapping calls never mail one Event twice: each Event is claimed before
+        its first mail, an Event another call holds is left to it, and a claim whose
+        call died lapses after a lease and the Event is due again. Event Staff are
+        never written to, and nobody is written to for being a Platform Operator.
+        The mail names the Event and no Customer, says its figures are as of the instant
+        it was sent, states the Event''s sales figures over its active Ticket Sales
+        (Tickets Sold and Ticket Sales for the Event entire and by Sales Channel,
+        Tickets Sold by Ticket Type, Takings, the Net Proceeds of its Online Sales,
+        and how many of its Sales are reversed), the money in the Organization''s
         currency and in the marks of the reader''s Staff Locale, and links to the
         Event''s Sales Trends, Reach and Sales list in the staff application. An Event
         with External Registration states its Registration Link clicks, as the count
@@ -12707,8 +12722,9 @@ paths:
         reaches it. Nothing about the run can be named by the caller. The response
         reports how many Events were due in this batch, how many were recapped, how
         many mails went and how many were refused, how many Events were skipped, how
-        many were mailed but could not be recorded, and how many were recorded with
-        nobody to write to. It names nobody and no Event.'
+        many were left to an overlapping call, how many were mailed but could not
+        be recorded, how many were recorded with nobody to write to, and how many
+        Events are still due after the run. It names nobody and no Event.'
       responses:
         "200":
           content:

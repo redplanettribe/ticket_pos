@@ -20,9 +20,10 @@ func (s *Service) EventRecapsDue(ctx context.Context, limit int) ([]catalog.Even
 	if limit <= 0 {
 		return nil, nil
 	}
-	runAt := catalog.EventRecapRunAt(s.now())
+	now := s.now()
+	runAt := catalog.EventRecapRunAt(now)
 	candidates, err := s.repo.ListEventRecapCandidates(
-		ctx, platform.EventRecapWentLiveAt, runAt.Add(-catalog.EventRecapSettleTime), limit,
+		ctx, platform.EventRecapWentLiveAt, runAt.Add(-catalog.EventRecapSettleTime), now, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -36,8 +37,31 @@ func (s *Service) EventRecapsDue(ctx context.Context, limit int) ([]catalog.Even
 	return due, nil
 }
 
-// RecordEventRecapSent records one Event as recapped, stamped with this
-// service's clock. From then on the Event is never due again.
+// CountEventRecapsDue is how many Events are due their Event Recap at the run
+// this service's clock is in, batch or no batch: the standing backlog,
+// reported and never acted on.
+func (s *Service) CountEventRecapsDue(ctx context.Context) (int, error) {
+	now := s.now()
+	runAt := catalog.EventRecapRunAt(now)
+	return s.repo.CountEventRecapCandidates(ctx, platform.EventRecapWentLiveAt, runAt.Add(-catalog.EventRecapSettleTime), now)
+}
+
+// ClaimEventRecap takes one Event for the sweep about to write its recap, for
+// catalog.EventRecapClaimLease, and reports whether it was taken: false when
+// the Event was recapped or another sweep is writing its recap now.
+func (s *Service) ClaimEventRecap(ctx context.Context, eventID string) (bool, error) {
+	now := s.now()
+	return s.repo.ClaimEventRecap(ctx, eventID, now, now.Add(catalog.EventRecapClaimLease))
+}
+
+// ReleaseEventRecap gives back a claim no mail went out under: the Event is
+// due again at once.
+func (s *Service) ReleaseEventRecap(ctx context.Context, eventID string) error {
+	return s.repo.ReleaseEventRecap(ctx, eventID)
+}
+
+// RecordEventRecapSent records one claimed Event as recapped, stamped with
+// this service's clock. From then on the Event is never due again.
 func (s *Service) RecordEventRecapSent(ctx context.Context, eventID string) error {
 	return s.repo.RecordEventRecapSent(ctx, eventID, s.now())
 }

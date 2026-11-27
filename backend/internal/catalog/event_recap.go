@@ -30,6 +30,13 @@ const (
 	// run's 09:00: six hours, so the night's door sales are in. An Event over
 	// at 05:00 has not settled by 09:00 that morning and waits for the next.
 	EventRecapSettleTime = 6 * time.Hour
+
+	// EventRecapClaimLease is how long a sweep holds an Event it is writing
+	// the recap of before another may take it. Far longer than a sweep can
+	// hold one, its budget plus one Event's readers at the pacer's gap, all
+	// inside Cloud Scheduler's two-minute attempt deadline; short enough that
+	// an Event whose sweep died is due again by the next morning's run.
+	EventRecapClaimLease = 15 * time.Minute
 )
 
 // EventRecapRunAt is the 09:00 of the platform clock a run made at now is the
@@ -66,9 +73,6 @@ type EventRecapInputs struct {
 	// RunAt is the run's 09:00 (EventRecapRunAt), never the caller's choice of
 	// moment.
 	RunAt time.Time
-	// Recapped is whether the Event was ever recapped. Once it is, nothing
-	// makes it due again.
-	Recapped bool
 	// WentLiveAt is the go-live instant, platform.EventRecapWentLiveAt in
 	// every deployment. An Event over before it is never recapped.
 	WentLiveAt time.Time
@@ -76,17 +80,21 @@ type EventRecapInputs struct {
 
 // EventRecapDue reports whether one Event is due its Event Recap at one run.
 //
-// FIVE CLAUSES, ALL CONJUNCTIVE, and repository.eventRecapDue is the same
+// FOUR CLAUSES, ALL CONJUNCTIVE, and repository.eventRecapDue is the same
 // clauses in the same order. Neither may be changed alone. The fourth clause
 // implies the Event is over at the run, since the run's 09:00 is never after
 // the moment the run is made.
+//
+// WHETHER THE EVENT WAS ALREADY RECAPPED IS NOT A CLAUSE HERE: it is a fact of
+// the event_recaps table and not of the Event, so the database decides it, in
+// the candidate query's filter and, the one that counts, in the claim a sweep
+// must win before it writes (EventRecapClaimLease).
 func EventRecapDue(in EventRecapInputs) bool {
 	overAt := EventOverAt(in.StartsAt, in.EndsAt)
 	return in.Status == EventStatusPublished &&
 		!overAt.IsZero() &&
 		!overAt.Before(in.WentLiveAt) &&
-		!overAt.After(in.RunAt.Add(-EventRecapSettleTime)) &&
-		!in.Recapped
+		!overAt.After(in.RunAt.Add(-EventRecapSettleTime))
 }
 
 // EventRecapCandidate is one Event the sweep found due: the row EventRecapDue
@@ -121,15 +129,13 @@ func (c EventRecapCandidate) ExternalRegistration() bool {
 	return c.RegistrationLinkClicks != nil
 }
 
-// Inputs is the candidate as EventRecapDue reads it, at one run. A candidate
-// is by construction an Event with no recap recorded.
+// Inputs is the candidate as EventRecapDue reads it, at one run.
 func (c EventRecapCandidate) Inputs(runAt time.Time) EventRecapInputs {
 	return EventRecapInputs{
 		Status:     c.Status,
 		StartsAt:   c.StartsAt,
 		EndsAt:     c.EndsAt,
 		RunAt:      runAt,
-		Recapped:   false,
 		WentLiveAt: platform.EventRecapWentLiveAt,
 	}
 }

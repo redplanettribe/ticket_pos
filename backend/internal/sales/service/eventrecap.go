@@ -26,14 +26,24 @@ import (
 // Those are the two seams below.
 
 // EventRecapSource is what the sweep needs from the catalog: which Events are
-// due, and the record that one was sent. Implemented by the catalog service.
+// due, the claim on one a sweep is writing to, and the record that one was
+// sent. Implemented by the catalog service.
 type EventRecapSource interface {
 	// EventRecapsDue returns up to limit Events due their Event Recap at this
 	// run, the one over longest first, each already passed through
 	// catalog.EventRecapDue.
 	EventRecapsDue(ctx context.Context, limit int) ([]catalog.EventRecapCandidate, error)
-	// RecordEventRecapSent records one Event as recapped, after the send. The
-	// Event is never due again.
+	// CountEventRecapsDue is the standing backlog, reported and never acted
+	// on.
+	CountEventRecapsDue(ctx context.Context) (int, error)
+	// ClaimEventRecap takes one Event before its first send, and reports
+	// false when it was recapped or another sweep holds it.
+	ClaimEventRecap(ctx context.Context, eventID string) (bool, error)
+	// ReleaseEventRecap gives back a claim no mail went out under. The Event
+	// is due again.
+	ReleaseEventRecap(ctx context.Context, eventID string) error
+	// RecordEventRecapSent records one claimed Event as recapped, after the
+	// send. The Event is never due again.
 	RecordEventRecapSent(ctx context.Context, eventID string) error
 }
 
@@ -80,8 +90,13 @@ type EventRecapSweepResult struct {
 	// readers could be written to stays due and is retried by the next run.
 	Failed int `json:"failed"`
 	// Skipped is how many Events were due but whose readers or figures, sales
-	// or reach, could not be read; they stay due.
+	// or reach, could not be read, or which could not be claimed; they stay
+	// due.
 	Skipped int `json:"skipped"`
+	// Overlapped is how many Events were due but held by another sweep running
+	// at the same time, or recapped by one since this run read its batch: left
+	// to it, and written to by nobody here.
+	Overlapped int `json:"overlapped"`
 	// Unrecorded is how many Events were mailed but could not be recorded:
 	// counted in Recapped too, and the one case that can send a second recap.
 	Unrecorded int `json:"unrecorded"`
@@ -90,6 +105,9 @@ type EventRecapSweepResult struct {
 	// again. Not counted in Recapped. One that could not be recorded is not
 	// counted here and stays due.
 	Unaddressed int `json:"unaddressed"`
+	// Backlog is how many Events are due after this run, batch or no batch:
+	// the number an Operator watches drain during a catch-up.
+	Backlog int `json:"backlog"`
 }
 
 // SweepEventRecaps runs one sweep: reads the batch of due Events, writes to
@@ -117,14 +135,22 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 		}
 	}
 
+	if total, err := s.eventRecaps.CountEventRecapsDue(ctx); err != nil {
+		s.logger.Error(ctx, "event recap backlog read failed", "error", err)
+	} else {
+		result.Backlog = total
+	}
+
 	s.logger.Info("event recaps swept",
 		"due", result.Due,
 		"recapped", result.Recapped,
 		"sent", result.Sent,
 		"failed", result.Failed,
 		"skipped", result.Skipped,
+		"overlapped", result.Overlapped,
 		"unrecorded", result.Unrecorded,
 		"unaddressed", result.Unaddressed,
+		"backlog", result.Backlog,
 	)
 	return result, nil
 }
@@ -142,11 +168,18 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 // between two readers of one Event would leave the second without it for
 // good. The overrun is bounded by one Event's readers at the pacer's gap.
 //
+// THE EVENT IS CLAIMED BEFORE ITS FIRST SEND, so two sweeps that overlap, the
+// scheduled run and one made by hand, never both write to its readers: the
+// one that loses the claim leaves the Event to the other. A claim whose sweep
+// died mid-Event lapses after catalog.EventRecapClaimLease, and the next run
+// writes again, to every reader: as with a recap that could not be recorded,
+// the one way a reader can get a second copy.
+//
 // THE EVENT IS RECORDED AFTER THE SENDS AND ONLY IF ONE WAS ACCEPTED, the
 // rule the Certificate Expiry Warning keeps for a mail with several readers. An
-// Event that reached nobody stays due and the next run retries it. One whose
-// provider refused some readers and accepted others is recorded: retrying it
-// would write a second time to those it reached.
+// Event that reached nobody has its claim released, stays due and the next run
+// retries it. One whose provider refused some readers and accepted others is
+// recorded: retrying it would write a second time to those it reached.
 //
 // AN EVENT THAT RESOLVES TO NOBODY IS RECORDED (#885): no Event Owner and no
 // Org Admin is a state no later run is likely to change, and an Event left
@@ -161,6 +194,9 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		return true
 	}
 	if len(readers) == 0 {
+		if !s.claimEventRecap(ctx, c, result) {
+			return true
+		}
 		s.logger.Info("event recap: the Event has no Event Owner and its Organization no Org Admin; nothing was sent and the Event is recorded as recapped",
 			"event_id", c.EventID, "organization_id", c.OrganizationID)
 		if err := s.eventRecaps.RecordEventRecapSent(ctx, c.EventID); err != nil {
@@ -179,6 +215,9 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	if !s.now().Before(deadline) {
 		return false
 	}
+	if !s.claimEventRecap(ctx, c, result) {
+		return true
+	}
 
 	// The figures are read once per Event, at the instant the mail says they
 	// are as of, so every reader of one Event is told the same numbers. The
@@ -192,6 +231,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	if err != nil {
 		result.Skipped++
 		s.logger.Error(ctx, "event recap: the Event's sales figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
+		s.releaseEventRecap(ctx, c)
 		return true
 	}
 	// The reach figures stop at the instant the Event was over, whenever the
@@ -200,6 +240,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	if err != nil {
 		result.Skipped++
 		s.logger.Error(ctx, "event recap: the Event's reach figures could not be read; the Event stays due", "event_id", c.EventID, "error", err)
+		s.releaseEventRecap(ctx, c)
 		return true
 	}
 	// An Event with External Registration states its Registration Link clicks
@@ -233,6 +274,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 		accepted++
 	}
 	if accepted == 0 {
+		s.releaseEventRecap(ctx, c)
 		return true
 	}
 	result.Recapped++
@@ -242,6 +284,35 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 			"event_id", c.EventID, "error", err)
 	}
 	return true
+}
+
+// claimEventRecap takes one Event for this sweep and reports whether it may
+// write to the Event's readers. An Event another sweep holds or has recapped
+// is counted as Overlapped, and one whose claim could not be written as
+// Skipped: neither is written to, and the second stays due.
+func (s *Service) claimEventRecap(ctx context.Context, c catalog.EventRecapCandidate, result *EventRecapSweepResult) bool {
+	claimed, err := s.eventRecaps.ClaimEventRecap(ctx, c.EventID)
+	if err != nil {
+		result.Skipped++
+		s.logger.Error(ctx, "event recap: the Event could not be claimed; the Event stays due", "event_id", c.EventID, "error", err)
+		return false
+	}
+	if !claimed {
+		result.Overlapped++
+		s.logger.Info("event recap: the Event is held or was recapped by an overlapping sweep; left to it", "event_id", c.EventID)
+		return false
+	}
+	return true
+}
+
+// releaseEventRecap gives back the claim on an Event no mail went out for, so
+// the next run retries it. A release that fails is logged and costs nothing
+// but time: the claim lapses after its lease.
+func (s *Service) releaseEventRecap(ctx context.Context, c catalog.EventRecapCandidate) {
+	if err := s.eventRecaps.ReleaseEventRecap(ctx, c.EventID); err != nil {
+		s.logger.Error(ctx, "event recap: the claim on an Event nothing was sent for could not be released; it lapses after its lease",
+			"event_id", c.EventID, "error", err)
+	}
 }
 
 // eventRecapReaders is who one Event's recap goes to, resolved now: every

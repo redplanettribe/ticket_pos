@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/migrations"
 )
@@ -35,6 +37,8 @@ type recapSweepResult struct {
 	Skipped     int `json:"skipped"`
 	Unrecorded  int `json:"unrecorded"`
 	Unaddressed int `json:"unaddressed"`
+	Overlapped  int `json:"overlapped"`
+	Backlog     int `json:"backlog"`
 }
 
 // recapAt is hour:minute on the platform clock, day days after day 0.
@@ -459,4 +463,84 @@ func TestEventRecapMigrationHasADownMigration(t *testing.T) {
 	if result := sweepEventRecapsAt(t, env, recapAt(1, 9, 0)); result.Due != 0 {
 		t.Fatalf("sweep after re-applying = %+v, want a working, empty sweep", result)
 	}
+}
+
+// One Event Recap per Event, ever, even when two sweeps overlap: the
+// scheduled run and one made by hand, which the sweep route allows at any
+// time. Every sweep is fired at once, and the Event's one Event Owner gets one
+// mail between them.
+func TestEventRecapIsSentOnceWhenSweepsOverlap(t *testing.T) {
+	env := setupTest(t)
+	f := newRecapFixture(t, env)
+	f.publishedEvent(t, env, "Jazz Night", recapAt(0, 23, 0))
+	moveClockTo(t, recapAt(1, 9, 0))
+
+	const sweeps = 8
+	statuses := make(chan int, sweeps)
+	start := make(chan struct{})
+	for i := 0; i < sweeps; i++ {
+		go func() {
+			<-start
+			resp, err := http.Post(env.server.URL+"/api/v1/internal/event-recaps/sweep", "application/json", nil)
+			if err != nil {
+				statuses <- 0
+				return
+			}
+			_ = resp.Body.Close()
+			statuses <- resp.StatusCode
+		}()
+	}
+	close(start)
+	for i := 0; i < sweeps; i++ {
+		if status := <-statuses; status != http.StatusOK {
+			t.Errorf("sweep %d status=%d, want 200", i, status)
+		}
+	}
+	wantRecapped(t, "after overlapping sweeps", "Jazz Night")
+}
+
+// A sweep that died while writing an Event's recap holds the Event only for
+// its lease: until then no other run writes to its readers, and the first run
+// after it writes the recap.
+func TestEventRecapHeldByADeadSweepIsSentOnceItsClaimLapses(t *testing.T) {
+	env := setupTest(t)
+	f := newRecapFixture(t, env)
+	eventID := f.publishedEvent(t, env, "Jazz Night", recapAt(0, 23, 0))
+
+	// The claim a sweep at 09:00 takes and never finishes: no send recorded.
+	run := recapAt(1, 9, 0)
+	if _, err := env.db.Exec(`INSERT INTO event_recaps (event_id, claimed_until) VALUES ($1, $2)`,
+		eventID, run.Add(catalog.EventRecapClaimLease)); err != nil {
+		t.Fatalf("hold the Event: %v", err)
+	}
+
+	if result := sweepEventRecapsAt(t, env, run.Add(time.Minute)); result.Due != 0 || result.Sent != 0 {
+		t.Fatalf("sweep inside the lease = %+v, want nothing due and nothing sent", result)
+	}
+	if result := sweepEventRecapsAt(t, env, run.Add(catalog.EventRecapClaimLease)); result.Due != 1 || result.Sent != 1 {
+		t.Fatalf("sweep once the lease is over = %+v, want the Event recapped", result)
+	}
+	sweepEventRecapsAt(t, env, recapAt(2, 9, 0))
+	wantRecapped(t, "after the lease and a day", "Jazz Night")
+}
+
+// The sweep reports the Events still due after it, so a catch-up or an
+// outage can be watched draining: an Event the provider refused every mail of
+// gives its claim back, stands in the backlog, and goes on the next run.
+func TestEventRecapReportsItsBacklog(t *testing.T) {
+	env := setupTest(t)
+	f := newRecapFixture(t, env)
+	f.publishedEvent(t, env, "Jazz Night", recapAt(0, 23, 0))
+
+	sharedEmail.FailWith(errors.New("provider down"))
+	t.Cleanup(func() { sharedEmail.FailWith(nil) })
+	if result := sweepEventRecapsAt(t, env, recapAt(1, 9, 0)); result.Failed != 1 || result.Recapped != 0 || result.Backlog != 1 {
+		t.Fatalf("sweep during the outage = %+v, want the one mail refused and the Event left due", result)
+	}
+
+	sharedEmail.FailWith(nil)
+	if result := sweepEventRecapsAt(t, env, recapAt(2, 9, 0)); result.Recapped != 1 || result.Sent != 1 || result.Backlog != 0 {
+		t.Fatalf("sweep after the outage = %+v, want the Event recapped and none left due", result)
+	}
+	wantRecapped(t, "after the outage", "Jazz Night")
 }
