@@ -511,6 +511,60 @@ reconciler has — the backend's drain budget expires first, Scheduler's deadlin
 `backend/internal/digest/service/service.go` beside `digestDrainBudget`, where a backend test reads
 the Terraform defaults and fails if the three stop agreeing.
 
+## The Event Recap schedule
+
+`event_recap.tf` creates the Cloud Scheduler job that drives the Event Recap sweep (spec #884, #889), on the pattern of the two reminder jobs: a dedicated service account, an OIDC token, a `run.invoker` grant on the API and nothing else, no retries, and a Sentry cron monitor beside the job.
+
+| Job | Schedule | Endpoint | Service account | Monitor slug |
+| --- | --- | --- | --- | --- |
+| `prod-ticket-pos-event-recap` | daily at 09:00 `America/Guayaquil` | `POST /api/v1/internal/event-recaps/sweep` | `prod-ticket-pos-event-recap` | `ticket-pos-event-recap` |
+
+**The hour is the sweep's, not only the schedule's.**
+A run decides for the latest 09:00 the platform clock has reached (`catalog.EventRecapRunAt` in the backend), whenever it is invoked.
+So a run forced by hand sends what that morning's run owed and no more, a second run the same day sends nothing, and a missed morning is made good by the next run.
+A backend test (`backend/internal/sales/service/eventrecap_test.go`) reads `event_recap.tf` and the `event_recap_schedule` defaults and fails if the route, the job name, the hour or the time zone part from the backend's.
+
+**It does not ship paused in production.**
+The module's `event_recap_enabled` defaults to `false`, as every job's switch does, and `envs/prod/terraform.tfvars` sets it `true`.
+The Event Recap writes to staff only, has no flag in the backend and no catch-up: only an Event over since `platform.EventRecapWentLiveAt` is ever recapped.
+The apply below is therefore the launch.
+
+**The attempt deadline is not a tuning knob on its own.**
+`event_recap_attempt_deadline_seconds` is the middle term of the chain the reminders keep: the backend's `eventRecapBudget` expires first, Scheduler's deadline second, `api_request_timeout_seconds` last.
+The same backend test reads the defaults and fails if the chain stops holding.
+
+### Deploying the Event Recap: the operator's notes
+
+In this order:
+
+1. **Set the go-live instant to the deploy day, before merging.**
+   `platform.EventRecapWentLiveAt` (`backend/internal/platform/email_eventrecap.go`) is the start of 2026-11-27 on the platform clock.
+   If the deploy is on a later day, move it forward to that day first, or the first run recaps every Event over in between.
+   Once the feature is live it is a historical fact and is not moved again.
+2. **Merge and let the deploy finish.**
+   The deploy runs the migrate Job, which applies migration `146_event_recaps` (`backend/migrations/146_event_recaps.sql`): the `event_recaps` table, one row per Event recapped.
+   Confirm the migrate Job's execution succeeded before going on; the sweep route exists only in the new revision, and without the table no Event can be recorded as recapped.
+   Its down migration is `backend/migrations/down/146_event_recaps.sql`, applied by hand, and running it makes every Event over since go-live due again.
+3. **`terraform apply`, after the deploy and not before.**
+   `make tf-apply` from the repository root, as in [Production](#2-production).
+   The plan adds four resources, `google_service_account.event_recap`, `google_cloud_run_v2_service_iam_member.event_recap_invokes_api`, `google_cloud_scheduler_job.event_recap` (not paused) and `sentry_cron_monitor.event_recap`, and updates `sentry_alert.job_check_in` in place to watch the new monitor.
+   It changes nothing else.
+   Applied before the deploy, the job would call a route the running revision does not have.
+4. **Check.**
+   The job is listed, enabled, at `0 9 * * *` in `America/Guayaquil`:
+
+   ```bash
+   gcloud scheduler jobs describe prod-ticket-pos-event-recap \
+     --location us-east1 --project multiticketing \
+     --format='value(state,schedule,timeZone,httpTarget.uri)'
+   ```
+
+   After the first 09:00, Sentry (Crons) shows the monitor with the slug `ticket-pos-event-recap` and an ok check-in, and the API's log carries the sweep's counts.
+   There is nothing to force by hand: a first run with no Event over since go-live mails nobody and still checks in.
+
+**To stop it:** set `event_recap_enabled = false` in `envs/prod/terraform.tfvars` and apply, which pauses the job and removes its monitor together.
+Every Event stays due while it is paused, so the first run after it is switched on again sends the Event Recaps of the paused mornings.
+
 ## The email rendition fill
 
 Mail shows an Event's imagery through its email renditions (spec #870): the Cover Image as a JPEG 1200px wide, and a 128px square JPEG from the Thumbnail, or from the Cover Image cropped to its centre.
@@ -688,6 +742,7 @@ What they share, and the two alert rules that watch them, are at the end of `sen
 A cron monitor exists only while its job is unpaused and `sentry_api_enabled` is on, so a paused job can never alert that it did not run.
 In the module every job defaults to paused, but production unpauses seven: the Sale Invoice Drainer, Owed Assignment Mail, the Holder Address Purge and the two reminders in `envs/prod/terraform.tfvars`, and the Follow Digest enqueue and drain through `envs/prod/variables.tf`'s own defaults.
 So the apply that turned `sentry_api_enabled` on in production (2026-11-16) also created those seven cron monitors and the check-in alert, in one go; on the Developer plan, with its one cron monitor, upgrade first.
+The Event Recap (#889) is unpaused in `envs/prod/terraform.tfvars` as well, so the apply that creates its job creates its monitor with it; see [The Event Recap schedule](#the-event-recap-schedule).
 Setting a job's `<job>_enabled` to true, with the API reporting, is the one change that both unpauses the job and creates its monitor.
 The monitor's name, schedule and time zone are references to the scheduler job's own `name`, `schedule` and `time_zone`, so moving a `<job>_schedule` moves both.
 Pausing a job in an incident with `gcloud scheduler jobs pause` leaves its monitor in place, and it will report missed runs until the job is resumed; set `<job>_enabled = false` and apply to stop both.
@@ -706,6 +761,7 @@ After the first apply that creates a monitor, check in Sentry (Crons) that its s
 | Answer Reminder | `google_cloud_scheduler_job.answer_reminder` | `ticket-pos-answer-reminder` |
 | Assignment Reminder | `google_cloud_scheduler_job.assignment_reminder` | `ticket-pos-assignment-reminder` |
 | Owed Assignment Mail | `google_cloud_scheduler_job.owed_assignment_mail` | `ticket-pos-owed-assignment-mail` |
+| Event Recap | `google_cloud_scheduler_job.event_recap` | `ticket-pos-event-recap` |
 | Holder Address Purge | `google_cloud_scheduler_job.holder_address_purge` | `ticket-pos-holder-address-purge` |
 | Daily close | `google_cloud_scheduler_job.daily_close` | `ticket-pos-daily-close` |
 
@@ -715,7 +771,7 @@ How much each monitor tolerates follows how often its job runs (`local.sentry_cr
 | --- | --- | --- | --- | --- |
 | Every minute | Reversal Reconciler, Follow Digest drain, Owed Assignment Mail | 1 minute | 5 bad runs in a row | 2 good runs |
 | Every five minutes | Sale Invoice Drainer | 2 minutes | 2 bad runs in a row | 1 good run |
-| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders, the daily close | 15 minutes | the first bad run | 1 good run |
+| Daily or weekly | Follow Digest enqueue, the two purges, the two reminders, the Event Recap, the daily close | 15 minutes | the first bad run | 1 good run |
 
 A bad run is a failed check-in (the route answered a 5xx or panicked), a missed one (none within the grace) or a timed-out one.
 The cadence is chosen per job in its file from its default schedule; moving a `<job>_schedule` to another cadence (every minute to hourly, say) means moving that job's `local.sentry_cron_tolerance` key with it.
@@ -735,7 +791,7 @@ Two alert rules email the `ticket-pos` team, in production, when a monitor's iss
 Each exists only while there is a monitor for it to watch.
 
 **What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 10 cron monitors, 2 uptime monitors and the 2 alert rules.
-The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other nine cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
+The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other ten cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 
 **Testing the switches.**
@@ -765,7 +821,7 @@ The deployables are independent, and the API may be switched on alone first.
 
 - **Do:** in Sentry, Settings, Subscription, move `redplanettribe` from the free Developer plan to a paid plan with pay-as-you-go for monitors.
   Check the monitor prices first (spec #761 noted $0.78 per extra cron monitor and $1.00 per extra uptime monitor a month).
-- **Makes true:** room for the ten cron monitors and two uptime monitors of a full apply (the Developer plan has one of each).
+- **Makes true:** room for the eleven cron monitors and two uptime monitors of a full apply (the Developer plan has one of each).
   The organization's 5,000 errors a month are shared with the other product either way.
 - **Check:** Settings, Subscription names the paid plan.
 - **Undo:** downgrade the plan after switching the API and both Next apps off (step 5's undo), so no monitor is left over the free plan's one of each.

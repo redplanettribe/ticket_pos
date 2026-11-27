@@ -349,6 +349,24 @@ variable "owed_assignment_mail_attempt_deadline_seconds" {
   default     = 90
 }
 
+variable "event_recap_enabled" {
+  description = "Whether the production Event Recap sweep tick fires (spec #884, #889). Defaults false here and is set true in terraform.tfvars, so turning it on is a visible, reviewed line. It carries no catch-up: only an Event over since platform.EventRecapWentLiveAt is ever recapped. Set it false and apply first if the sweep is ever suspected of writing to the wrong people; every Event stays due meanwhile, and the first run after it is true again sends what the paused mornings would have."
+  type        = bool
+  default     = false
+}
+
+variable "event_recap_schedule" {
+  description = "Unix cron for the production Event Recap sweep. Daily at 09:00 Ecuador time, the hour the sweep decides for; the module variable of the same name says why it must not be moved alone."
+  type        = string
+  default     = "0 9 * * *"
+}
+
+variable "event_recap_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production Event Recap sweep. One term of a chain that must be read before it is moved; the module variable of the same name says where."
+  type        = number
+  default     = 120
+}
+
 variable "holder_address_purge_enabled" {
   description = "Whether the production Holder Address Purge tick fires (#331, parent #322, ADR 0046). STARTS FALSE and stays false until ticket_assignment_enabled below has been open long enough for Tickets to be carrying holder addresses — before that it is a daily UPDATE matching no rows. This is the second scheduled job in production that deletes anything, and the only one that deletes personal data belonging to somebody who never came to this platform. It is the flag to set false first, and apply second, if the purge is ever suspected of taking more than an unaccepted address at a started Event — the backend does not gate this job on the feature flag, on purpose, so this is the only switch there is. It is equally the flag somebody must remember to set TRUE when assignment opens: leaving it false then is the platform holding third-party contact details with no scheduled end, which is the specific failure ADR 0046 priced this job against."
   type        = bool
