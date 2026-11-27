@@ -122,16 +122,20 @@ func TestEventRecapGoesOnceToAnEventOwnerWhoIsAlsoAnOrgAdmin(t *testing.T) {
 }
 
 // Event Staff and Platform Operators are never written to, with an Event
-// Owner or without one.
+// Owner or without one: not a Platform Operator who is no Member, nor one who
+// is Event Staff on both Events.
 func TestEventRecapNeverGoesToEventStaffOrAPlatformOperator(t *testing.T) {
 	env := setupTest(t)
 	f := newRecapFixture(t, env)
 	owned := f.publishedEvent(t, env, "Owned", recapAt(0, 23, 0))
 	unowned := unownedEvent(t, env, f.admin, "Unowned")
 
-	staffID, _ := addRecapMember(t, env, f.admin, "door@example.com", "event_staff")
-	assignToEvent(t, env, f.admin, owned, staffID, "event_staff")
-	assignToEvent(t, env, f.admin, unowned, staffID, "event_staff")
+	for _, email := range []string{"door@example.com", "staffoperator@example.com"} {
+		staffID, _ := addRecapMember(t, env, f.admin, email, "event_staff")
+		assignToEvent(t, env, f.admin, owned, staffID, "event_staff")
+		assignToEvent(t, env, f.admin, unowned, staffID, "event_staff")
+	}
+	seedPlatformOperator(t, env, "staffoperator@example.com")
 	operatorSession(t, env, "operator@example.com")
 	sharedEmail.Reset()
 

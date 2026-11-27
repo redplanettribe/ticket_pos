@@ -5874,7 +5874,7 @@
                         "type": "integer"
                     },
                     "unaddressed": {
-                        "description": "Unaddressed is how many Events had no Event Owner and no Org Admin to\nwrite to: nothing was sent, and they are recorded, never due again.\nNot counted in Recapped.",
+                        "description": "Unaddressed is how many Events had no Event Owner and no Org Admin to\nwrite to and were recorded: nothing was sent, and they are never due\nagain. Not counted in Recapped. One that could not be recorded is not\ncounted here and stays due.",
                         "type": "integer"
                     },
                     "unrecorded": {

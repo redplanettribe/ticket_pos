@@ -76,8 +76,9 @@ type EventRecapSweepResult struct {
 	// counted in Recapped too, and the one case that can send a second recap.
 	Unrecorded int `json:"unrecorded"`
 	// Unaddressed is how many Events had no Event Owner and no Org Admin to
-	// write to: nothing was sent, and they are recorded, never due again.
-	// Not counted in Recapped.
+	// write to and were recorded: nothing was sent, and they are never due
+	// again. Not counted in Recapped. One that could not be recorded is not
+	// counted here and stays due.
 	Unaddressed int `json:"unaddressed"`
 }
 
@@ -143,20 +144,21 @@ func (s *Service) SweepEventRecaps(ctx context.Context) (*EventRecapSweepResult,
 // one over longest first, until enough of them starved the rest. It is
 // logged, so an operator can find it, and counted as Unaddressed.
 func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate, pacer *reminderPacer, deadline time.Time, result *EventRecapSweepResult) bool {
-	recipients, err := s.eventRecapReaders(ctx, c)
+	readers, err := s.eventRecapReaders(ctx, c)
 	if err != nil {
 		result.Skipped++
 		s.logger.Error(ctx, "event recap: the Event's readers could not be read; the Event stays due", "event_id", c.EventID, "error", err)
 		return true
 	}
-	if len(recipients) == 0 {
-		result.Unaddressed++
+	if len(readers) == 0 {
 		s.logger.Info("event recap: the Event has no Event Owner and its Organization no Org Admin; nothing was sent and the Event is recorded as recapped",
 			"event_id", c.EventID, "organization_id", c.OrganizationID)
 		if err := s.eventRecaps.RecordEventRecapSent(ctx, c.EventID); err != nil {
-			s.logger.Error(ctx, "an Event Recap with nobody to write to could not be recorded; the next run will look at it again",
+			s.logger.Error(ctx, "event recap: an Event with nobody to write to could not be recorded; the next run will look at it again",
 				"event_id", c.EventID, "error", err)
+			return true
 		}
+		result.Unaddressed++
 		return true
 	}
 
@@ -171,7 +173,7 @@ func (s *Service) recapEvent(ctx context.Context, c catalog.EventRecapCandidate,
 	sentAt := s.now()
 	eventURL := s.staffBaseURL + "/events/" + c.EventID
 	accepted := 0
-	for _, to := range recipients {
+	for _, to := range readers {
 		pacer.pauseBefore(ctx, result.Sent+result.Failed)
 		err := s.email.SendEventRecap(ctx, platform.EventRecap{
 			To:             to,

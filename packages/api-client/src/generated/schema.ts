@@ -18588,8 +18588,9 @@ export interface components {
             skipped?: number;
             /**
              * @description Unaddressed is how many Events had no Event Owner and no Org Admin to
-             *     write to: nothing was sent, and they are recorded, never due again.
-             *     Not counted in Recapped.
+             *     write to and were recorded: nothing was sent, and they are never due
+             *     again. Not counted in Recapped. One that could not be recorded is not
+             *     counted here and stays due.
              */
             unaddressed?: number;
             /**
