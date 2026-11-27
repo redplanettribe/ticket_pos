@@ -1,0 +1,14 @@
+{{/* The Event Recap's card (spec #884): staff mail in the platform chrome with
+no Event imagery. The heading, the text part's own sections (each a paragraph
+or a table of figures), the first link
+as the mail's one button with the sentence leading to it, and the remaining
+links as plain ones, each under its lead with its URL printed whole, as the
+text part prints it. Takes an eventRecapCard. */}}
+{{define "card"}}{{template "cardOpen"}}
+{{template "heading" .Heading}}
+{{range .Sections}}{{if .Table}}{{template "table" .Table}}{{else}}{{template "lines" .Lines}}{{end}}
+{{end}}{{with .Button}}{{template "paragraph" $.LinkLead}}
+{{template "button" .}}
+{{end}}{{range .Links}}<p class="t-fg" style="margin:0 0 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:24px;color:#121921;">{{.Lead}}<br>
+<a class="t-link" href="{{.URL}}" style="color:#0d7bb3;word-break:break-all;text-decoration:underline;">{{.URL}}</a></p>
+{{end}}{{template "cardClose"}}{{end}}

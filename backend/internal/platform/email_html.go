@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"unicode/utf8"
 )
 
 // The HTML part of every mail (ADR 0082, spec #870), rendered beside the plain
@@ -145,6 +146,9 @@ const (
 	// mailKindDigest is the Follow Digest's card: its two sections of compact
 	// Event rows.
 	mailKindDigest mailKind = "digest"
+	// mailKindEventRecap is the Event Recap's card: a staff notice with one
+	// button and two plain links under it, and room for its figures.
+	mailKindEventRecap mailKind = "eventrecap"
 )
 
 // dryRunEventRow is a compact Event row with every optional branch filled.
@@ -182,6 +186,15 @@ var mailKinds = map[mailKind]any{
 			{More: &digestMoreView{}},
 		},
 		Button: &mailButton{},
+	},
+	// Every optional branch filled, so the dry run executes each one.
+	mailKindEventRecap: eventRecapCard{
+		Sections: []eventRecapSection{
+			{Lines: []string{""}},
+			{Table: &mailTable{Columns: []string{"", ""}, Rows: [][]string{{"", ""}}}},
+		},
+		Button: &mailButton{},
+		Links:  []eventRecapLinkView{{URL: "#"}},
 	},
 	// Every optional branch filled, so the dry run executes each one.
 	mailKindCover: coverCard{
@@ -755,6 +768,51 @@ func (d detailsView) FactWidth() int {
 		return 100
 	}
 	return 100 / len(d.Facts)
+}
+
+// mailTable is a table of figures: a row of column headings, then the rows,
+// each with a cell per column. The first column names the row and reads from
+// the left; every other column is a figure and is set to the right, so the
+// digits of a column line up.
+//
+// It is the one component both parts draw: the HTML part as the "table"
+// template, the text part through text().
+type mailTable struct {
+	Columns []string
+	Rows    [][]string
+}
+
+// text is the table for the text part: one line for the headings and one per
+// row, the columns padded with spaces to a common width and two spaces apart,
+// aligned as the HTML part aligns them. It reads as a table in a monospace
+// client and as the same words in order in any other.
+func (t mailTable) text() string {
+	rows := append([][]string{t.Columns}, t.Rows...)
+	widths := make([]int, len(t.Columns))
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(widths) && utf8.RuneCountInString(cell) > widths[i] {
+				widths[i] = utf8.RuneCountInString(cell)
+			}
+		}
+	}
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		var line strings.Builder
+		for i, cell := range row {
+			if i >= len(widths) {
+				break
+			}
+			padding := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
+			if i == 0 {
+				line.WriteString(cell + padding)
+			} else {
+				line.WriteString("  " + padding + cell)
+			}
+		}
+		lines = append(lines, strings.TrimRight(line.String(), " "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // consentView is the consent block: its heading, the sentences under it, and

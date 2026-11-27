@@ -317,6 +317,11 @@ output "owed_assignment_mail_job_name" {
   value       = google_cloud_scheduler_job.owed_assignment_mail.name
 }
 
+output "event_recap_job_name" {
+  description = "Name of the daily Cloud Scheduler job driving the Event Recap sweep (spec #884). Paused unless event_recap_enabled is true, and production sets it true in terraform.tfvars. A run can be forced with `gcloud scheduler jobs run <name> --location <region>`: it decides for the latest 09:00 of the platform clock, so it sends only what that morning's run had left. Pause it through the tfvar and an apply, never the console. It presents its own service account, google_service_account.event_recap."
+  value       = google_cloud_scheduler_job.event_recap.name
+}
+
 # --- Amazon SES (ADR 0077) ----------------------------------------------------
 
 locals {

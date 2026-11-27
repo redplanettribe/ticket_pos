@@ -160,6 +160,12 @@ func registerInternalRoutes(mux Router, app *App) {
 	// Holder was named a minute ago.
 	mux.HandleFunc("POST /api/v1/internal/owed-assignment-mails/sweep", app.SalesHandler.SweepOwedAssignmentMails)
 
+	// The Event Recap sweep (spec #884, #891): the one mail telling an Event's
+	// Event Owners how it went, at the first 09:00 of the platform clock at
+	// least six hours after it is over. The Assignment Reminder's route on
+	// every one of its terms, daily.
+	mux.HandleFunc("POST /api/v1/internal/event-recaps/sweep", app.SalesHandler.SweepEventRecaps)
+
 	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a
 	// buyer typed for a friend who never accepted it, taken once the Event has
 	// started. Served by the CATALOG handler, unlike the purge above it, because

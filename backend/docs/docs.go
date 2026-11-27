@@ -2290,6 +2290,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeEventRecapSweep": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.EventRecapSweepResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeFollowDigestDrain": {
                 "properties": {
                     "data": {
@@ -5840,6 +5854,47 @@ const docTemplate = `{
                     },
                     "timezone": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.EventRecapSweepResult": {
+                "properties": {
+                    "backlog": {
+                        "description": "Backlog is how many Events are due after this run, batch or no batch:\nthe number an Operator watches drain during a catch-up.",
+                        "type": "integer"
+                    },
+                    "due": {
+                        "description": "Due is how many Events this run found due in its batch.",
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "description": "Failed is how many mails the provider refused. An Event none of whose\nreaders could be written to stays due and is retried by the next run.",
+                        "type": "integer"
+                    },
+                    "overlapped": {
+                        "description": "Overlapped is how many Events were due but held by another sweep running\nat the same time, or recapped by one since this run read its batch: left\nto it, and written to by nobody here.",
+                        "type": "integer"
+                    },
+                    "recapped": {
+                        "description": "Recapped is how many of them were mailed to at least one reader and are\nrecorded, never due again.",
+                        "type": "integer"
+                    },
+                    "sent": {
+                        "description": "Sent is how many mails the provider accepted, one per reader per Event.",
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "description": "Skipped is how many Events were due but whose readers or figures, sales\nor reach, could not be read, or which could not be claimed; they stay\ndue.",
+                        "type": "integer"
+                    },
+                    "unaddressed": {
+                        "description": "Unaddressed is how many Events had no Event Owner and no Org Admin to\nwrite to and were recorded: nothing was sent, and they are never due\nagain. Not counted in Recapped. One that could not be recorded is not\ncounted here and stays due.",
+                        "type": "integer"
+                    },
+                    "unrecorded": {
+                        "description": "Unrecorded is how many Events were mailed but could not be recorded:\ncounted in Recapped too, and the one case that can send a second recap.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -13817,6 +13872,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Fill the missing email renditions",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
+        "/api/v1/internal/event-recaps/sweep": {
+            "post": {
+                "description": "Sweeps the published Events that are over (the end instant passed, or the start where there is no end), were over at or after the instant the Event Recap went live, were over at least six hours before the run's 09:00 on the platform clock (America/Guayaquil), and were never recapped, and emails each one's Event Recap to every Event Owner of the Event, as its Event assignments stand when the mail is sent, or, when the Event has no Event Owner then, to every Org Admin of its Organization, one copy per address compared normalized, each in their own Staff Locale and English where none is stored. The run is that of the latest 09:00 the platform clock has reached, whenever it is called, so a late or repeated call decides what the scheduled one would have, and a missed day is made good by the next run. A draft, a cancelled Event and a dateless Event are never recapped; an Event that sold nothing is. An Event is recorded as recapped once at least one address accepted its mail, and is never due again whatever happens to its dates afterwards; rescheduling it later before it is recapped makes the recap wait for the new time. An Event none of whose readers could be written to, or whose readers or sales figures could not be read, stays due. An Event with no Event Owner and no Org Admin sends nothing and is recorded as recapped all the same, so it is never retried. Overlapping calls never mail one Event twice: each Event is claimed before its first mail, an Event another call holds is left to it, and a claim whose call died lapses after a lease and the Event is due again. Event Staff are never written to, and nobody is written to for being a Platform Operator. The mail names the Event and no Customer, says its figures are as of the instant it was sent, states the Event's sales figures over its active Ticket Sales (Tickets Sold and Ticket Sales for the Event entire and by Sales Channel, Tickets Sold by Ticket Type, Takings, the Net Proceeds of its Online Sales, and how many of its Sales are reversed), the money in the Organization's currency and in the marks of the reader's Staff Locale, and links to the Event's Sales Trends, Reach and Sales list in the staff application. An Event with External Registration states its Registration Link clicks, as the count stood when the run read the Event, in place of every sales figure, never as registrations or people, and links to Reach only. Sends are paced by the gap the Reminder sweeps share, the Event over longest first, at most a batch of Events per run and inside a run budget. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller. The response reports how many Events were due in this batch, how many were recapped, how many mails went and how many were refused, how many Events were skipped, how many were left to an overlapping call, how many were mailed but could not be recorded, how many were recorded with nobody to write to, and how many Events are still due after the run. It names nobody and no Event.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEventRecapSweep"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Send Event Recaps",
                 "tags": [
                     "internal"
                 ]

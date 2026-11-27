@@ -1340,6 +1340,11 @@ type EmailSender interface {
 	// it. What bounds it is the Drainer's ledger of sends, written only after
 	// at least one address accepted the mail.
 	SendCertificateExpiryWarning(ctx context.Context, warning CertificateExpiryWarning) error
+	// SendEventRecap delivers one Event Recap to one of the people answerable
+	// for an Event (spec #884). Staff mail on the transactional channel, with
+	// no off switch. The sweep reads the error: the Event is recorded as
+	// recapped only once an address accepted the mail.
+	SendEventRecap(ctx context.Context, recap EventRecap) error
 	// SendFollowDigest delivers the one weekly Follow Digest. The only
 	// non-transactional message on this interface, and the only one whose
 	// language depends on its reader.
@@ -1575,6 +1580,15 @@ func (s *LoggingEmailSender) SendCertificateExpiryWarning(ctx context.Context, w
 	return nil
 }
 
+// SendEventRecap logs one Event Recap for local development: to whom, about
+// which Event and in which language.
+func (s *LoggingEmailSender) SendEventRecap(ctx context.Context, r EventRecap) error {
+	attrs := []any{"email", r.To, "event", r.EventName, "locale", string(r.Locale)}
+	attrs = append(attrs, s.htmlAttrs(ctx, "event recap", r.HTML)...)
+	s.Logger.Info("event recap sent", attrs...)
+	return nil
+}
+
 // SendFollowDigest logs the weekly Follow Digest for local development. The
 // Event count and the Locale are logged rather than the Events themselves: what
 // a local developer needs from this line is that a Digest went out, to whom, in
@@ -1694,6 +1708,11 @@ func (NoopEmailSender) SendCertificateExpiryWarning(_ context.Context, _ Certifi
 	return nil
 }
 
+// SendEventRecap discards the Event Recap.
+func (NoopEmailSender) SendEventRecap(_ context.Context, _ EventRecap) error {
+	return nil
+}
+
 // SendFollowDigest discards the weekly Follow Digest.
 func (NoopEmailSender) SendFollowDigest(_ context.Context, _ FollowDigest) error {
 	return nil
@@ -1797,6 +1816,9 @@ type CaptureEmailSender struct {
 	// in its recipient's Staff Locale; asserted on by LENGTH as much as by
 	// contents, since "once per threshold" is a fact about how many there are.
 	CertificateExpiryWarnings []CertificateExpiryWarning
+	// The Event Recaps (spec #884), one per recipient per Event, kept whole so
+	// a test can read each in its recipient's Staff Locale.
+	EventRecaps []EventRecap
 	// The weekly Follow Digests (#220). Kept as the whole value rather than as a
 	// rendered string, so a test can assert on the message a Customer would read
 	// by calling Subject() and Text() itself — which is what makes the Digest
@@ -2073,6 +2095,17 @@ func (s *CaptureEmailSender) SendCertificateExpiryWarning(_ context.Context, w C
 	return nil
 }
 
+// SendEventRecap records a delivered Event Recap.
+func (s *CaptureEmailSender) SendEventRecap(_ context.Context, r EventRecap) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.EventRecaps = append(s.EventRecaps, r)
+	return nil
+}
+
 // SendFollowDigest records a delivered weekly Follow Digest.
 func (s *CaptureEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
 	if err := s.failed(); err != nil {
@@ -2192,6 +2225,16 @@ func (s *CaptureEmailSender) CertificateExpiryWarningsSent() []CertificateExpiry
 	defer s.mu.Unlock()
 	out := make([]CertificateExpiryWarning, len(s.CertificateExpiryWarnings))
 	copy(out, s.CertificateExpiryWarnings)
+	return out
+}
+
+// EventRecapsSent returns the Event Recaps delivered so far, in the order they
+// were sent.
+func (s *CaptureEmailSender) EventRecapsSent() []EventRecap {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]EventRecap, len(s.EventRecaps))
+	copy(out, s.EventRecaps)
 	return out
 }
 
@@ -2379,6 +2422,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.TransferSentPayoutRequests = nil
 	s.FailedPayoutRequests = nil
 	s.CertificateExpiryWarnings = nil
+	s.EventRecaps = nil
 	s.FollowDigests = nil
 	s.failure = nil
 }

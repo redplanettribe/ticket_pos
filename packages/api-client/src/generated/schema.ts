@@ -2862,6 +2862,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/event-recaps/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Event Recaps
+         * @description Sweeps the published Events that are over (the end instant passed, or the start where there is no end), were over at or after the instant the Event Recap went live, were over at least six hours before the run's 09:00 on the platform clock (America/Guayaquil), and were never recapped, and emails each one's Event Recap to every Event Owner of the Event, as its Event assignments stand when the mail is sent, or, when the Event has no Event Owner then, to every Org Admin of its Organization, one copy per address compared normalized, each in their own Staff Locale and English where none is stored. The run is that of the latest 09:00 the platform clock has reached, whenever it is called, so a late or repeated call decides what the scheduled one would have, and a missed day is made good by the next run. A draft, a cancelled Event and a dateless Event are never recapped; an Event that sold nothing is. An Event is recorded as recapped once at least one address accepted its mail, and is never due again whatever happens to its dates afterwards; rescheduling it later before it is recapped makes the recap wait for the new time. An Event none of whose readers could be written to, or whose readers or sales figures could not be read, stays due. An Event with no Event Owner and no Org Admin sends nothing and is recorded as recapped all the same, so it is never retried. Overlapping calls never mail one Event twice: each Event is claimed before its first mail, an Event another call holds is left to it, and a claim whose call died lapses after a lease and the Event is due again. Event Staff are never written to, and nobody is written to for being a Platform Operator. The mail names the Event and no Customer, says its figures are as of the instant it was sent, states the Event's sales figures over its active Ticket Sales (Tickets Sold and Ticket Sales for the Event entire and by Sales Channel, Tickets Sold by Ticket Type, Takings, the Net Proceeds of its Online Sales, and how many of its Sales are reversed), the money in the Organization's currency and in the marks of the reader's Staff Locale, and links to the Event's Sales Trends, Reach and Sales list in the staff application. An Event with External Registration states its Registration Link clicks, as the count stood when the run read the Event, in place of every sales figure, never as registrations or people, and links to Reach only. Sends are paced by the gap the Reminder sweeps share, the Event over longest first, at most a batch of Events per run and inside a run budget. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller. The response reports how many Events were due in this batch, how many were recapped, how many mails went and how many were refused, how many Events were skipped, how many were left to an overlapping call, how many were mailed but could not be recorded, how many were recorded with nobody to write to, and how many Events are still due after the run. It names nobody and no Event.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEventRecapSweep"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/follow-digests/drain": {
         parameters: {
             query?: never;
@@ -16377,6 +16425,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeEventRecapSweep": {
+            data?: components["schemas"]["service.EventRecapSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeFollowDigestDrain": {
             data?: components["schemas"]["service.DrainResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -18512,6 +18565,51 @@ export interface components {
             starts_at?: string;
             status?: string;
             timezone?: string;
+        };
+        "service.EventRecapSweepResult": {
+            /**
+             * @description Backlog is how many Events are due after this run, batch or no batch:
+             *     the number an Operator watches drain during a catch-up.
+             */
+            backlog?: number;
+            /** @description Due is how many Events this run found due in its batch. */
+            due?: number;
+            /**
+             * @description Failed is how many mails the provider refused. An Event none of whose
+             *     readers could be written to stays due and is retried by the next run.
+             */
+            failed?: number;
+            /**
+             * @description Overlapped is how many Events were due but held by another sweep running
+             *     at the same time, or recapped by one since this run read its batch: left
+             *     to it, and written to by nobody here.
+             */
+            overlapped?: number;
+            /**
+             * @description Recapped is how many of them were mailed to at least one reader and are
+             *     recorded, never due again.
+             */
+            recapped?: number;
+            /** @description Sent is how many mails the provider accepted, one per reader per Event. */
+            sent?: number;
+            /**
+             * @description Skipped is how many Events were due but whose readers or figures, sales
+             *     or reach, could not be read, or which could not be claimed; they stay
+             *     due.
+             */
+            skipped?: number;
+            /**
+             * @description Unaddressed is how many Events had no Event Owner and no Org Admin to
+             *     write to and were recorded: nothing was sent, and they are never due
+             *     again. Not counted in Recapped. One that could not be recorded is not
+             *     counted here and stays due.
+             */
+            unaddressed?: number;
+            /**
+             * @description Unrecorded is how many Events were mailed but could not be recorded:
+             *     counted in Recapped too, and the one case that can send a second recap.
+             */
+            unrecorded?: number;
         };
         "service.EventView": {
             ends_at?: string;

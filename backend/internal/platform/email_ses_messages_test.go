@@ -103,6 +103,7 @@ func transactionalMessageCases() []messageCase {
 	transferSent := PayoutRequestTransferSent{To: "admin@example.com", Locale: LocaleEN, OrganizationName: "Jazz Club", AmountCents: 120000, Currency: "USD", SubmittedAt: startsAt}
 	transferFailed := PayoutRequestTransferFailed{To: "admin@example.com", Locale: LocaleES, OrganizationName: "Jazz Club", AmountCents: 120000, Currency: "USD", Reason: "Cuenta cerrada"}
 	expiry := CertificateExpiryWarning{To: "ops@example.com", Locale: LocaleEN, Threshold: 7, NotAfter: startsAt, RUC: "1790012345001", IssuerURL: "https://staff.example.com/issuer"}
+	recap := goldenEventRecap(LocaleES)
 
 	return []messageCase{
 		{"sale confirmation", saleConfirmation.To, saleConfirmation.Subject(), saleConfirmation.Text(), testHTML(saleConfirmation.HTML), nil,
@@ -169,6 +170,8 @@ func transactionalMessageCases() []messageCase {
 			}},
 		{"certificate expiry warning", expiry.To, expiry.Subject(), expiry.Text(), testHTML(expiry.HTML), nil,
 			func(ctx context.Context, s EmailSender) error { return s.SendCertificateExpiryWarning(ctx, expiry) }},
+		{"event recap", recap.To, recap.Subject(), recap.Text(), testHTML(recap.HTML), nil,
+			func(ctx context.Context, s EmailSender) error { return s.SendEventRecap(ctx, recap) }},
 	}
 }
 

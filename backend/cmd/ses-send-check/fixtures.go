@@ -203,6 +203,37 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 				IssuerURL: fixtureStaff + "/operator/issuer",
 			})
 		}),
+		transactionalMessage("event recap", es, func(ctx context.Context) error {
+			const recapEvent = fixtureStaff + "/events/6f1c2a9e-0b7d-4c1e-9a53-2d8e4f7b1c60"
+			return transactional.SendEventRecap(ctx, platform.EventRecap{
+				To: to, Locale: es, EventName: event, SentAt: now,
+				SalesTrendsURL: recapEvent + "/sales/trends", ReachURL: recapEvent + "/reach", SalesURL: recapEvent + "/sales",
+				Sales: &platform.EventRecapSales{
+					Currency:    "USD",
+					TicketsSold: 1284, TicketSales: 713,
+					TakingsCents: 2345050, NetProceedsCents: 1650000,
+					ReversedSales: 2,
+					Channels: []platform.EventRecapChannel{
+						{Channel: "online", TicketsSold: 1100, TicketSales: 640},
+						{Channel: "in_person", TicketsSold: 150, TicketSales: 60},
+						{Channel: "import", TicketsSold: 34, TicketSales: 13},
+					},
+					TicketTypes: []platform.EventRecapTicketType{
+						{Name: "General", TicketsSold: 1004},
+						{Name: "Palco", TicketsSold: 280},
+						{Name: "Cortesía", TicketsSold: 0},
+					},
+				},
+				Reach: &platform.EventRecapReach{
+					PageViews: 15320,
+					AffiliateLinks: []platform.EventRecapAffiliateLink{
+						{Name: "Instagram de María", Clicks: 2140, AttributedSales: fixtureCount(96)},
+						{Name: "Radio Quito", Clicks: 880, AttributedSales: fixtureCount(41)},
+						{Name: "Volantes", Clicks: 15, AttributedSales: fixtureCount(0)},
+					},
+				},
+			})
+		}),
 		{name: "follow digest", identity: digestIdentity, locale: es, send: func(ctx context.Context) error {
 			return digest.SendFollowDigest(ctx, platform.FollowDigest{
 				To: to, CustomerName: "Ana", Locale: es,
@@ -227,3 +258,7 @@ func messages(to string, now time.Time, transactional platform.EmailSender, dige
 		}},
 	}, nil
 }
+
+// fixtureCount is a count a fixture states, for a figure that is nil where it
+// is not measured.
+func fixtureCount(n int) *int { return &n }

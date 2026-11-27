@@ -157,6 +157,13 @@ module "ticket_pos" {
   owed_assignment_mail_schedule                 = var.owed_assignment_mail_schedule
   owed_assignment_mail_attempt_deadline_seconds = var.owed_assignment_mail_attempt_deadline_seconds
 
+  # The Event Recap sweep (spec #884, #889). Threaded through on the Owed
+  # Assignment Mail's terms and enabled in terraform.tfvars: it writes to Members
+  # only, has no backend flag and no catch-up, so the apply is the launch.
+  event_recap_enabled                  = var.event_recap_enabled
+  event_recap_schedule                 = var.event_recap_schedule
+  event_recap_attempt_deadline_seconds = var.event_recap_attempt_deadline_seconds
+
   # The Holder Address Purge (#331, parent #322, ADR 0046). Threaded through on
   # the Abandoned Answer Purge's terms, and read the enabled flag as BOTH levers
   # at once for a sharper reason than that job's. It is the incident stop — this

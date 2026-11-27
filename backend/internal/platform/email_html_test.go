@@ -400,8 +400,67 @@ func staffMailFixtures(locale Locale) []mailFixture {
 
 	revoked := goldenTicketQuestionRevoked(locale)
 	add("ticketquestionrevoked", revoked)
+
+	add("eventrecap", goldenEventRecap(locale))
+	add("eventrecap-external", goldenExternalEventRecap(locale))
+	toOrgAdmin := goldenEventRecap(locale)
+	toOrgAdmin.ToOrgAdmin = true
+	add("eventrecap-orgadmin", toOrgAdmin)
 	return fixtures
 }
+
+// goldenExternalEventRecap is the recap of an Event with External
+// Registration (#888): its Registration Link clicks in place of every sales
+// figure, its links attributing no sale, and Reach its only link. It is given
+// the other two URLs as well, which it must not print.
+func goldenExternalEventRecap(locale Locale) EventRecap {
+	recap := goldenEventRecap(locale)
+	recap.Sales = nil
+	recap.RegistrationLinkClicks = goldenCount(1960)
+	recap.Reach = &EventRecapReach{
+		PageViews: 15320,
+		AffiliateLinks: []EventRecapAffiliateLink{
+			{Name: "Instagram de María", Clicks: 2140},
+			{Name: "Radio Quito", Clicks: 880},
+		},
+	}
+	return recap
+}
+
+func goldenEventRecap(locale Locale) EventRecap {
+	const event = "https://staff.example.com/events/6f1c2a9e-0b7d-4c1e-9a53-2d8e4f7b1c60"
+	return EventRecap{
+		To: "owner@example.com", Locale: locale, EventName: "Noche de Jazz",
+		SentAt:         time.Date(2026, 12, 6, 14, 0, 0, 0, time.UTC),
+		SalesTrendsURL: event + "/sales/trends", ReachURL: event + "/reach", SalesURL: event + "/sales",
+		Sales: &EventRecapSales{
+			Currency:    "USD",
+			TicketsSold: 1284, TicketSales: 713,
+			TakingsCents: 2345050, NetProceedsCents: 1650000,
+			ReversedSales: 2,
+			Channels: []EventRecapChannel{
+				{Channel: "online", TicketsSold: 1100, TicketSales: 640},
+				{Channel: "in_person", TicketsSold: 150, TicketSales: 60},
+				{Channel: "import", TicketsSold: 34, TicketSales: 13},
+			},
+			TicketTypes: []EventRecapTicketType{
+				{Name: "General", TicketsSold: 1004},
+				{Name: "Palco", TicketsSold: 280},
+				{Name: "Cortesía", TicketsSold: 0},
+			},
+		},
+		Reach: &EventRecapReach{
+			PageViews: 15320,
+			AffiliateLinks: []EventRecapAffiliateLink{
+				{Name: "Instagram de María", Clicks: 2140, AttributedSales: goldenCount(96)},
+				{Name: "Radio Quito", Clicks: 880, AttributedSales: goldenCount(41)},
+				{Name: "Volantes", Clicks: 15, AttributedSales: goldenCount(0)},
+			},
+		},
+	}
+}
+
+func goldenCount(n int) *int { return &n }
 
 func goldenCertificateExpiryWarning(locale Locale) CertificateExpiryWarning {
 	return CertificateExpiryWarning{
@@ -733,8 +792,22 @@ func assertMailStructure(t *testing.T, body, text string, locale Locale, assetOr
 		t.Errorf("<html lang> is not %q", locale)
 	}
 
+	// A table lays the mail out and says so, unless it is a table of figures,
+	// which has header cells and must stay a table to a screen reader.
 	for _, table := range findAll(doc, func(n *html.Node) bool { return n.Data == "table" }) {
-		if attr(table, "role") != "presentation" {
+		headers := findAll(table, func(n *html.Node) bool { return n.Data == "th" })
+		nested := findAll(table, func(n *html.Node) bool { return n.Data == "table" })
+		switch {
+		case len(headers) > 0 && len(nested) == 1:
+			if hasAttr(table, "role") {
+				t.Errorf("a table of figures has a role, which hides its headings from a screen reader")
+			}
+			for _, header := range headers {
+				if attr(header, "scope") != "col" {
+					t.Errorf("a column heading has no scope=\"col\"")
+				}
+			}
+		case attr(table, "role") != "presentation":
 			t.Errorf("a layout table has no role=\"presentation\"")
 		}
 	}

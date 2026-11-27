@@ -731,6 +731,40 @@ variable "owed_assignment_mail_attempt_deadline_seconds" {
   }
 }
 
+# --- Event Recap --------------------------------------------------------------
+#
+# One job, one switch (spec #884, #889), on the Assignment Reminder's pattern.
+# The sweep reads state and writes to the Members answerable for every Event
+# that is due and not yet recapped.
+
+variable "event_recap_enabled" {
+  description = "Whether the daily Event Recap sweep tick fires. False leaves the job, its identity and its run.invoker grant in place but paused, which is the module's default as for every job. The backend has no flag of its own for the Event Recap, so this is its one switch: while it is false nobody is sent an Event Recap, and every Event over since platform.EventRecapWentLiveAt stays due, so the runs after it is set true send them, a batch (eventRecapBatch in the backend) a run. Pausing is the first move if the sweep is ever suspected of writing to the wrong people: a mail that has gone cannot be recalled."
+  type        = bool
+  default     = false
+}
+
+variable "event_recap_schedule" {
+  description = "Unix cron for the sweep tick, read in America/Guayaquil. Daily at 09:00, which is not a free choice: the sweep decides for the latest 09:00 the platform clock has reached (catalog.EventRecapRunAt, catalog.EventRecapHour in the backend), so a tick later in the day sends that same morning's Event Recaps late and no others, and a tick before 09:00 decides for the morning before. A backend test reads this default and fails if it leaves catalog.EventRecapHour. The cadence is NOT what keeps an Event to one Event Recap: that is the event_recaps table."
+  type        = string
+  default     = "0 9 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.event_recap_schedule))
+    error_message = "event_recap_schedule must be five space-separated cron fields, e.g. \"0 9 * * *\"."
+  }
+}
+
+variable "event_recap_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one sweep before abandoning it. The middle term of the chain the Reminder sweeps keep - the backend's run budget (eventRecapBudget) first, this second, api_request_timeout_seconds last; a backend test reads this default and fails if the chain stops holding. A deadline that expires before the run's budget abandons the request mid-send and can lose the record of an Event Recap already accepted, which would send that Event a second one."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.event_recap_attempt_deadline_seconds >= 90 && var.event_recap_attempt_deadline_seconds <= 1800
+    error_message = "event_recap_attempt_deadline_seconds must be between 90 and 1800: at least 90 so it outlives the backend's run budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
 # --- Holder Address Purge -----------------------------------------------------
 #
 # One job, one switch (#331, parent #322, ADR 0046). Like the Abandoned Answer

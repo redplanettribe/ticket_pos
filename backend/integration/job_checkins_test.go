@@ -32,6 +32,7 @@ var scheduledJobRoutes = []struct {
 	{"/api/v1/internal/answer-reminders/sweep", "ticket-pos-answer-reminder"},
 	{"/api/v1/internal/assignment-reminders/sweep", "ticket-pos-assignment-reminder"},
 	{"/api/v1/internal/owed-assignment-mails/sweep", "ticket-pos-owed-assignment-mail"},
+	{"/api/v1/internal/event-recaps/sweep", "ticket-pos-event-recap"},
 	{"/api/v1/internal/holder-addresses/purge", "ticket-pos-holder-address-purge"},
 	{"/api/v1/internal/platform-trends/close", "ticket-pos-daily-close"},
 }

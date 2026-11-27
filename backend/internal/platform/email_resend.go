@@ -246,6 +246,16 @@ func (s *ResendEmailSender) SendCertificateExpiryWarning(ctx context.Context, w 
 	return nil
 }
 
+// SendEventRecap delivers one Event Recap (spec #884). The sweep reads the
+// error: the Event is recorded as recapped only once an address accepted it.
+func (s *ResendEmailSender) SendEventRecap(ctx context.Context, r EventRecap) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "event recap", r.HTML, s.chrome)); err != nil {
+		s.logger.Error(ctx, "resend send event recap failed", "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {

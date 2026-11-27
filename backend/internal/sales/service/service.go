@@ -312,8 +312,9 @@ type Service struct {
 	// notice is skipped and nothing else changes — which is what makes it safe
 	// for any test that builds this service by hand.
 	operators PlatformOperators
-	// staffLocales resolves the language each Payout Request notice is written
-	// in, by recipient address. Optional, and on the same terms as operators:
+	// staffLocales resolves the language each staff mail this service sends,
+	// a Payout Request notice or an Event Recap, is written in, by recipient
+	// address. Optional, and on the same terms as operators:
 	// unset, every notice falls to the English floor and nothing else changes,
 	// which is what any test building this service by hand gets.
 	staffLocales StaffLocales
@@ -360,6 +361,18 @@ type Service struct {
 	// owes (#671, ADR 0076). Optional and nil on any deployment that has not
 	// wired it, which sends nothing: the mails stay owed.
 	owedAssignmentMails OwedAssignmentMailSender
+	// eventRecaps is which Events are due an Event Recap and the record of
+	// which were sent; eventRecapRecipients is who answers for an Event; and
+	// staffBaseURL is the staff application's origin, which the recap's links
+	// are built on (spec #884). All set by WithEventRecaps; nil sources sweep
+	// nothing.
+	eventRecaps          EventRecapSource
+	eventRecapRecipients EventRecapRecipients
+	// eventRecapReach is the attention an Event's page drew before it was
+	// over (#887). Set by WithEventRecapReach; without it the sweep mails
+	// nobody.
+	eventRecapReach EventRecapReachSource
+	staffBaseURL    string
 	// displacedHolders tells the people who were holding a reversed Sale's
 	// Tickets that they are not holding them any more (#327, parent #322).
 	//
@@ -544,6 +557,27 @@ func (s *Service) WithAssignmentReminders(source AssignmentReminderSource) *Serv
 // deployment that forgets it mails nobody.
 func (s *Service) WithOwedAssignmentMails(sender OwedAssignmentMailSender) *Service {
 	s.owedAssignmentMails = sender
+	return s
+}
+
+// WithEventRecaps wires the seams the Event Recap sweep runs on (spec #884,
+// #891), on WithAssignmentReminders' terms: a setter because the catalog
+// service does not exist yet when this one is constructed, and a deployment
+// that forgets it mails nobody. staffBaseURL is the staff application's public
+// origin, with no trailing slash.
+func (s *Service) WithEventRecaps(source EventRecapSource, recipients EventRecapRecipients, staffBaseURL string) *Service {
+	s.eventRecaps = source
+	s.eventRecapRecipients = recipients
+	s.staffBaseURL = staffBaseURL
+	return s
+}
+
+// WithEventRecapReach wires where the Event Recap reads an Event's Page Views
+// and busiest Affiliate Links from (#887): the affiliates service. A setter
+// apart from WithEventRecaps because affiliates is built after it is called,
+// and on its terms: a deployment that forgets it mails nobody.
+func (s *Service) WithEventRecapReach(reach EventRecapReachSource) *Service {
+	s.eventRecapReach = reach
 	return s
 }
 

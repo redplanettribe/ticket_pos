@@ -101,6 +101,7 @@ func TestMain(m *testing.M) {
 		// this origin; no PAYPHONE_* credentials are set, so the stub is selected
 		// exactly as it is in local development.
 		StorefrontBaseURL: "http://storefront.example",
+		StaffBaseURL:      "http://staff.example",
 		// The launch fee schedule, as LoadConfig would default it: 10% Platform
 		// Fee, 15% Fee IVA (ADR 0014).
 		Fees: platform.FeeConfig{
@@ -302,7 +303,7 @@ func platformTrendsStore() *platformtrendsrepo.Repository {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE customer_activity_markers, organization_activity_markers, organization_activity_recording, platform_activity_totals, consent_access_log, legal_drafts, certificate_expiry_notices, invoicing_attempts, invoicing_additional_fields, invoicing_invoice_lines, invoicing_invoices_ec, invoicing_invoices, invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, staff_terms_acceptances, pending_staff_terms, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE event_recaps, customer_activity_markers, organization_activity_markers, organization_activity_recording, platform_activity_totals, consent_access_log, legal_drafts, certificate_expiry_notices, invoicing_attempts, invoicing_additional_fields, invoicing_invoice_lines, invoicing_invoices_ec, invoicing_invoices, invoicing_sequences_ec, invoicing_issuers_ec, invoicing_issuers, event_page_views, assignment_reminders, follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, staff_terms_acceptances, pending_staff_terms, consent_records, pending_consents, customer_sessions, sale_reversals, tickets, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_question_options, ticket_questions, ticket_type_promotions, ticket_types, events, otp_challenges, staff_locales, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

@@ -378,6 +378,15 @@ func (s *SESEmailSender) SendCertificateExpiryWarning(ctx context.Context, w Cer
 	return nil
 }
 
+// SendEventRecap delivers one Event Recap (spec #884). The sweep records the
+// Event as recapped only once an address accepted the mail.
+func (s *SESEmailSender) SendEventRecap(ctx context.Context, r EventRecap) error {
+	if err := s.send(ctx, "event recap", r.To, r.Subject(), r.Text(), renderedHTML(ctx, s.logger, "event recap", r.HTML, s.chrome)); err != nil {
+		return s.fail(ctx, "event recap", err)
+	}
+	return nil
+}
+
 // SendFollowDigest delivers the weekly Follow Digest (#696). The error is
 // returned because the drain retries a failed Digest rather than recording it
 // as sent (ADR 0030). This method is only ever reached on the sender built
