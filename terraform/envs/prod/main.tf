@@ -158,7 +158,7 @@ module "ticket_pos" {
   owed_assignment_mail_attempt_deadline_seconds = var.owed_assignment_mail_attempt_deadline_seconds
 
   # The Event Recap sweep (spec #884, #889). Threaded through on the Owed
-  # Assignment Mail's terms and enabled in terraform.tfvars: it writes to staff
+  # Assignment Mail's terms and enabled in terraform.tfvars: it writes to Members
   # only, has no backend flag and no catch-up, so the apply is the launch.
   event_recap_enabled                  = var.event_recap_enabled
   event_recap_schedule                 = var.event_recap_schedule

@@ -350,7 +350,7 @@ variable "owed_assignment_mail_attempt_deadline_seconds" {
 }
 
 variable "event_recap_enabled" {
-  description = "Whether the production Event Recap sweep tick fires (spec #884, #889). Defaults false here and is set true in terraform.tfvars, so turning it on is a visible, reviewed line. It carries no catch-up: only an Event over since platform.EventRecapWentLiveAt is ever recapped. Set it false and apply first if the sweep is ever suspected of writing to the wrong people; every Event stays due meanwhile, and the first run after it is true again sends what the paused mornings would have."
+  description = "Whether the production Event Recap sweep tick fires (spec #884, #889). Defaults false here and is set true in terraform.tfvars, so turning it on is a visible, reviewed line. It carries no catch-up: only an Event over since platform.EventRecapWentLiveAt is ever recapped. Set it false and apply first if the sweep is ever suspected of writing to the wrong people; every Event stays due meanwhile, and the runs after it is true again send what the paused mornings would have, a batch a run."
   type        = bool
   default     = false
 }

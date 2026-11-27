@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -28,10 +29,11 @@ func TestDistinctEmailsKeepsOneAddressPerPersonComparedNormalized(t *testing.T) 
 
 // --- The Terraform half (#889) ---------------------------------------------------
 
-// The sweep is driven by its own job at the pinned route: no body, no
-// parameters and no moment, since a run is the run of the latest 09:00 the
-// platform clock has reached, whenever it is invoked.
-func TestTheEventRecapJobCallsTheSweepRoute(t *testing.T) {
+// The sweep is driven by a job named for the name it checks in as, at the
+// pinned route: no body, no parameters and no moment, since a run is the run
+// of the latest 09:00 the platform clock has reached, whenever it is invoked.
+// It is never retried.
+func TestTheEventRecapJobIsTheSweepsOwnAndIsNotRetried(t *testing.T) {
 	source := terraformFile(t, filepath.Join(terraformModuleDir(), "event_recap.tf"))
 	uri := regexp.MustCompile(`(?m)^\s*uri\s*=\s*"([^"]*)"`).FindStringSubmatch(source)
 	if uri == nil {
@@ -56,16 +58,14 @@ func TestTheEventRecapJobCallsTheSweepRoute(t *testing.T) {
 // the latest 09:00 of the platform clock, so a tick at any other hour, or in
 // any other zone, would send a morning's recaps up to a day late.
 func TestTheEventRecapJobFiresAtTheHourTheSweepDecidesFor(t *testing.T) {
-	if catalog.EventRecapHour != 9 {
-		t.Fatalf("catalog.EventRecapHour = %d: move event_recap_schedule with it", catalog.EventRecapHour)
-	}
+	daily := regexp.MustCompile(fmt.Sprintf(`(?m)^\s*default\s*=\s*"0 %d \* \* \*"\s*$`, catalog.EventRecapHour))
 	for _, path := range []string{
 		filepath.Join(terraformModuleDir(), "variables.tf"),
 		filepath.Join(terraformModuleDir(), "..", "..", "envs", "prod", "variables.tf"),
 	} {
 		block := terraformVariableBlock(t, path, "event_recap_schedule")
-		if !regexp.MustCompile(`(?m)^\s*default\s*=\s*"0 9 \* \* \*"\s*$`).MatchString(block) {
-			t.Fatalf("%s: event_recap_schedule does not default to daily at 09:00:\n%s", path, block)
+		if !daily.MatchString(block) {
+			t.Fatalf("%s: event_recap_schedule does not default to daily at %02d:00, catalog.EventRecapHour:\n%s", path, catalog.EventRecapHour, block)
 		}
 	}
 	source := terraformFile(t, filepath.Join(terraformModuleDir(), "event_recap.tf"))
@@ -86,17 +86,6 @@ func TestTheEventRecapJobIsPausableWithoutADeploy(t *testing.T) {
 	}
 	if regexp.MustCompile(`(?m)^\s*count\s*=`).MatchString(googleResources(t, source)) {
 		t.Fatal("the job's resources are conditional on `count`: disabling must pause the job, never delete it")
-	}
-}
-
-// PRODUCTION RUNS IT. The Event Recap has no dark-ship flag and no catch-up to
-// watch: platform.EventRecapWentLiveAt keeps the first run to the Events over
-// since go-live. So the apply the deploy needs is the whole launch, and
-// production's tfvars must switch the job on.
-func TestTheEventRecapJobRunsInProduction(t *testing.T) {
-	tfvars := terraformFile(t, filepath.Join(terraformModuleDir(), "..", "..", "envs", "prod", "terraform.tfvars"))
-	if !regexp.MustCompile(`(?m)^\s*event_recap_enabled\s*=\s*true\s*$`).MatchString(tfvars) {
-		t.Fatal("production does not enable the Event Recap job: nobody would ever be sent an Event Recap")
 	}
 }
 

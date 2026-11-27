@@ -521,12 +521,13 @@ the Terraform defaults and fails if the three stop agreeing.
 
 **The hour is the sweep's, not only the schedule's.**
 A run decides for the latest 09:00 the platform clock has reached (`catalog.EventRecapRunAt` in the backend), whenever it is invoked.
-So a run forced by hand sends what that morning's run owed and no more, a second run the same day sends nothing, and a missed morning is made good by the next run.
+So a run forced by hand sends only what that morning's run left unsent, a second run the same day sends nothing when the first recapped every Event that was due, and a missed morning is made good by the next run.
+A run recaps at most 50 Events (`eventRecapBatch`) inside its budget; what is left stays due for the next run.
 A backend test (`backend/internal/sales/service/eventrecap_test.go`) reads `event_recap.tf` and the `event_recap_schedule` defaults and fails if the route, the job name, the hour or the time zone part from the backend's.
 
 **It does not ship paused in production.**
 The module's `event_recap_enabled` defaults to `false`, as every job's switch does, and `envs/prod/terraform.tfvars` sets it `true`.
-The Event Recap writes to staff only, has no flag in the backend and no catch-up: only an Event over since `platform.EventRecapWentLiveAt` is ever recapped.
+The Event Recap writes to Event Owners and Org Admins only, has no flag in the backend and no catch-up: only an Event over since `platform.EventRecapWentLiveAt` is ever recapped.
 The apply below is therefore the launch.
 
 **The attempt deadline is not a tuning knob on its own.**
@@ -563,7 +564,7 @@ In this order:
    There is nothing to force by hand: a first run with no Event over since go-live mails nobody and still checks in.
 
 **To stop it:** set `event_recap_enabled = false` in `envs/prod/terraform.tfvars` and apply, which pauses the job and removes its monitor together.
-Every Event stays due while it is paused, so the first run after it is switched on again sends the Event Recaps of the paused mornings.
+Every Event stays due while it is paused, so the runs after it is switched on again send the Event Recaps of the paused mornings, at most 50 Events a run.
 
 ## The email rendition fill
 
@@ -790,7 +791,7 @@ Each probes every minute, passes on a 2xx answer only, waits 10 seconds (longer 
 Two alert rules email the `ticket-pos` team, in production, when a monitor's issue opens or comes back, at most every 30 minutes per issue: `sentry_alert.job_check_in` watches every cron monitor (a failed, missed or timed-out check-in), and `sentry_alert.uptime` both uptime monitors.
 Each exists only while there is a monitor for it to watch.
 
-**What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 10 cron monitors, 2 uptime monitors and the 2 alert rules.
+**What a full apply creates**, with every switch on and every job unpaused, on top of the 22 above: 11 cron monitors, 2 uptime monitors and the 2 alert rules.
 The free Developer plan allows one cron monitor and one uptime monitor, so the full set needs a paid plan with pay-as-you-go for the other ten cron monitors and the second uptime monitor; upgrade before switching on the API (seven cron monitors at once in production, above) or both Next apps.
 Nothing in the code depends on the plan: every job checks in whether or not its monitor exists.
 

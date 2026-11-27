@@ -8,8 +8,8 @@
 # ticker (ADR 0024), the no-retry rule and the un-aimable endpoint are the same
 # argument made once. What is written here is only where this job differs.
 #
-# IT WRITES TO STAFF, NOT TO BUYERS. Every reader is a Member answerable for
-# the Event, and the mail names no Customer. That is why it has no dark-ship
+# IT WRITES TO MEMBERS, NOT TO BUYERS. Every reader is an Event Owner or an
+# Org Admin answerable for the Event, and the mail names no Customer. That is why it has no dark-ship
 # flag in the backend and why production switches it on in terraform.tfvars
 # with the deploy, where the Reminders waited for somebody to watch a first
 # run.
@@ -35,8 +35,8 @@
 # Its own identity, on the terms every job here has one: the audit log must be
 # able to say "the Event Recap sweep ran" as its own sentence, and revoking it
 # must never silently revoke the Reminders. The account_id is the job's own
-# name: with a four-letter environment it is 27 of the 30 characters GCP
-# allows a service account id.
+# name. GCP caps a service account id at 30 characters, and at 23 after the
+# environment this one is shorter than the ids the Reminders abbreviate to.
 resource "google_service_account" "event_recap" {
   project      = var.project_id
   account_id   = "${var.environment}-ticket-pos-event-recap"
@@ -73,8 +73,8 @@ resource "google_cloud_scheduler_job" "event_recap" {
   # job here does, and production sets event_recap_enabled true in
   # terraform.tfvars. Pausing is the incident lever if the sweep is ever
   # suspected of writing to the wrong people: nothing is lost but time, since
-  # an Event stays due until it is recapped and the next run after a resume
-  # sends what the paused mornings would have.
+  # an Event stays due until it is recapped and the runs after a resume send
+  # what the paused mornings would have, a batch a run.
   paused = !var.event_recap_enabled
 
   retry_config {
